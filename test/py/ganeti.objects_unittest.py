@@ -32,11 +32,13 @@
 
 
 import copy
+import pprint
 import unittest
 
 from ganeti import constants
 from ganeti import objects
 from ganeti import errors
+from ganeti import serializer
 
 import testutils
 
@@ -187,6 +189,7 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OVS_LINK: "eth2",
         constants.ND_OVS_NAME: "openvswitch",
         constants.ND_SSH_PORT: 122,
+        constants.ND_CPU_SPEED: 1.1,
         }
     fake_group = objects.NodeGroup(name="testgroup",
                                    ndparams=group_ndparams)
@@ -202,6 +205,7 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OVS_LINK: "eth2",
         constants.ND_OVS_NAME: "openvswitch",
         constants.ND_SSH_PORT: 222,
+        constants.ND_CPU_SPEED: 1.1,
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
@@ -220,6 +224,7 @@ class TestClusterObject(unittest.TestCase):
         constants.ND_OVS_LINK: "eth2",
         constants.ND_OVS_NAME: "openvswitch",
         constants.ND_SSH_PORT: 322,
+        constants.ND_CPU_SPEED: 1.1,
         }
     fake_node = objects.Node(name="test",
                              ndparams=node_ndparams,
@@ -328,46 +333,7 @@ class TestOS(unittest.TestCase):
 
 
 class TestInstance(unittest.TestCase):
-  def _GenericCheck(self, inst):
-    for i in [inst.all_nodes, inst.secondary_nodes]:
-      self.assertTrue(isinstance(inst.all_nodes, (list, tuple)),
-                      msg="Data type doesn't guarantee order")
-
-    self.assertTrue(inst.primary_node not in inst.secondary_nodes)
-    self.assertEqual(inst.all_nodes[0], inst.primary_node,
-                     msg="Primary node not first node in list")
-
-  def testNodesNoDisks(self):
-    inst = objects.Instance(name="fakeinst.example.com",
-      primary_node="pnode.example.com",
-      disks=[
-        ])
-
-    self._GenericCheck(inst)
-    self.assertEqual(len(inst.secondary_nodes), 0)
-    self.assertEqual(set(inst.all_nodes), set([inst.primary_node]))
-    self.assertEqual(inst.MapLVsByNode(), {
-      inst.primary_node: [],
-      })
-
-  def testNodesPlainDisks(self):
-    inst = objects.Instance(name="fakeinstplain.example.com",
-      primary_node="node3.example.com",
-      disks=[
-        objects.Disk(dev_type=constants.DT_PLAIN, size=128,
-                     logical_id=("myxenvg", "disk25494")),
-        objects.Disk(dev_type=constants.DT_PLAIN, size=512,
-                     logical_id=("myxenvg", "disk29071")),
-        ])
-
-    self._GenericCheck(inst)
-    self.assertEqual(len(inst.secondary_nodes), 0)
-    self.assertEqual(set(inst.all_nodes), set([inst.primary_node]))
-    self.assertEqual(inst.MapLVsByNode(), {
-      inst.primary_node: ["myxenvg/disk25494", "myxenvg/disk29071"],
-      })
-
-  def testNodesDrbdDisks(self):
+  def testFindDisk(self):
     inst = objects.Instance(name="fakeinstdrbd.example.com",
       primary_node="node20.example.com",
       disks=[
@@ -382,15 +348,6 @@ class TestInstance(unittest.TestCase):
           ],
           iv_name="disk/0")
         ])
-
-    self._GenericCheck(inst)
-    self.assertEqual(set(inst.secondary_nodes), set(["node15.example.com"]))
-    self.assertEqual(set(inst.all_nodes),
-                     set([inst.primary_node, "node15.example.com"]))
-    self.assertEqual(inst.MapLVsByNode(), {
-      inst.primary_node: ["myxenvg/disk0", "myxenvg/meta0"],
-      "node15.example.com": ["myxenvg/disk0", "myxenvg/meta0"],
-      })
 
     self.assertEqual(inst.FindDisk(0), inst.disks[0])
     self.assertRaises(errors.OpPrereqError, inst.FindDisk, "hello")
@@ -771,6 +728,105 @@ class TestDisk(unittest.TestCase):
       self.assertEqual(dev_type, disk.dev_type)
       self.assertEqual(dev_type, disk.children[0].dev_type)
 
+
+class TestSimpleFillOS(unittest.TestCase):
+    # We have to make sure that:
+    #  * From within the configuration, variants override defaults
+    #  * Temporary values override configuration
+    #  * No overlap between public, private and secret dicts is allowed
+    #
+    # As a result, here are the actors in this test:
+    #
+    # A:  temporary                 public
+    # B:  temporary                        private
+    # C:  temporary                                secret
+    # X:  temporary                 public private secret
+    # D:            configuration   public                       variant
+    # E:            configuration   public                  base
+    # F:            configuration          private               variant
+    # G:            configuration          private          base
+    #
+    # Every time a param is assigned "ERROR", we expect FillOSParams to override
+    # it. If it doesn't, it's an error.
+    #
+    # Every time a param is assigned itself as a value, it's the value we expect
+    # FillOSParams to give us back.
+
+    def setUp(self):
+      self.fake_cl = objects.Cluster()
+      self.fake_cl.UpgradeConfig()
+      self.fake_cl.osparams = {"os": {"A": "ERROR",
+                                      "D": "ERROR",
+                                      "E": "E"},
+                               "os+a": {"D": "D"}}
+      self.fake_cl.osparams_private_cluster = {"os": {"B": "ERROR",
+                                                      "F": "ERROR",
+                                                      "G": "G"},
+                                               "os+a": {"F": "F"}}
+
+    def testConflictPublicPrivate(self):
+      "Make sure we disallow attempts to override params based on visibility."
+      public_dict = {"A": "A", "X": "X"}
+      private_dict = {"B": "B", "X": "X"}
+      secret_dict = {"C": "C"}
+      dicts_pp = (public_dict, private_dict)
+      dicts_pps = (public_dict, private_dict, secret_dict)
+
+      # Without secret parameters
+      self.assertRaises(errors.OpPrereqError,
+                        lambda: self.fake_cl.SimpleFillOS("os+a", *dicts_pp))
+
+      # but also with those.
+      self.assertRaises(errors.OpPrereqError,
+                        lambda: self.fake_cl.SimpleFillOS("os+a", *dicts_pps))
+
+    def testConflictPublicSecret(self):
+      "Make sure we disallow attempts to override params based on visibility."
+      public_dict = {"A": "A", "X": "X"}
+      private_dict = {"B": "B"}
+      secret_dict = {"C": "C", "X": "X"}
+      dicts_pps = (public_dict, private_dict, secret_dict)
+
+      self.assertRaises(errors.OpPrereqError,
+                        lambda: self.fake_cl.SimpleFillOS("os+a", *dicts_pps))
+
+    def testConflictPrivateSecret(self):
+      "Make sure we disallow attempts to override params based on visibility."
+      public_dict = {"A": "A"}
+      private_dict = {"B": "B", "X": "X"}
+      secret_dict = {"C": "C", "X": "X"}
+      dicts_pps = (public_dict, private_dict, secret_dict)
+
+      self.assertRaises(errors.OpPrereqError,
+                        lambda: self.fake_cl.SimpleFillOS("os+a", *dicts_pps))
+
+    def testValidValues(self):
+      "Make sure we handle all overriding we do allow correctly."
+      public_dict = {"A": "A"}
+      private_dict = {"B": "B"}
+      secret_dict = {"C": "C"}
+      dicts_p = (public_dict,)
+      dicts_pp = (public_dict, private_dict)
+      dicts_pps = (public_dict, private_dict, secret_dict)
+      expected_keys_p = ("A", "D", "E") # nothing private, secret
+      expected_keys_pp = ("A", "B", "D", "E", "F", "G") # nothing secret
+      expected_keys_pps = ("A", "B", "C", "D", "E", "F", "G") # all of them
+
+      for (dicts, expected_keys) in [(dicts_p, expected_keys_p),
+                                     (dicts_pp, expected_keys_pp),
+                                     (dicts_pps, expected_keys_pps)]:
+        result = self.fake_cl.SimpleFillOS("os+a", *dicts)
+        # Values
+        for key in result:
+          if not result[key] == key:
+            self.fail("Invalid public-private fill with input:\n%s\n%s"
+                      % (pprint.pformat(dicts), result))
+        # Completeness
+        if set(result) != set(expected_keys):
+          self.fail("Problem with key %s from merge result of:\n%s\n%s"
+                    % (set(expected_keys) ^ set(result), # symmetric difference
+                       pprint.pformat(dicts),
+                       result))
 
 if __name__ == "__main__":
   testutils.GanetiTestProgram()

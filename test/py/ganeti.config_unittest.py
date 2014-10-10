@@ -44,13 +44,14 @@ from ganeti import objects
 from ganeti import utils
 from ganeti import netutils
 from ganeti import compat
-from ganeti.cmdlib import instance
+from ganeti import serializer
 
 from ganeti.config import TemporaryReservationManager
 
 import testutils
 import mocks
 import mock
+from cmdlib.testsupport.config_mock import ConfigMock
 
 
 def _StubGetEntResolver():
@@ -74,6 +75,11 @@ class TestConfigRunner(unittest.TestCase):
     """Returns an instance of ConfigWriter"""
     cfg = config.ConfigWriter(cfg_file=self.cfg_file, offline=True,
                               _getents=_StubGetEntResolver)
+    return cfg
+
+  def _get_object_mock(self):
+    """Returns a mocked instance of ConfigWriter"""
+    cfg = ConfigMock(cfg_file=self.cfg_file)
     return cfg
 
   def _init_cluster(self, cfg):
@@ -112,13 +118,15 @@ class TestConfigRunner(unittest.TestCase):
     bootstrap.InitConfig(constants.CONFIG_VERSION,
                          cluster_config, master_node_config, self.cfg_file)
 
-  def _create_instance(self):
+  def _create_instance(self, cfg):
     """Create and return an instance object"""
     inst = objects.Instance(name="test.example.com",
                             uuid="test-uuid",
                             disks=[], nics=[],
                             disk_template=constants.DT_DISKLESS,
-                            primary_node=self._get_object().GetMasterNode())
+                            primary_node=cfg.GetMasterNode(),
+                            osparams_private=serializer.PrivateDict(),
+                            beparams={})
     return inst
 
   def testEmpty(self):
@@ -130,6 +138,99 @@ class TestConfigRunner(unittest.TestCase):
     cfg = self._get_object()
     self.failUnlessEqual(1, len(cfg.GetNodeList()))
     self.failUnlessEqual(0, len(cfg.GetInstanceList()))
+
+  def _GenericNodesCheck(self, iobj, all_nodes, secondary_nodes):
+    for i in [all_nodes, secondary_nodes]:
+      self.assertTrue(isinstance(i, (list, tuple)),
+                      msg="Data type doesn't guarantee order")
+
+    self.assertTrue(iobj.primary_node not in secondary_nodes)
+    self.assertEqual(all_nodes[0], iobj.primary_node,
+                     msg="Primary node not first node in list")
+
+  def testInstNodesNoDisks(self):
+    """Test all_nodes/secondary_nodes when there are no disks"""
+    # construct instance
+    cfg = self._get_object_mock()
+    inst = self._create_instance(cfg)
+    cfg.AddInstance(inst, "my-job")
+
+    # No disks
+    all_nodes = cfg.GetInstanceNodes(inst.uuid)
+    secondary_nodes = cfg.GetInstanceSecondaryNodes(inst.uuid)
+    self._GenericNodesCheck(inst, all_nodes, secondary_nodes)
+    self.assertEqual(len(secondary_nodes), 0)
+    self.assertEqual(set(all_nodes), set([inst.primary_node]))
+    self.assertEqual(cfg.GetInstanceLVsByNode(inst.uuid), {
+      inst.primary_node: [],
+      })
+
+  def testInstNodesPlainDisks(self):
+    # construct instance
+    cfg = self._get_object_mock()
+    inst = self._create_instance(cfg)
+    disks = [
+      objects.Disk(dev_type=constants.DT_PLAIN, size=128,
+                   logical_id=("myxenvg", "disk25494"),
+                   uuid="disk0"),
+      objects.Disk(dev_type=constants.DT_PLAIN, size=512,
+                   logical_id=("myxenvg", "disk29071"),
+                   uuid="disk1"),
+      ]
+    cfg.AddInstance(inst, "my-job")
+    for disk in disks:
+      cfg.AddInstanceDisk(inst.uuid, disk)
+
+    # Plain disks
+    all_nodes = cfg.GetInstanceNodes(inst.uuid)
+    secondary_nodes = cfg.GetInstanceSecondaryNodes(inst.uuid)
+    self._GenericNodesCheck(inst, all_nodes, secondary_nodes)
+    self.assertEqual(len(secondary_nodes), 0)
+    self.assertEqual(set(all_nodes), set([inst.primary_node]))
+    self.assertEqual(cfg.GetInstanceLVsByNode(inst.uuid), {
+      inst.primary_node: ["myxenvg/disk25494", "myxenvg/disk29071"],
+      })
+
+  def testInstNodesDrbdDisks(self):
+    # construct a second node
+    cfg = self._get_object_mock()
+    node_group = cfg.LookupNodeGroup(None)
+    master_uuid = cfg.GetMasterNode()
+    node2 = objects.Node(name="node2.example.com", group=node_group,
+                         ndparams={}, uuid="node2-uuid")
+    cfg.AddNode(node2, "my-job")
+
+    # construct instance
+    inst = self._create_instance(cfg)
+    disks = [
+      objects.Disk(dev_type=constants.DT_DRBD8, size=786432,
+                   logical_id=(master_uuid, node2.uuid,
+                               12300, 0, 0, "secret"),
+                   children=[
+                     objects.Disk(dev_type=constants.DT_PLAIN, size=786432,
+                                  logical_id=("myxenvg", "disk0"),
+                                  uuid="data0"),
+                     objects.Disk(dev_type=constants.DT_PLAIN, size=128,
+                                  logical_id=("myxenvg", "meta0"),
+                                  uuid="meta0")
+                   ],
+                   iv_name="disk/0", uuid="disk0")
+      ]
+    cfg.AddInstance(inst, "my-job")
+    for disk in disks:
+      cfg.AddInstanceDisk(inst.uuid, disk)
+
+    # Drbd Disks
+    all_nodes = cfg.GetInstanceNodes(inst.uuid)
+    secondary_nodes = cfg.GetInstanceSecondaryNodes(inst.uuid)
+    self._GenericNodesCheck(inst, all_nodes, secondary_nodes)
+    self.assertEqual(set(secondary_nodes), set([node2.uuid]))
+    self.assertEqual(set(all_nodes),
+                     set([inst.primary_node, node2.uuid]))
+    self.assertEqual(cfg.GetInstanceLVsByNode(inst.uuid), {
+      master_uuid: ["myxenvg/disk0", "myxenvg/meta0"],
+      node2.uuid: ["myxenvg/disk0", "myxenvg/meta0"],
+      })
 
   def testUpdateCluster(self):
     """Test updates on the cluster object"""
@@ -167,9 +268,9 @@ class TestConfigRunner(unittest.TestCase):
 
   def testUpdateInstance(self):
     """Test updates on one instance object"""
-    cfg = self._get_object()
+    cfg = self._get_object_mock()
     # construct a fake instance
-    inst = self._create_instance()
+    inst = self._create_instance(cfg)
     fake_instance = objects.Instance()
     # fail if we didn't read the config
     self.failUnlessRaises(errors.ConfigurationError, cfg.Update, fake_instance,
@@ -195,7 +296,7 @@ class TestConfigRunner(unittest.TestCase):
     # For a ConfigObject, None is the same as a missing field
     node.ndparams = None
     oldsaved = utils.ReadFile(self.cfg_file)
-    cfg._UpgradeConfig()
+    cfg._UpgradeConfig(saveafter=True)
     self.assertTrue(node.ndparams is not None)
     newsaved = utils.ReadFile(self.cfg_file)
     # We rely on the fact that at least the serial number changes
@@ -206,14 +307,14 @@ class TestConfigRunner(unittest.TestCase):
     node.ndparams[key] = constants.NDC_DEFAULTS[key]
     cfg._WriteConfig(None)
     oldsaved = utils.ReadFile(self.cfg_file)
-    cfg._UpgradeConfig()
+    cfg._UpgradeConfig(saveafter=True)
     self.assertTrue(node.ndparams.get(key) is None)
     newsaved = utils.ReadFile(self.cfg_file)
     self.assertNotEqual(oldsaved, newsaved)
 
     # Do the upgrade again, this time there should be no update
     oldsaved = newsaved
-    cfg._UpgradeConfig()
+    cfg._UpgradeConfig(saveafter=True)
     newsaved = utils.ReadFile(self.cfg_file)
     self.assertEqual(oldsaved, newsaved)
 
@@ -255,6 +356,7 @@ class TestConfigRunner(unittest.TestCase):
         constants.ND_OVS_NAME: "openvswitch",
         constants.ND_OVS_LINK: "eth1",
         constants.ND_SSH_PORT: 22,
+        constants.ND_CPU_SPEED: 1.0,
         }
 
     cfg = self._get_object()
@@ -283,6 +385,7 @@ class TestConfigRunner(unittest.TestCase):
       constants.ND_OVS_NAME: "openvswitch",
       constants.ND_OVS_LINK: "eth3",
       constants.ND_SSH_PORT: 222,
+      constants.ND_CPU_SPEED: 1.0,
       }
     cfg = self._get_object()
     node = cfg.GetNodeInfo(cfg.GetNodeList()[0])
@@ -365,6 +468,8 @@ class TestConfigRunner(unittest.TestCase):
                      set(["node1-uuid", "node2-uuid",
                           cfg.GetNodeInfoByName(me.name).uuid]))
 
+    (grp1, grp2) = [cfg.GetNodeGroup(grp.uuid) for grp in (grp1, grp2)]
+
     def _VerifySerials():
       self.assertEqual(cfg.GetClusterInfo().serial_no, cluster_serial)
       self.assertEqual(node1.serial_no, node1_serial)
@@ -411,6 +516,8 @@ class TestConfigRunner(unittest.TestCase):
     cfg.AssignGroupNodes([
       (node2.uuid, grp1.uuid),
       ])
+    (grp1, grp2) = [cfg.GetNodeGroup(grp.uuid) for grp in (grp1, grp2)]
+    (node1, node2) =  [cfg.GetNodeInfo(node.uuid) for node in (node1, node2)]
     cluster_serial += 1
     node2_serial += 1
     grp1_serial += 1
@@ -428,6 +535,8 @@ class TestConfigRunner(unittest.TestCase):
       (node1.uuid, grp2.uuid),
       (node2.uuid, grp2.uuid),
       ])
+    (grp1, grp2) = [cfg.GetNodeGroup(grp.uuid) for grp in (grp1, grp2)]
+    (node1, node2) =  [cfg.GetNodeInfo(node.uuid) for node in (node1, node2)]
     cluster_serial += 1
     node1_serial += 1
     node2_serial += 1
@@ -439,183 +548,14 @@ class TestConfigRunner(unittest.TestCase):
     self.assertFalse(grp1.members)
     self.assertEqual(set(grp2.members), set(["node1-uuid", "node2-uuid"]))
 
-    # Destructive tests
-    orig_group = node2.group
-    try:
-      other_uuid = "68b3d087-6ea5-491c-b81f-0a47d90228c5"
-      assert compat.all(node.group != other_uuid
-                        for node in cfg.GetAllNodesInfo().values())
-      node2.group = "68b3d087-6ea5-491c-b81f-0a47d90228c5"
-      self.assertRaises(errors.ConfigurationError, cfg.AssignGroupNodes, [
-        (node2.uuid, grp2.uuid),
-        ])
-      _VerifySerials()
-    finally:
-      node2.group = orig_group
-
-  def _TestVerifyConfigIPolicy(self, ipolicy, ipowner, cfg, isgroup):
-    INVALID_KEY = "this_key_cannot_exist"
-
-    ipolicy[INVALID_KEY] = None
-    # A call to cluster.SimpleFillIPolicy causes different kinds of error
-    # depending on the owner (cluster or group)
-    if isgroup:
-      errs = cfg.VerifyConfig()
-      self.assertTrue(len(errs) >= 1)
-      errstr = "%s has invalid instance policy" % ipowner
-      self.assertTrue(_IsErrorInList(errstr, errs))
-    else:
-      self.assertRaises(AssertionError, cfg.VerifyConfig)
-    del ipolicy[INVALID_KEY]
-    errs = cfg.VerifyConfig()
-    self.assertFalse(errs)
-
-    key = list(constants.IPOLICY_PARAMETERS)[0]
-    hasoldv = (key in ipolicy)
-    if hasoldv:
-      oldv = ipolicy[key]
-    ipolicy[key] = "blah"
-    errs = cfg.VerifyConfig()
-    self.assertTrue(len(errs) >= 1)
-    self.assertTrue(_IsErrorInList("%s has invalid instance policy" % ipowner,
-                                   errs))
-    if hasoldv:
-      ipolicy[key] = oldv
-    else:
-      del ipolicy[key]
-
-    ispeclist = []
-    if constants.ISPECS_MINMAX in ipolicy:
-      for k in range(len(ipolicy[constants.ISPECS_MINMAX])):
-        ispeclist.extend([
-            (ipolicy[constants.ISPECS_MINMAX][k][constants.ISPECS_MIN],
-             "%s[%s]/%s" % (constants.ISPECS_MINMAX, k, constants.ISPECS_MIN)),
-            (ipolicy[constants.ISPECS_MINMAX][k][constants.ISPECS_MAX],
-             "%s[%s]/%s" % (constants.ISPECS_MINMAX, k, constants.ISPECS_MAX)),
-            ])
-    if constants.ISPECS_STD in ipolicy:
-      ispeclist.append((ipolicy[constants.ISPECS_STD], constants.ISPECS_STD))
-
-    for (ispec, ispecpath) in ispeclist:
-      ispec[INVALID_KEY] = None
-      errs = cfg.VerifyConfig()
-      self.assertTrue(len(errs) >= 1)
-      self.assertTrue(_IsErrorInList(("%s has invalid ipolicy/%s" %
-                                      (ipowner, ispecpath)), errs))
-      del ispec[INVALID_KEY]
-      errs = cfg.VerifyConfig()
-      self.assertFalse(errs)
-
-      for par in constants.ISPECS_PARAMETERS:
-        hasoldv = par in ispec
-        if hasoldv:
-          oldv = ispec[par]
-        ispec[par] = "blah"
-        errs = cfg.VerifyConfig()
-        self.assertTrue(len(errs) >= 1)
-        self.assertTrue(_IsErrorInList(("%s has invalid ipolicy/%s" %
-                                        (ipowner, ispecpath)), errs))
-        if hasoldv:
-          ispec[par] = oldv
-        else:
-          del ispec[par]
-        errs = cfg.VerifyConfig()
-        self.assertFalse(errs)
-
-    if constants.ISPECS_MINMAX in ipolicy:
-      # Test partial minmax specs
-      for minmax in ipolicy[constants.ISPECS_MINMAX]:
-        for key in constants.ISPECS_MINMAX_KEYS:
-          self.assertTrue(key in minmax)
-          ispec = minmax[key]
-          del minmax[key]
-          errs = cfg.VerifyConfig()
-          self.assertTrue(len(errs) >= 1)
-          self.assertTrue(_IsErrorInList("Missing instance specification",
-                                         errs))
-          minmax[key] = ispec
-          for par in constants.ISPECS_PARAMETERS:
-            oldv = ispec[par]
-            del ispec[par]
-            errs = cfg.VerifyConfig()
-            self.assertTrue(len(errs) >= 1)
-            self.assertTrue(_IsErrorInList("Missing instance specs parameters",
-                                           errs))
-            ispec[par] = oldv
-      errs = cfg.VerifyConfig()
-      self.assertFalse(errs)
-
-  def _TestVerifyConfigGroupIPolicy(self, groupinfo, cfg):
-    old_ipolicy = groupinfo.ipolicy
-    ipolicy = cfg.GetClusterInfo().SimpleFillIPolicy({})
-    groupinfo.ipolicy = ipolicy
-    # Test partial policies
-    for key in constants.IPOLICY_ALL_KEYS:
-      self.assertTrue(key in ipolicy)
-      oldv = ipolicy[key]
-      del ipolicy[key]
-      errs = cfg.VerifyConfig()
-      self.assertFalse(errs)
-      ipolicy[key] = oldv
-    groupinfo.ipolicy = old_ipolicy
-
-  def _TestVerifyConfigClusterIPolicy(self, ipolicy, cfg):
-    # Test partial policies
-    for key in constants.IPOLICY_ALL_KEYS:
-      self.assertTrue(key in ipolicy)
-      oldv = ipolicy[key]
-      del ipolicy[key]
-      self.assertRaises(AssertionError, cfg.VerifyConfig)
-      ipolicy[key] = oldv
-    errs = cfg.VerifyConfig()
-    self.assertFalse(errs)
-    # Partial standard specs
-    ispec = ipolicy[constants.ISPECS_STD]
-    for par in constants.ISPECS_PARAMETERS:
-      oldv = ispec[par]
-      del ispec[par]
-      errs = cfg.VerifyConfig()
-      self.assertTrue(len(errs) >= 1)
-      self.assertTrue(_IsErrorInList("Missing instance specs parameters",
-                                     errs))
-      ispec[par] = oldv
-    errs = cfg.VerifyConfig()
-    self.assertFalse(errs)
-
-  def testVerifyConfig(self):
-    cfg = self._get_object()
-
-    errs = cfg.VerifyConfig()
-    self.assertFalse(errs)
-
-    node = cfg.GetNodeInfo(cfg.GetNodeList()[0])
-    key = list(constants.NDC_GLOBALS)[0]
-    node.ndparams[key] = constants.NDC_DEFAULTS[key]
-    errs = cfg.VerifyConfig()
-    self.assertTrue(len(errs) >= 1)
-    self.assertTrue(_IsErrorInList("has some global parameters set", errs))
-
-    del node.ndparams[key]
-    errs = cfg.VerifyConfig()
-    self.assertFalse(errs)
-
-    cluster = cfg.GetClusterInfo()
-    nodegroup = cfg.GetNodeGroup(cfg.GetNodeGroupList()[0])
-    self._TestVerifyConfigIPolicy(cluster.ipolicy, "cluster", cfg, False)
-    self._TestVerifyConfigClusterIPolicy(cluster.ipolicy, cfg)
-    self._TestVerifyConfigIPolicy(nodegroup.ipolicy, nodegroup.name, cfg, True)
-    self._TestVerifyConfigGroupIPolicy(nodegroup, cfg)
-    nodegroup.ipolicy = cluster.SimpleFillIPolicy(nodegroup.ipolicy)
-    self._TestVerifyConfigIPolicy(nodegroup.ipolicy, nodegroup.name, cfg, True)
-
   # Tests for Ssconf helper functions
   def testUnlockedGetHvparamsString(self):
     hvparams = {"a": "A", "b": "B", "c": "C"}
     hvname = "myhv"
     cfg_writer = self._get_object()
-    cfg_writer._config_data = mock.Mock()
-    cfg_writer._config_data.cluster = mock.Mock()
-    cfg_writer._config_data.cluster.hvparams = {hvname: hvparams}
+    cfg_writer._SetConfigData(mock.Mock())
+    cfg_writer._ConfigData().cluster = mock.Mock()
+    cfg_writer._ConfigData().cluster.hvparams = {hvname: hvparams}
 
     result = cfg_writer._UnlockedGetHvparamsString(hvname)
 
@@ -632,6 +572,38 @@ class TestConfigRunner(unittest.TestCase):
 
     expected_key = constants.SS_HVPARAMS_PREF + constants.HT_XEN_PVM
     self.assertTrue(expected_key in ssconf_values)
+
+  def testAddAndRemoveCerts(self):
+    cfg = self._get_object()
+    self.assertEqual(0, len(cfg.GetCandidateCerts()))
+
+    node_uuid = "1234"
+    cert_digest = "foobar"
+    cfg.AddNodeToCandidateCerts(node_uuid, cert_digest,
+                                warn_fn=None, info_fn=None)
+    self.assertEqual(1, len(cfg.GetCandidateCerts()))
+
+    # Try adding the same cert again
+    cfg.AddNodeToCandidateCerts(node_uuid, cert_digest,
+                                warn_fn=None, info_fn=None)
+    self.assertEqual(1, len(cfg.GetCandidateCerts()))
+    self.assertTrue(cfg.GetCandidateCerts()[node_uuid] == cert_digest)
+
+    # Overriding cert
+    other_digest = "barfoo"
+    cfg.AddNodeToCandidateCerts(node_uuid, other_digest,
+                                warn_fn=None, info_fn=None)
+    self.assertEqual(1, len(cfg.GetCandidateCerts()))
+    self.assertTrue(cfg.GetCandidateCerts()[node_uuid] == other_digest)
+
+    # Try removing a certificate from a node that is not in the list
+    other_node_uuid = "5678"
+    cfg.RemoveNodeFromCandidateCerts(other_node_uuid, warn_fn=None)
+    self.assertEqual(1, len(cfg.GetCandidateCerts()))
+
+    # Remove a certificate from a node that is in the list
+    cfg.RemoveNodeFromCandidateCerts(node_uuid, warn_fn=None)
+    self.assertEqual(0, len(cfg.GetCandidateCerts()))
 
 
 def _IsErrorInList(err_str, err_list):
@@ -664,7 +636,7 @@ class TestCheckInstanceDiskIvNames(unittest.TestCase):
   def testNoError(self):
     disks = self._MakeDisks(["disk/0", "disk/1"])
     self.assertEqual(config._CheckInstanceDiskIvNames(disks), [])
-    instance._UpdateIvNames(0, disks)
+    config._UpdateIvNames(0, disks)
     self.assertEqual(config._CheckInstanceDiskIvNames(disks), [])
 
   def testWrongNames(self):
@@ -675,7 +647,7 @@ class TestCheckInstanceDiskIvNames(unittest.TestCase):
       ])
 
     # Fix names
-    instance._UpdateIvNames(0, disks)
+    config._UpdateIvNames(0, disks)
     self.assertEqual(config._CheckInstanceDiskIvNames(disks), [])
 
 

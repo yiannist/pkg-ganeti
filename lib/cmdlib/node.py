@@ -427,21 +427,15 @@ class LUNodeAdd(LogicalUnit):
         result.Warn("Node failed to demote itself from master candidate status",
                     self.LogWarning)
     else:
-      self.context.AddNode(self.new_node, self.proc.GetECId())
+      self.context.AddNode(self.cfg, self.new_node, self.proc.GetECId())
       RedistributeAncillaryFiles(self)
 
-    cluster = self.cfg.GetClusterInfo()
     # We create a new certificate even if the node is readded
     digest = CreateNewClientCert(self, self.new_node.uuid)
     if self.new_node.master_candidate:
-      utils.AddNodeToCandidateCerts(self.new_node.uuid, digest,
-                                    cluster.candidate_certs)
-      self.cfg.Update(cluster, feedback_fn)
+      self.cfg.AddNodeToCandidateCerts(self.new_node.uuid, digest)
     else:
-      if self.new_node.uuid in cluster.candidate_certs:
-        utils.RemoveNodeFromCandidateCerts(self.new_node.uuid,
-                                           cluster.candidate_certs)
-        self.cfg.Update(cluster, feedback_fn)
+      self.cfg.RemoveNodeFromCandidateCerts(self.new_node.uuid, warn_fn=None)
 
     EnsureKvmdOnNodes(self, feedback_fn, nodes=[self.new_node.uuid])
 
@@ -503,7 +497,7 @@ class LUNodeSetParams(LogicalUnit):
 
     """
     return (instance.disk_template in constants.DTS_INT_MIRROR and
-            self.op.node_uuid in instance.all_nodes)
+            self.op.node_uuid in self.cfg.GetInstanceNodes(instance.uuid))
 
   def ExpandNames(self):
     if self.lock_all:
@@ -783,38 +777,40 @@ class LUNodeSetParams(LogicalUnit):
         setattr(node, attr, val)
         result.append((attr, str(val)))
 
-    if self.new_role != self.old_role:
-      # Tell the node to demote itself, if no longer MC and not offline
-      if self.old_role == self._ROLE_CANDIDATE and \
-          self.new_role != self._ROLE_OFFLINE:
-        msg = self.rpc.call_node_demote_from_mc(node.name).fail_msg
-        if msg:
-          self.LogWarning("Node failed to demote itself: %s", msg)
-
-      new_flags = self._R2F[self.new_role]
-      for of, nf, desc in zip(self.old_flags, new_flags, self._FLAGS):
-        if of != nf:
-          result.append((desc, str(nf)))
-      (node.master_candidate, node.drained, node.offline) = new_flags
-
-      # we locked all nodes, we adjust the CP before updating this node
-      if self.lock_all:
-        AdjustCandidatePool(self, [node.uuid], feedback_fn)
-
-      cluster = self.cfg.GetClusterInfo()
-      # if node gets promoted, grant RPC priviledges
-      if self.new_role == self._ROLE_CANDIDATE:
-        AddNodeCertToCandidateCerts(self, node.uuid, cluster)
-      # if node is demoted, revoke RPC priviledges
-      if self.old_role == self._ROLE_CANDIDATE:
-        RemoveNodeCertFromCandidateCerts(node.uuid, cluster)
-
     if self.op.secondary_ip:
       node.secondary_ip = self.op.secondary_ip
       result.append(("secondary_ip", self.op.secondary_ip))
 
     # this will trigger configuration file update, if needed
     self.cfg.Update(node, feedback_fn)
+
+    if self.new_role != self.old_role:
+      new_flags = self._R2F[self.new_role]
+      for of, nf, desc in zip(self.old_flags, new_flags, self._FLAGS):
+        if of != nf:
+          result.append((desc, str(nf)))
+      (node.master_candidate, node.drained, node.offline) = new_flags
+      self.cfg.Update(node, feedback_fn)
+
+      # Tell the node to demote itself, if no longer MC and not offline.
+      # This must be done only after the configuration is updated so that
+      # it's ensured the node won't receive any further configuration updates.
+      if self.old_role == self._ROLE_CANDIDATE and \
+          self.new_role != self._ROLE_OFFLINE:
+        msg = self.rpc.call_node_demote_from_mc(node.name).fail_msg
+        if msg:
+          self.LogWarning("Node failed to demote itself: %s", msg)
+
+      # we locked all nodes, we adjust the CP before updating this node
+      if self.lock_all:
+        AdjustCandidatePool(self, [node.uuid])
+
+      # if node gets promoted, grant RPC priviledges
+      if self.new_role == self._ROLE_CANDIDATE:
+        AddNodeCertToCandidateCerts(self, self.cfg, node.uuid)
+      # if node is demoted, revoke RPC priviledges
+      if self.old_role == self._ROLE_CANDIDATE:
+        RemoveNodeCertFromCandidateCerts(self.cfg, node.uuid)
 
     # this will trigger job queue propagation or cleanup if the mc
     # flag changed
@@ -880,7 +876,8 @@ def _GetNodeSecondaryInstances(cfg, node_uuid):
 
   """
   return _GetNodeInstancesInner(cfg,
-                                lambda inst: node_uuid in inst.secondary_nodes)
+                                lambda inst: node_uuid in
+                                  cfg.GetInstanceSecondaryNodes(inst.uuid))
 
 
 def _GetNodeInstances(cfg, node_uuid):
@@ -888,7 +885,9 @@ def _GetNodeInstances(cfg, node_uuid):
 
   """
 
-  return _GetNodeInstancesInner(cfg, lambda inst: node_uuid in inst.all_nodes)
+  return _GetNodeInstancesInner(cfg,
+                                lambda inst: node_uuid in
+                                  cfg.GetInstanceNodes(inst.uuid.uuid))
 
 
 class LUNodeEvacuate(NoHooksLU):
@@ -1265,7 +1264,7 @@ class LUNodeQueryvols(NoHooksLU):
     volumes = self.rpc.call_node_volumes(node_uuids)
 
     ilist = self.cfg.GetAllInstancesInfo()
-    vol2inst = MapInstanceLvsToNodes(ilist.values())
+    vol2inst = MapInstanceLvsToNodes(self.cfg, ilist.values())
 
     output = []
     for node_uuid in node_uuids:
@@ -1480,7 +1479,7 @@ class LUNodeRemove(LogicalUnit):
                                  " node is required", errors.ECODE_INVAL)
 
     for _, instance in self.cfg.GetAllInstancesInfo().items():
-      if node.uuid in instance.all_nodes:
+      if node.uuid in self.cfg.GetInstanceNodes(instance.uuid):
         raise errors.OpPrereqError("Instance %s is still running on the node,"
                                    " please remove first" % instance.name,
                                    errors.ECODE_INVAL)
@@ -1500,8 +1499,8 @@ class LUNodeRemove(LogicalUnit):
       "Not owning BGL"
 
     # Promote nodes to master candidate as needed
-    AdjustCandidatePool(self, [self.node.uuid], feedback_fn)
-    self.context.RemoveNode(self.node)
+    AdjustCandidatePool(self, [self.node.uuid])
+    self.context.RemoveNode(self.cfg, self.node)
 
     # Run post hooks on the node before it's removed
     RunPostHook(self, self.node.name)
@@ -1518,9 +1517,7 @@ class LUNodeRemove(LogicalUnit):
 
     # Remove node from candidate certificate list
     if self.node.master_candidate:
-      utils.RemoveNodeFromCandidateCerts(self.node.uuid,
-                                         cluster.candidate_certs)
-      self.cfg.Update(cluster, feedback_fn)
+      self.cfg.RemoveNodeFromCandidateCerts(self.node.uuid)
 
     # Remove node from our /etc/hosts
     if cluster.modify_etc_hosts:
@@ -1581,7 +1578,7 @@ class LURepairNodeStorage(NoHooksLU):
     for inst in _GetNodeInstances(self.cfg, self.op.node_uuid):
       if not inst.disks_active:
         continue
-      check_nodes = set(inst.all_nodes)
+      check_nodes = set(self.cfg.GetInstanceNodes(inst.uuid))
       check_nodes.discard(self.op.node_uuid)
       for inst_node_uuid in check_nodes:
         self._CheckFaultyDisks(inst, inst_node_uuid)

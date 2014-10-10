@@ -202,6 +202,9 @@ INIT
 | [\--hypervisor-state *hvstate*]
 | [\--drbd-usermode-helper *helper*]
 | [\--enabled-disk-templates *template* [,*template*...]]
+| [\--install-image *image*]
+| [\--zeroing-image *image*]
+| [\--compression-tools [*tool*, [*tool*]]]
 | [\--user-shutdown {yes \| no}]
 | {*clustername*}
 
@@ -316,7 +319,7 @@ detection at the cluster level.  User shutdown detection allows users to
 initiate instance poweroff from inside the instance, and Ganeti will
 report the instance status as 'USER_down' (as opposed, to 'ERROR_down')
 and the watcher will not restart these instances, thus preserving their
-instance status.  This option is disabled by default.  After enabled,
+instance status.  This option is disabled by default.  For KVM,
 the hypervisor parameter ``user_shutdown`` must also be set, either at
 the cluster level or on a per-instance basis (see **gnt-instance**\(8)).
 
@@ -600,6 +603,35 @@ are still instances using it. The first disk template in the list of
 enabled disk template is the default disk template. It will be used for
 instance creation, if no disk template is requested explicitely.
 
+The ``--install-image`` option specifies the location of the OS image to
+use to run the OS scripts inside a virtualized environment. This can be
+a file path or a URL. In the case that a file path is used, nodes are
+expected to have the install image located at the given path, although
+that is enforced during a instance create with unsafe OS scripts
+operation only.
+
+The ``--zeroing-image`` option specifies the location of the OS image to
+use to zero out the free space of an instance. This can be a file path
+or a URL. In the case that a file path is used, nodes are expected to
+have the zeroing image located at the given path, although that is
+enforced during a zeroing operation only.
+
+The ``--compression-tools`` option specifies the tools that can be used
+to compress the disk data of instances in transfer. The default tools
+are: 'gzip', 'gzip-slow', and 'gzip-fast'. For compatibility reasons,
+the 'gzip' tool cannot be excluded from the list of compression tools.
+Ganeti knows how to use certain tools, but does not provide them as a
+default as they are not commonly present: currently only 'lzop'. The
+user should indicate their presence by specifying them through this
+option.
+Any other custom tool specified must have a simple executable name
+('[-_a-zA-Z0-9]+'), accept input on stdin, and produce output on
+stdout. The '-d' flag specifies that decompression rather than
+compression is taking place. The '-h' flag must be supported as a means
+of testing whether the executable exists. These requirements are
+compatible with the gzip command line options, allowing many tools to
+be easily wrapped and used.
+
 MASTER-FAILOVER
 ~~~~~~~~~~~~~~~
 
@@ -651,12 +683,14 @@ MODIFY
 | [\--remove-uids *user-id pool definition*]
 | [{-C|\--candidate-pool-size} *candidate\_pool\_size*]
 | [--max-running-jobs *count* ]
+| [--max-tracked-jobs *count* ]
 | [\--maintain-node-health {yes \| no}]
 | [\--prealloc-wipe-disks {yes \| no}]
 | [{-I|\--default-iallocator} *default instance allocator*]
 | [\--default-iallocator-params *ial-param*=*value*,*ial-param*=*value*]
 | [\--reserved-lvs=*NAMES*]
 | [\--node-parameters *ndparams*]
+| [{-m|\--mac-prefix} *mac-prefix*]
 | [\--master-netdev *interface-name*]
 | [\--master-netmask *netmask*]
 | [\--use-external-mip-script {yes \| no}]
@@ -671,6 +705,10 @@ MODIFY
 | [\--drbd-usermode-helper *helper*]
 | [\--file-storage-dir *dir*]
 | [\--shared-file-storage-dir *dir*]
+| [\--compression-tools [*tool*, [*tool*]]]
+| [\--instance-communication-network *network*]
+| [\--install-image *image*]
+| [\--zeroing-image *image*]
 | [\--user-shutdown {yes \| no}]
 
 
@@ -680,6 +718,10 @@ The ``--vg-name``, ``--enabled-hypervisors``, ``-H (--hypervisor-parameters)``,
 ``-B (--backend-parameters)``, ``-D (--disk-parameters)``, ``--nic-parameters``,
 ``-C (--candidate-pool-size)``, ``--maintain-node-health``,
 ``--prealloc-wipe-disks``, ``--uid-pool``, ``--node-parameters``,
+``--mac-prefix``, ``--master-netdev``, ``--master-netmask``,
+``--use-external-mip-script``, ``--drbd-usermode-helper``,
+``--file-storage-dir``, ``--shared-file-storage-dir``,
+``--compression-tools``, and ``--enabled-disk-templates`` options are described in the **init** command.
 ``--master-netdev``, ``--master-netmask``, ``--use-external-mip-script``,
 ``--drbd-usermode-helper``, ``--file-storage-dir``,
 ``--shared-file-storage-dir``, ``--enabled-disk-templates``, and
@@ -692,6 +734,11 @@ detail in **ganeti**\(7).
 The ``--max-running-jobs`` options allows to set limit on the
 number of jobs in non-finished jobs that are not queued, i.e.,
 the number of jobs that are in waiting or running state.
+The ``--max-tracked-jobs`` options allows to set the limit on
+the tracked jobs. Normally, Ganeti will watch waiting and running
+jobs by tracking their job file with inotify. If this limit is
+exceeded, however, Ganeti will back off and only periodically
+pull for updates.
 
 The ``--add-uids`` and ``--remove-uids`` options can be used to
 modify the user-id pool by adding/removing a list of user-ids or
@@ -718,6 +765,17 @@ command. To clear the default iallocator parameters, just pass an empty
 string ('').
 
 The ``--ipolicy-...`` options are described in the **init** command.
+
+The ``--instance-communication-network`` enables instance communication
+by specifying the name of the Ganeti network that should be used for
+instance communication.  If the supplied network does not exist, Ganeti
+will create a new network with the supplied name with the default
+parameters for instance communication.  If the supplied network exists,
+Ganeti will check its parameters and warn about unusual configurations,
+but it will still use that network for instance communication.
+
+See **gnt-cluster init** for a description of ``--install-image`` and
+``--zeroing-image``.
 
 See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
@@ -902,6 +960,10 @@ parameter to a warning. The option must be repeated for each error that
 should be ignored (e.g.: ``-I ENODEVERSION -I ENODEORPHANLV``). The
 ``--error-codes`` option can be used to determine the error code of a
 given error.
+
+Note that the verification of the configuration file consistency across
+master candidates can fail if there are other concurrently running
+operations that modify the configuration.
 
 List of error codes:
 

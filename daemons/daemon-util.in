@@ -38,10 +38,16 @@ readonly defaults_file="$SYSCONFDIR/default/ganeti"
 # they're stopped in reverse order.
 DAEMONS=(
   ganeti-noded
-  ganeti-masterd
+  ganeti-wconfd
   ganeti-rapi
   ganeti-luxid
   ganeti-kvmd
+  )
+
+# This is the list of daemons that are loaded on demand; they should only be
+# stopped, not started.
+ON_DEMAND_DAEMONS=(
+  ganeti-metad
   )
 
 _confd_enabled() {
@@ -60,9 +66,12 @@ if _mond_enabled; then
   DAEMONS+=( ganeti-mond )
 fi
 
+# The full list of all daemons we know about
+ALL_DAEMONS=( ${DAEMONS[@]} ${ON_DEMAND_DAEMONS[@]} )
+
 NODED_ARGS=
-MASTERD_ARGS=
 CONFD_ARGS=
+WCONFD_ARGS=
 LUXID_ARGS=
 RAPI_ARGS=
 MOND_ARGS=
@@ -88,11 +97,11 @@ _daemon_executable() {
 
 _daemon_usergroup() {
   case "$1" in
-    masterd)
-      echo "@GNTMASTERUSER@:@GNTMASTERDGROUP@"
-      ;;
     confd)
       echo "@GNTCONFDUSER@:@GNTCONFDGROUP@"
+      ;;
+    wconfd)
+      echo "@GNTWCONFDUSER@:@GNTWCONFDGROUP@"
       ;;
     luxid)
       echo "@GNTLUXIDUSER@:@GNTLUXIDGROUP@"
@@ -150,6 +159,22 @@ check_exitcode() {
   return 0
 }
 
+# Checks if we should use systemctl to start/stop daemons
+use_systemctl() {
+  # Is systemd running as PID 1?
+  [ -d /run/systemd/system ] || return 1
+
+  type -p systemctl >/dev/null || return 1
+
+  # Does systemd know about Ganeti at all?
+  loadstate="$(systemctl show -pLoadState ganeti.target)"
+  if [ "$loadstate" = "LoadState=loaded" ]; then
+    return 0
+  fi
+
+  return 1
+}
+
 # Prints path to PID file for a daemon.
 daemon_pidfile() {
   if [[ "$#" -lt 1 ]]; then
@@ -185,7 +210,9 @@ list_start_daemons() {
 
 # Prints a list of all daemons in the order in which they should be stopped
 list_stop_daemons() {
-  list_start_daemons | tac
+  for name in "${ALL_DAEMONS[@]}"; do
+    echo "$name"
+  done | tac
 }
 
 # Checks whether a daemon name is known
@@ -197,7 +224,7 @@ is_daemon_name() {
 
   local name="$1"; shift
 
-  for i in "${DAEMONS[@]}"; do
+  for i in "${ALL_DAEMONS[@]}"; do
     if [[ "$i" == "$name" ]]; then
       return 0
     fi
@@ -218,7 +245,14 @@ check() {
   local pidfile=$(_daemon_pidfile $name)
   local daemonexec=$(_daemon_executable $name)
 
-  if type -p start-stop-daemon >/dev/null; then
+  if use_systemctl; then
+    activestate="$(systemctl show -pActiveState "${name}.service")"
+    if [ "$activestate" = "ActiveState=active" ]; then
+      return 0
+    else
+      return 1
+    fi
+  elif type -p start-stop-daemon >/dev/null; then
     start-stop-daemon --stop --signal 0 --quiet \
       --pidfile $pidfile
   else
@@ -247,6 +281,11 @@ start() {
       && ! _confd_enabled; then
     echo 'ganeti-confd disabled at build time' >&2
     return 1
+  fi
+
+  if use_systemctl; then
+    systemctl start "${name}.service"
+    return $?
   fi
 
   # Read $<daemon>_ARGS and $EXTRA_<daemon>_ARGS
@@ -281,7 +320,9 @@ stop() {
   local name="$1"; shift
   local pidfile=$(_daemon_pidfile $name)
 
-  if type -p start-stop-daemon >/dev/null; then
+  if use_systemctl; then
+    systemctl stop "${name}.service"
+  elif type -p start-stop-daemon >/dev/null; then
     start-stop-daemon --stop --quiet --oknodo --retry 30 \
       --pidfile $pidfile
   else
@@ -294,26 +335,42 @@ check_and_start() {
   local name="$1"
 
   if ! check $name; then
+    if use_systemctl; then
+      echo "${name} supervised by systemd but not running, will not restart."
+      return 1
+    fi
+
     start $name
   fi
 }
 
 # Starts the master role
 start_master() {
-  start ganeti-masterd
-  start ganeti-rapi
-  start ganeti-luxid
+  if use_systemctl; then
+    systemctl start ganeti-master.target
+  else
+    start ganeti-wconfd
+    start ganeti-rapi
+    start ganeti-luxid
+  fi
 }
 
 # Stops the master role
 stop_master() {
-  stop ganeti-luxid
-  stop ganeti-rapi
-  stop ganeti-masterd
+  if use_systemctl; then
+    systemctl stop ganeti-master.target
+  else
+    stop ganeti-luxid
+    stop ganeti-rapi
+    stop ganeti-wconfd
+  fi
 }
 
 # Start all daemons
 start_all() {
+  use_systemctl && systemctl start ganeti.target
+  # Fall through so that we detect any errors.
+
   for i in $(list_start_daemons); do
     local rc=0
 
@@ -331,9 +388,13 @@ start_all() {
 
 # Stop all daemons
 stop_all() {
-  for i in $(list_stop_daemons); do
-    stop $i
-  done
+  if use_systemctl; then
+    systemctl stop ganeti.target
+  else
+    for i in $(list_stop_daemons); do
+      stop $i
+    done
+  fi
 }
 
 # SIGHUP a process to force re-opening its logfiles

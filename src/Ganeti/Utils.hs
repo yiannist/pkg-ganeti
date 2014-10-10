@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-| Utility functions. -}
 
@@ -37,11 +37,7 @@ module Ganeti.Utils
   , debugFn
   , debugXy
   , sepSplit
-  , Statistics
-  , getSumStatistics
-  , getStdDevStatistics
-  , getStatisticValue
-  , updateStatistics
+  , findFirst
   , stdDev
   , if'
   , select
@@ -66,6 +62,8 @@ module Ganeti.Utils
   , getCurrentTime
   , getCurrentTimeUSec
   , clockTimeToString
+  , clockTimeToCTime
+  , cTimeToClockTime
   , chompPrefix
   , warn
   , wrap
@@ -77,8 +75,8 @@ module Ganeti.Utils
   , resolveAddr
   , monadicThe
   , setOwnerAndGroupFromNames
+  , setOwnerWGroupR
   , formatOrdinal
-  , atomicWriteFile
   , tryAndLogIOError
   , lockFile
   , FStat
@@ -87,23 +85,28 @@ module Ganeti.Utils
   , getFStatSafe
   , needsReload
   , watchFile
+  , watchFileBy
   , safeRenameFile
   , FilePermissions(..)
   , ensurePermissions
   ) where
 
 import Control.Concurrent
-import Control.Exception (try)
-import Control.Monad (foldM, liftM, when, unless)
+import Control.Exception (try, bracket)
+import Control.Monad
+import Control.Monad.Error
 import Data.Char (toUpper, isAlphaNum, isDigit, isSpace)
 import qualified Data.Either as E
 import Data.Function (on)
 import Data.IORef
 import Data.List
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
+import qualified Data.Set as S
+import Foreign.C.Types (CTime(..))
 import Numeric (showOct)
 import System.Directory (renameFile, createDirectoryIfMissing)
-import System.FilePath.Posix (takeDirectory, takeBaseName)
+import System.FilePath.Posix (takeDirectory)
 import System.INotify
 import System.Posix.Types
 
@@ -156,6 +159,15 @@ sepSplit sep s
   where (x, xs) = break (== sep) s
         ys = drop 1 xs
 
+-- | Finds the first unused element in a set starting from a given base.
+findFirst :: (Ord a, Enum a) => a -> S.Set a -> a
+findFirst base xs =
+  case S.splitMember base xs of
+    (_, False, _) -> base
+    (_, True, ys) -> fromMaybe (succ base) $
+      (fmap fst . find (uncurry (<)) . zip [succ base..] . S.toAscList $ ys)
+      `mplus` fmap (succ . fst) (S.maxView ys)
+
 -- | Simple pluralize helper
 plural :: Int -> String -> String -> String
 plural 1 s _ = s
@@ -185,48 +197,6 @@ stdDev lst =
       mv = sx / ll
       av = foldl' (\accu em -> let d = em - mv in accu + d * d) 0.0 lst
   in sqrt (av / ll) -- stddev
-
--- | Abstract type of statistical accumulations. They behave as if the given
--- statistics were computed on the list of values, but they allow a potentially
--- more efficient update of a given value.
-data Statistics = SumStatistics Double
-                | StdDevStatistics Double Double Double deriving Show
-                  -- count, sum, and not the sum of squares---instead the
-                  -- computed variance for better precission.
-
--- | Get a statistics that sums up the values.
-getSumStatistics :: [Double] -> Statistics
-getSumStatistics = SumStatistics . sum
-
--- | Get a statistics for the standard deviation.
-getStdDevStatistics :: [Double] -> Statistics
-getStdDevStatistics xs =
-  let (nt, st) = foldl' (\(n, s) x ->
-                            let !n' = n + 1
-                                !s' = s + x
-                            in (n', s'))
-                 (0, 0) xs
-      mean = st / nt
-      nvar = foldl' (\v x -> let d = x - mean in v + d * d) 0 xs
-  in StdDevStatistics nt st (nvar / nt)
-
--- | Obtain the value of a statistics.
-getStatisticValue :: Statistics -> Double
-getStatisticValue (SumStatistics s) = s
-getStatisticValue (StdDevStatistics _ _ var) = sqrt var
-
--- | In a given statistics replace on value by another. This
--- will only give meaningful results, if the original value
--- was actually part of the statistics.
-updateStatistics :: Statistics -> (Double, Double) -> Statistics
-updateStatistics (SumStatistics s) (x, y) = SumStatistics $ s +  (y - x)
-updateStatistics (StdDevStatistics n s var) (x, y) =
-  let !ds = y - x
-      !dss = y * y - x * x
-      !dnnvar = n * dss - (2 * s + ds) * ds
-      !s' = s + ds
-      !var' = max 0 $ var + dnnvar / (n * n)
-  in StdDevStatistics n s' var'
 
 -- *  Logical functions
 
@@ -447,6 +417,14 @@ getCurrentTimeUSec = do
 clockTimeToString :: ClockTime -> String
 clockTimeToString (TOD t _) = show t
 
+-- | Convert a ClockTime into a (seconds-only) 'EpochTime' (AKA @time_t@).
+clockTimeToCTime :: ClockTime -> EpochTime
+clockTimeToCTime (TOD secs _) = fromInteger secs
+
+-- | Convert a ClockTime into a (seconds-only) 'EpochTime' (AKA @time_t@).
+cTimeToClockTime :: EpochTime -> ClockTime
+cTimeToClockTime (CTime timet) = TOD (toInteger timet) 0
+
 {-| Strip a prefix from a string, allowing the last character of the prefix
 (which is assumed to be a separator) to be absent from the string if the string
 terminates there.
@@ -580,13 +558,20 @@ setOwnerAndGroupFromNames :: FilePath -> GanetiDaemon -> GanetiGroup -> IO ()
 setOwnerAndGroupFromNames filename daemon dGroup = do
   -- TODO: it would be nice to rework this (or getEnts) so that runtimeEnts
   -- is read only once per daemon startup, and then cached for further usage.
-  runtimeEnts <- getEnts
+  runtimeEnts <- runResultT getEnts
   ents <- exitIfBad "Can't find required user/groups" runtimeEnts
   -- note: we use directly ! as lookup failures shouldn't happen, due
   -- to the map construction
-  let uid = fst ents M.! daemon
-  let gid = snd ents M.! dGroup
+  let uid = reUserToUid ents M.! daemon
+  let gid = reGroupToGid ents M.! dGroup
   setOwnerAndGroup filename uid gid
+
+-- | Resets permissions so that the owner can read/write and the group only
+-- read. All other permissions are cleared.
+setOwnerWGroupR :: FilePath -> IO ()
+setOwnerWGroupR path = setFileMode path mode
+  where mode = foldl unionFileModes nullFileMode
+                     [ownerReadMode, ownerWriteMode, groupReadMode]
 
 -- | Formats an integral number, appending a suffix.
 formatOrdinal :: (Integral a, Show a) => a -> String
@@ -599,23 +584,15 @@ formatOrdinal num
   where tens     = num `mod` 10
         suffix s = show num ++ s
 
--- | Atomically write a file, by first writing the contents into a temporary
--- file and then renaming it to the old position.
-atomicWriteFile :: FilePath -> String -> IO ()
-atomicWriteFile path contents = do
-  (tmppath, tmphandle) <- openTempFile (takeDirectory path) (takeBaseName path)
-  hPutStr tmphandle contents
-  hClose tmphandle
-  renameFile tmppath path
-
 -- | Attempt, in a non-blocking way, to obtain a lock on a given file; report
 -- back success.
-lockFile :: FilePath -> IO (Result ())
-lockFile path = do
+-- Returns the file descriptor so that the lock can be released by closing
+lockFile :: FilePath -> IO (Result Fd)
+lockFile path = runResultT . liftIO $ do
   handle <- openFile path WriteMode
   fd <- handleToFd handle
-  Control.Monad.liftM (either (Bad . show) Ok)
-    (try (setLock fd (WriteLock, AbsoluteSeek, 0, 0)) :: IO (Either IOError ()))
+  setLock fd (WriteLock, AbsoluteSeek, 0, 0)
+  return fd
 
 -- | File stat identifier.
 type FStat = (EpochTime, FileID, FileOffset)
@@ -654,21 +631,49 @@ needsReload oldstat path = do
 -- for the output of a given method to change and return the new value;
 -- make use of the promise that the output only changes if the reference
 -- has a value different than the given one.
-watchFileEx :: (Eq a, Eq b) => Integer -> b -> IORef b -> a -> IO a -> IO a
-watchFileEx endtime base ref old read_fn = do
+watchFileEx :: (Eq b) => Integer -> b -> IORef b -> (a -> Bool) -> IO a -> IO a
+watchFileEx endtime base ref check read_fn = do
   current <- getCurrentTimeUSec
   if current > endtime then read_fn else do
     val <- readIORef ref
     if val /= base
       then do
         new <- read_fn
-        if new /= old then return new else do
+        if check new then return new else do
           logDebug "Observed change not relevant"
           threadDelay 100000
-          watchFileEx endtime val ref old read_fn
-      else do 
+          watchFileEx endtime val ref check read_fn
+      else do
        threadDelay 100000
-       watchFileEx endtime base ref old read_fn
+       watchFileEx endtime base ref check read_fn
+
+-- | Within the given timeout (in seconds), wait for for the output
+-- of the given method to satisfy a given predicate and return the new value;
+-- make use of the promise that the method will only change its value, if
+-- the given file changes on disk. If the file does not exist on disk, return
+-- immediately.
+watchFileBy :: FilePath -> Int -> (a -> Bool) -> IO a -> IO a
+watchFileBy fpath timeout check read_fn = do
+  current <- getCurrentTimeUSec
+  let endtime = current + fromIntegral timeout * 1000000
+  fstat <- getFStatSafe fpath
+  ref <- newIORef fstat
+  bracket initINotify killINotify $ \inotify -> do
+    let do_watch e = do
+                       logDebug $ "Notified of change in " ++ fpath
+                                    ++ "; event: " ++ show e
+                       when (e == Ignored)
+                         (addWatch inotify [Modify, Delete] fpath do_watch
+                            >> return ())
+                       fstat' <- getFStatSafe fpath
+                       writeIORef ref fstat'
+    _ <- addWatch inotify [Modify, Delete] fpath do_watch
+    newval <- read_fn
+    if check newval
+      then do
+        logDebug $ "File " ++ fpath ++ " changed during setup of inotify"
+        return newval
+      else watchFileEx endtime fstat ref check read_fn
 
 -- | Within the given timeout (in seconds), wait for for the output
 -- of the given method to change and return the new value; make use of
@@ -676,31 +681,7 @@ watchFileEx endtime base ref old read_fn = do
 -- the given file changes on disk. If the file does not exist on disk, return
 -- immediately.
 watchFile :: Eq a => FilePath -> Int -> a -> IO a -> IO a
-watchFile fpath timeout old read_fn = do
-  current <- getCurrentTimeUSec
-  let endtime = current + fromIntegral timeout * 1000000
-  fstat <- getFStatSafe fpath
-  ref <- newIORef fstat
-  inotify <- initINotify
-  let do_watch e = do
-                     logDebug $ "Notified of change in " ++ fpath 
-                                  ++ "; event: " ++ show e
-                     when (e == Ignored)
-                       (addWatch inotify [Modify, Delete] fpath do_watch
-                          >> return ())
-                     fstat' <- getFStatSafe fpath
-                     writeIORef ref fstat'
-  _ <- addWatch inotify [Modify, Delete] fpath do_watch
-  newval <- read_fn
-  if newval /= old
-    then do
-      logDebug $ "File " ++ fpath ++ " changed during setup of inotify"
-      killINotify inotify
-      return newval
-    else do
-      result <- watchFileEx endtime fstat ref old read_fn
-      killINotify inotify
-      return result
+watchFile fpath timeout old = watchFileBy fpath timeout (/= old)
 
 -- | Type describing ownership and permissions of newly generated
 -- directories and files. All parameters are optional, with nothing

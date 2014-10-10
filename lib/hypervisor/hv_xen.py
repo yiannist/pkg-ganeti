@@ -392,6 +392,24 @@ def _QuoteCpuidField(data):
   return "'%s'" % data if data.startswith("host") else data
 
 
+def _ConfigureNIC(instance, seq, nic, tap):
+  """Run the network configuration script for a specified NIC
+
+  See L{hv_base.ConfigureNIC}.
+
+  @type instance: instance object
+  @param instance: instance we're acting on
+  @type seq: int
+  @param seq: nic sequence number
+  @type nic: nic object
+  @param nic: nic we're acting on
+  @type tap: str
+  @param tap: the host's tap interface this NIC corresponds to
+
+  """
+  hv_base.ConfigureNIC(pathutils.XEN_IFUP_OS, instance, seq, nic, tap)
+
+
 class XenHypervisor(hv_base.BaseHypervisor):
   """Xen generic hypervisor interface
 
@@ -551,6 +569,52 @@ class XenHypervisor(hv_base.BaseHypervisor):
     """
     raise NotImplementedError
 
+  def _WriteNicConfig(self, config, instance, hvp):
+    vif_data = []
+
+    # only XenHvmHypervisor has these hvparams
+    nic_type = hvp.get(constants.HV_NIC_TYPE, None)
+    vif_type = hvp.get(constants.HV_VIF_TYPE, None)
+    nic_type_str = ""
+    if nic_type or vif_type:
+      if nic_type is None:
+        if vif_type:
+          nic_type_str = ", type=%s" % vif_type
+      elif nic_type == constants.HT_NIC_PARAVIRTUAL:
+        nic_type_str = ", type=paravirtualized"
+      else:
+        # parameter 'model' is only valid with type 'ioemu'
+        nic_type_str = ", model=%s, type=%s" % \
+          (nic_type, constants.HT_HVM_VIF_IOEMU)
+
+    for idx, nic in enumerate(instance.nics):
+      nic_str = "mac=%s%s" % (nic.mac, nic_type_str)
+
+      ip = getattr(nic, "ip", None)
+      if ip is not None:
+        nic_str += ", ip=%s" % ip
+
+      if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
+        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
+      elif nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_OVS:
+        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
+        if nic.nicparams[constants.NIC_VLAN]:
+          nic_str += "%s" % nic.nicparams[constants.NIC_VLAN]
+
+      if nic.name and \
+            nic.name.startswith(constants.INSTANCE_COMMUNICATION_NIC_PREFIX):
+        tap = hv_base.GenerateTapName()
+        nic_str += ", vifname=%s" % tap
+        nic.name = tap
+
+      if hvp[constants.HV_VIF_SCRIPT]:
+        nic_str += ", script=%s" % hvp[constants.HV_VIF_SCRIPT]
+
+      vif_data.append("'%s'" % nic_str)
+      self._WriteNICInfoFile(instance, idx, nic)
+
+    config.write("vif = [%s]\n" % ",".join(vif_data))
+
   def _WriteConfigFile(self, instance_name, data):
     """Write the Xen config file for the instance.
 
@@ -694,6 +758,10 @@ class XenHypervisor(hv_base.BaseHypervisor):
                                    " config file to %s" %
                                    (instance.name, result.fail_reason,
                                     result.output, stashed_config))
+
+    for nic_seq, nic in enumerate(instance.nics):
+      if nic.name and nic.name.startswith("gnt.com."):
+        _ConfigureNIC(instance, nic_seq, nic, nic.name)
 
   def StopInstance(self, instance, force=False, retry=False, name=None,
                    timeout=None):
@@ -1211,27 +1279,10 @@ class XenPvmHypervisor(XenHypervisor):
 
     config.write("name = '%s'\n" % instance.name)
 
-    vif_data = []
-    for idx, nic in enumerate(instance.nics):
-      nic_str = "mac=%s" % (nic.mac)
-      ip = getattr(nic, "ip", None)
-      if ip is not None:
-        nic_str += ", ip=%s" % ip
-      if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
-        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
-      if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_OVS:
-        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
-        if nic.nicparams[constants.NIC_VLAN]:
-          nic_str += "%s" % nic.nicparams[constants.NIC_VLAN]
-      if hvp[constants.HV_VIF_SCRIPT]:
-        nic_str += ", script=%s" % hvp[constants.HV_VIF_SCRIPT]
-      vif_data.append("'%s'" % nic_str)
-      self._WriteNICInfoFile(instance, idx, nic)
+    self._WriteNicConfig(config, instance, hvp)
 
     disk_data = \
       _GetConfigFileDiskData(block_devices, hvp[constants.HV_BLOCKDEV_PREFIX])
-
-    config.write("vif = [%s]\n" % ",".join(vif_data))
     config.write("disk = [%s]\n" % ",".join(disk_data))
 
     if hvp[constants.HV_ROOT_PATH]:
@@ -1374,37 +1425,7 @@ class XenHvmHypervisor(XenHypervisor):
     if hvp[constants.HV_USE_LOCALTIME]:
       config.write("localtime = 1\n")
 
-    vif_data = []
-    # Note: what is called 'nic_type' here, is used as value for the xen nic
-    # vif config parameter 'model'. For the xen nic vif parameter 'type', we use
-    # the 'vif_type' to avoid a clash of notation.
-    nic_type = hvp[constants.HV_NIC_TYPE]
-
-    if nic_type is None:
-      vif_type_str = ""
-      if hvp[constants.HV_VIF_TYPE]:
-        vif_type_str = ", type=%s" % hvp[constants.HV_VIF_TYPE]
-      # ensure old instances don't change
-      nic_type_str = vif_type_str
-    elif nic_type == constants.HT_NIC_PARAVIRTUAL:
-      nic_type_str = ", type=paravirtualized"
-    else:
-      # parameter 'model' is only valid with type 'ioemu'
-      nic_type_str = ", model=%s, type=%s" % \
-        (nic_type, constants.HT_HVM_VIF_IOEMU)
-    for idx, nic in enumerate(instance.nics):
-      nic_str = "mac=%s%s" % (nic.mac, nic_type_str)
-      ip = getattr(nic, "ip", None)
-      if ip is not None:
-        nic_str += ", ip=%s" % ip
-      if nic.nicparams[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
-        nic_str += ", bridge=%s" % nic.nicparams[constants.NIC_LINK]
-      if hvp[constants.HV_VIF_SCRIPT]:
-        nic_str += ", script=%s" % hvp[constants.HV_VIF_SCRIPT]
-      vif_data.append("'%s'" % nic_str)
-      self._WriteNICInfoFile(instance, idx, nic)
-
-    config.write("vif = [%s]\n" % ",".join(vif_data))
+    self._WriteNicConfig(config, instance, hvp)
 
     disk_data = \
       _GetConfigFileDiskData(block_devices, hvp[constants.HV_BLOCKDEV_PREFIX])

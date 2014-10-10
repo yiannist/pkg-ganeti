@@ -252,6 +252,8 @@ fields. The available fields and their meaning are:
   Total amount of memory of physical machine
 ``name``
   Node name
+``ndp/cpu_speed``
+  The "cpu_speed" node parameter
 ``ndp/exclusive_storage``
   The "exclusive_storage" node parameter
 ``ndp/oob_program``

@@ -31,15 +31,22 @@
 """Support for mocking the cluster configuration"""
 
 
+import random
 import time
 import uuid as uuid_module
 
 from ganeti import config
 from ganeti import constants
-from ganeti import objects
+from ganeti import errors
 from ganeti.network import AddressPool
+from ganeti import objects
+from ganeti import utils
 
 import mocks
+
+
+RESERVE_ACTION = "reserve"
+RELEASE_ACTION = "release"
 
 
 def _StubGetEntResolver():
@@ -52,7 +59,7 @@ class ConfigMock(config.ConfigWriter):
 
   """
 
-  def __init__(self):
+  def __init__(self, cfg_file="/dev/null"):
     self._cur_group_id = 1
     self._cur_node_id = 1
     self._cur_inst_id = 1
@@ -61,9 +68,19 @@ class ConfigMock(config.ConfigWriter):
     self._cur_nic_id = 1
     self._cur_net_id = 1
     self._default_os = None
+    self._mocked_config_store = None
 
-    super(ConfigMock, self).__init__(cfg_file="/dev/null",
-                                     _getents=_StubGetEntResolver())
+    self._temporary_macs = config.TemporaryReservationManager()
+    self._temporary_secrets = config.TemporaryReservationManager()
+    self._temporary_lvs = config.TemporaryReservationManager()
+    self._temporary_ips = config.TemporaryReservationManager()
+
+    super(ConfigMock, self).__init__(cfg_file=cfg_file,
+                                     _getents=_StubGetEntResolver(),
+                                     offline=True)
+
+    with self.GetConfigManager():
+      self._CreateConfig()
 
   def _GetUuid(self):
     return str(uuid_module.uuid4())
@@ -115,7 +132,7 @@ class ConfigMock(config.ConfigWriter):
                               networks=networks,
                               members=[])
 
-    self.AddNodeGroup(group, None)
+    self._UnlockedAddNodeGroup(group, None, True)
     return group
 
   # pylint: disable=R0913
@@ -178,7 +195,7 @@ class ConfigMock(config.ConfigWriter):
                         disk_state=disk_state,
                         disk_state_static=disk_state_static)
 
-    self.AddNode(node, None)
+    self._UnlockedAddNode(node, None)
     return node
 
   def AddNewInstance(self,
@@ -190,6 +207,7 @@ class ConfigMock(config.ConfigWriter):
                      hvparams=None,
                      beparams=None,
                      osparams=None,
+                     osparams_private=None,
                      admin_state=None,
                      admin_state_source=None,
                      nics=None,
@@ -227,6 +245,8 @@ class ConfigMock(config.ConfigWriter):
       beparams = {}
     if osparams is None:
       osparams = {}
+    if osparams_private is None:
+      osparams_private = {}
     if admin_state is None:
       admin_state = constants.ADMINST_DOWN
     if admin_state_source is None:
@@ -259,14 +279,17 @@ class ConfigMock(config.ConfigWriter):
                             hvparams=hvparams,
                             beparams=beparams,
                             osparams=osparams,
+                            osparams_private=osparams_private,
                             admin_state=admin_state,
                             admin_state_source=admin_state_source,
                             nics=nics,
-                            disks=disks,
+                            disks=[],
                             disk_template=disk_template,
                             disks_active=disks_active,
                             network_port=network_port)
     self.AddInstance(inst, None)
+    for disk in disks:
+      self.AddInstanceDisk(inst.uuid, disk)
     return inst
 
   def AddNewNetwork(self,
@@ -549,14 +572,24 @@ class ConfigMock(config.ConfigWriter):
     cluster.enabled_disk_templates = list(enabled_disk_templates)
     cluster.ipolicy[constants.IPOLICY_DTS] = list(enabled_disk_templates)
 
-  def _OpenConfig(self, accept_foreign):
+  def ComputeDRBDMap(self):
+    return dict((node_uuid, {}) for node_uuid in self._ConfigData().nodes)
+
+  def AllocateDRBDMinor(self, node_uuids, inst_uuid):
+    return map(lambda _: 0, node_uuids)
+
+  def _UnlockedReleaseDRBDMinors(self, inst_uuid):
+    pass
+
+  def _CreateConfig(self):
     self._config_data = objects.ConfigData(
       version=constants.CONFIG_VERSION,
       cluster=None,
       nodegroups={},
       nodes={},
       instances={},
-      networks={})
+      networks={},
+      disks={})
 
     master_node_uuid = self._GetUuid()
 
@@ -584,6 +617,7 @@ class ConfigMock(config.ConfigWriter):
       os_hvp={self.GetDefaultOs().name: constants.HVC_DEFAULTS.copy()},
       beparams=None,
       osparams=None,
+      osparams_private_cluster=None,
       nicparams={constants.PP_DEFAULT: constants.NICC_DEFAULTS},
       ndparams=None,
       diskparams=None,
@@ -601,16 +635,175 @@ class ConfigMock(config.ConfigWriter):
       )
     self._cluster.ctime = self._cluster.mtime = time.time()
     self._cluster.UpgradeConfig()
-    self._config_data.cluster = self._cluster
+    self._ConfigData().cluster = self._cluster
 
     self._default_group = self.AddNewNodeGroup(name="default")
     self._master_node = self.AddNewNode(uuid=master_node_uuid)
 
-  def _WriteConfig(self, destination=None, feedback_fn=None):
-    pass
+  def _OpenConfig(self, _accept_foreign):
+    self._config_data = self._mocked_config_store
 
-  def _DistributeConfig(self, feedback_fn):
-    pass
+  def _WriteConfig(self, destination=None):
+    self._mocked_config_store = self._ConfigData()
 
-  def _GetRpc(self, address_list):
+  def _GetRpc(self, _address_list):
     raise AssertionError("This should not be used during tests!")
+
+  def _UnlockedGetNetworkMACPrefix(self, net_uuid):
+    """Return the network mac prefix if it exists or the cluster level default.
+
+    """
+    prefix = None
+    if net_uuid:
+      nobj = self._UnlockedGetNetwork(net_uuid)
+      if nobj.mac_prefix:
+        prefix = nobj.mac_prefix
+
+    return prefix
+
+  def _GenerateOneMAC(self, prefix=None):
+    """Return a function that randomly generates a MAC suffic
+       and appends it to the given prefix. If prefix is not given get
+       the cluster level default.
+
+    """
+    if not prefix:
+      prefix = self._ConfigData().cluster.mac_prefix
+
+    def GenMac():
+      byte1 = random.randrange(0, 256)
+      byte2 = random.randrange(0, 256)
+      byte3 = random.randrange(0, 256)
+      mac = "%s:%02x:%02x:%02x" % (prefix, byte1, byte2, byte3)
+      return mac
+
+    return GenMac
+
+  def GenerateMAC(self, net_uuid, ec_id):
+    """Generate a MAC for an instance.
+
+    This should check the current instances for duplicates.
+
+    """
+    existing = self._AllMACs()
+    prefix = self._UnlockedGetNetworkMACPrefix(net_uuid)
+    gen_mac = self._GenerateOneMAC(prefix)
+    return self._temporary_macs.Generate(existing, gen_mac, ec_id)
+
+  def ReserveMAC(self, mac, ec_id):
+    """Reserve a MAC for an instance.
+
+    This only checks instances managed by this cluster, it does not
+    check for potential collisions elsewhere.
+
+    """
+    all_macs = self._AllMACs()
+    if mac in all_macs:
+      raise errors.ReservationError("mac already in use")
+    else:
+      self._temporary_macs.Reserve(ec_id, mac)
+
+  def GenerateDRBDSecret(self, ec_id):
+    """Generate a DRBD secret.
+
+    This checks the current disks for duplicates.
+
+    """
+    return self._temporary_secrets.Generate(self._AllDRBDSecrets(),
+                                            utils.GenerateSecret,
+                                            ec_id)
+
+  def ReserveLV(self, lv_name, ec_id):
+    """Reserve an VG/LV pair for an instance.
+
+    @type lv_name: string
+    @param lv_name: the logical volume name to reserve
+
+    """
+    all_lvs = self._AllLVs()
+    if lv_name in all_lvs:
+      raise errors.ReservationError("LV already in use")
+    else:
+      self._temporary_lvs.Reserve(ec_id, lv_name)
+
+  def _UnlockedCommitTemporaryIps(self, ec_id):
+    """Commit all reserved IP address to their respective pools
+
+    """
+    for action, address, net_uuid in self._temporary_ips.GetECReserved(ec_id):
+      self._UnlockedCommitIp(action, net_uuid, address)
+
+  def _UnlockedCommitIp(self, action, net_uuid, address):
+    """Commit a reserved IP address to an IP pool.
+
+    The IP address is taken from the network's IP pool and marked as reserved.
+
+    """
+    nobj = self._UnlockedGetNetwork(net_uuid)
+    pool = AddressPool(nobj)
+    if action == RESERVE_ACTION:
+      pool.Reserve(address)
+    elif action == RELEASE_ACTION:
+      pool.Release(address)
+
+  def _UnlockedReleaseIp(self, net_uuid, address, ec_id):
+    """Give a specific IP address back to an IP pool.
+
+    The IP address is returned to the IP pool designated by pool_id and marked
+    as reserved.
+
+    """
+    self._temporary_ips.Reserve(ec_id,
+                                (RELEASE_ACTION, address, net_uuid))
+
+  def ReleaseIp(self, net_uuid, address, ec_id):
+    """Give a specified IP address back to an IP pool.
+
+    This is just a wrapper around _UnlockedReleaseIp.
+
+    """
+    if net_uuid:
+      self._UnlockedReleaseIp(net_uuid, address, ec_id)
+
+  def GenerateIp(self, net_uuid, ec_id):
+    """Find a free IPv4 address for an instance.
+
+    """
+    nobj = self._UnlockedGetNetwork(net_uuid)
+    pool = AddressPool(nobj)
+
+    def gen_one():
+      try:
+        ip = pool.GenerateFree()
+      except errors.AddressPoolError:
+        raise errors.ReservationError("Cannot generate IP. Network is full")
+      return (RESERVE_ACTION, ip, net_uuid)
+
+    _, address, _ = self._temporary_ips.Generate([], gen_one, ec_id)
+    return address
+
+  def _UnlockedReserveIp(self, net_uuid, address, ec_id, check=True):
+    """Reserve a given IPv4 address for use by an instance.
+
+    """
+    nobj = self._UnlockedGetNetwork(net_uuid)
+    pool = AddressPool(nobj)
+    try:
+      isreserved = pool.IsReserved(address)
+      isextreserved = pool.IsReserved(address, external=True)
+    except errors.AddressPoolError:
+      raise errors.ReservationError("IP address not in network")
+    if isreserved:
+      raise errors.ReservationError("IP address already in use")
+    if check and isextreserved:
+      raise errors.ReservationError("IP is externally reserved")
+    return self._temporary_ips.Reserve(ec_id,
+                                       (RESERVE_ACTION,
+                                        address, net_uuid))
+
+  def ReserveIp(self, net_uuid, address, ec_id, check=True):
+    """Reserve a given IPv4 address for use by an instance.
+
+    """
+    if net_uuid:
+      return self._UnlockedReserveIp(net_uuid, address, ec_id, check)

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -104,7 +104,7 @@ def _ExpandMultiNames(mode, names, client=None):
   # pylint: disable=W0142
 
   if client is None:
-    client = GetClient(query=True)
+    client = GetClient()
   if mode == _EXPAND_CLUSTER:
     if names:
       raise errors.OpPrereqError("Cluster filter mode takes no arguments",
@@ -191,8 +191,7 @@ def GenericManyOps(operation, fn):
     if opts.multi_mode is None:
       opts.multi_mode = _EXPAND_INSTANCES
     cl = GetClient()
-    qcl = GetClient(query=True)
-    inames = _ExpandMultiNames(opts.multi_mode, args, client=qcl)
+    inames = _ExpandMultiNames(opts.multi_mode, args, client=cl)
     if not inames:
       if opts.multi_mode == _EXPAND_CLUSTER:
         ToStdout("Cluster is empty, no instances to shutdown")
@@ -233,7 +232,7 @@ def ListInstances(opts, args):
                                                       for item in value),
                                False))
 
-  cl = GetClient(query=True)
+  cl = GetClient()
 
   return GenericList(constants.QR_INSTANCE, selected_fields, args, opts.units,
                      opts.separator, not opts.no_headers,
@@ -258,7 +257,7 @@ def ListInstanceFields(opts, args):
 def AddInstance(opts, args):
   """Add an instance to the cluster.
 
-  This is just a wrapper over GenericInstanceCreate.
+  This is just a wrapper over L{GenericInstanceCreate}.
 
   """
   return GenericInstanceCreate(constants.INSTANCE_CREATE, opts, args)
@@ -404,7 +403,9 @@ def ReinstallInstance(opts, args):
     op = opcodes.OpInstanceReinstall(instance_name=instance_name,
                                      os_type=os_name,
                                      force_variant=opts.force_variant,
-                                     osparams=opts.osparams)
+                                     osparams=opts.osparams,
+                                     osparams_private=opts.osparams_private,
+                                     osparams_secret=opts.osparams_secret)
     jex.QueueJob(instance_name, op)
 
   results = jex.WaitOrShow(not opts.submit_only)
@@ -429,10 +430,9 @@ def RemoveInstance(opts, args):
   instance_name = args[0]
   force = opts.force
   cl = GetClient()
-  qcl = GetClient(query=True)
 
   if not force:
-    _EnsureInstancesExist(qcl, [instance_name])
+    _EnsureInstancesExist(cl, [instance_name])
 
     usertext = ("This will remove the volumes of the instance %s"
                 " (including mirrors), thus removing all the data"
@@ -862,18 +862,15 @@ def ConnectToInstanceConsole(opts, args):
   instance_name = args[0]
 
   cl = GetClient()
-  qcl = GetClient(query=True)
   try:
     cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
     ((console_data, oper_state), ) = \
-      qcl.QueryInstances([instance_name], ["console", "oper_state"], False)
+      cl.QueryInstances([instance_name], ["console", "oper_state"], False)
   finally:
     # Ensure client connection is closed while external commands are run
     cl.Close()
-    qcl.Close()
 
   del cl
-  del qcl
 
   if not console_data:
     if oper_state:
@@ -945,6 +942,7 @@ def _FormatDiskDetails(dev_type, dev, roman):
   """Formats the logical_id of a disk.
 
   """
+
   if dev_type == constants.DT_DRBD8:
     drbd_info = dev["drbd_info"]
     data = [
@@ -956,7 +954,7 @@ def _FormatDiskDetails(dev_type, dev, roman):
                 (drbd_info["secondary_node"],
                  compat.TryToRoman(drbd_info["secondary_minor"],
                                    convert=roman))),
-      ("port", str(compat.TryToRoman(drbd_info["port"], convert=roman))),
+      ("port", str(compat.TryToRoman(drbd_info["port"], roman))),
       ("auth key", str(drbd_info["secret"])),
       ]
   elif dev_type == constants.DT_PLAIN:
@@ -1048,7 +1046,7 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
   else:
     txt = "child %s" % compat.TryToRoman(idx, convert=roman)
   if isinstance(dev["size"], int):
-    nice_size = utils.FormatUnit(dev["size"], "h")
+    nice_size = utils.FormatUnit(dev["size"], "h", roman)
   else:
     nice_size = str(dev["size"])
   data = [(txt, "%s, size %s" % (dev["dev_type"], nice_size))]
@@ -1083,19 +1081,19 @@ def _FormatBlockDevInfo(idx, top_level, dev, roman):
   return data
 
 
-def _FormatInstanceNicInfo(idx, nic):
+def _FormatInstanceNicInfo(idx, nic, roman=False):
   """Helper function for L{_FormatInstanceInfo()}"""
   (name, uuid, ip, mac, mode, link, vlan, _, netinfo) = nic
   network_name = None
   if netinfo:
     network_name = netinfo["name"]
   return [
-    ("nic/%d" % idx, ""),
+    ("nic/%s" % str(compat.TryToRoman(idx, roman)), ""),
     ("MAC", str(mac)),
     ("IP", str(ip)),
     ("mode", str(mode)),
     ("link", str(link)),
-    ("vlan", str(vlan)),
+    ("vlan", str(compat.TryToRoman(vlan, roman))),
     ("network", str(network_name)),
     ("UUID", str(uuid)),
     ("name", str(name)),
@@ -1162,7 +1160,8 @@ def _FormatInstanceInfo(instance, roman_integers):
     ("Nodes", _FormatInstanceNodesInfo(instance)),
     ("Operating system", instance["os"]),
     ("Operating system parameters",
-     FormatParamsDictInfo(instance["os_instance"], instance["os_actual"])),
+     FormatParamsDictInfo(instance["os_instance"], instance["os_actual"],
+                          roman_integers)),
     ]
 
   if "network_port" in instance:
@@ -1179,11 +1178,13 @@ def _FormatInstanceInfo(instance, roman_integers):
   be_actual["memory"] = be_actual[constants.BE_MAXMEM]
   info.extend([
     ("Hypervisor parameters",
-     FormatParamsDictInfo(instance["hv_instance"], instance["hv_actual"])),
+     FormatParamsDictInfo(instance["hv_instance"], instance["hv_actual"],
+                          roman_integers)),
     ("Back-end parameters",
-     FormatParamsDictInfo(instance["be_instance"], be_actual)),
+     FormatParamsDictInfo(instance["be_instance"], be_actual,
+                          roman_integers)),
     ("NICs", [
-      _FormatInstanceNicInfo(idx, nic)
+      _FormatInstanceNicInfo(idx, nic, roman_integers)
       for (idx, nic) in enumerate(instance["nics"])
       ]),
     ("Disk template", instance["disk_template"]),
@@ -1319,10 +1320,10 @@ def SetInstanceParams(opts, args):
   @return: the desired exit code
 
   """
-  if not (opts.nics or opts.disks or opts.disk_template or
-          opts.hvparams or opts.beparams or opts.os or opts.osparams or
-          opts.offline_inst or opts.online_inst or opts.runtime_mem or
-          opts.new_primary_node):
+  if not (opts.nics or opts.disks or opts.disk_template or opts.hvparams or
+          opts.beparams or opts.os or opts.osparams or opts.osparams_private
+          or opts.offline_inst or opts.online_inst or opts.runtime_mem or
+          opts.new_primary_node or opts.instance_communication is not None):
     ToStderr("Please give at least one of the parameters.")
     return 1
 
@@ -1368,6 +1369,8 @@ def SetInstanceParams(opts, args):
   else:
     offline = None
 
+  instance_comm = opts.instance_communication
+
   op = opcodes.OpInstanceSetParams(instance_name=args[0],
                                    nics=nics,
                                    disks=disks,
@@ -1381,12 +1384,14 @@ def SetInstanceParams(opts, args):
                                    runtime_mem=opts.runtime_mem,
                                    os_name=opts.os,
                                    osparams=opts.osparams,
+                                   osparams_private=opts.osparams_private,
                                    force_variant=opts.force_variant,
                                    force=opts.force,
                                    wait_for_sync=opts.wait_for_sync,
                                    offline=offline,
                                    conflicts_check=opts.conflicts_check,
-                                   ignore_ipolicy=opts.ignore_ipolicy)
+                                   ignore_ipolicy=opts.ignore_ipolicy,
+                                   instance_communication=instance_comm)
 
   # even if here we process the result, we allow submit only
   result = SubmitOrSend(op, opts)
@@ -1492,11 +1497,15 @@ add_opts = [
   FORCE_VARIANT_OPT,
   NO_INSTALL_OPT,
   IGNORE_IPOLICY_OPT,
+  INSTANCE_COMMUNICATION_OPT,
+  HELPER_STARTUP_TIMEOUT_OPT,
+  HELPER_SHUTDOWN_TIMEOUT_OPT,
   ]
 
 commands = {
   "add": (
-    AddInstance, [ArgHost(min=1, max=1)], COMMON_CREATE_OPTS + add_opts,
+    AddInstance, [ArgHost(min=1, max=1)],
+    COMMON_CREATE_OPTS + add_opts,
     "[...] -t disk-type -n node[:secondary-node] -o os-type <name>",
     "Creates and adds a new instance to the cluster"),
   "batch-create": (
@@ -1558,7 +1567,8 @@ commands = {
     [FORCE_OPT, OS_OPT, FORCE_VARIANT_OPT, m_force_multi, m_node_opt,
      m_pri_node_opt, m_sec_node_opt, m_clust_opt, m_inst_opt, m_node_tags_opt,
      m_pri_node_tags_opt, m_sec_node_tags_opt, m_inst_tags_opt, SELECT_OS_OPT]
-    + SUBMIT_OPTS + [DRY_RUN_OPT, PRIORITY_OPT, OSPARAMS_OPT],
+    + SUBMIT_OPTS + [DRY_RUN_OPT, PRIORITY_OPT, OSPARAMS_OPT,
+                     OSPARAMS_PRIVATE_OPT, OSPARAMS_SECRET_OPT],
     "[-f] <instance>", "Reinstall a stopped instance"),
   "remove": (
     RemoveInstance, ARGS_ONE_INSTANCE,
@@ -1582,10 +1592,10 @@ commands = {
     SetInstanceParams, ARGS_ONE_INSTANCE,
     [BACKEND_OPT, DISK_OPT, FORCE_OPT, HVOPTS_OPT, NET_OPT] + SUBMIT_OPTS +
     [DISK_TEMPLATE_OPT, SINGLE_NODE_OPT, OS_OPT, FORCE_VARIANT_OPT,
-     OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT, OFFLINE_INST_OPT,
-     ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT,
+     OSPARAMS_OPT, OSPARAMS_PRIVATE_OPT, DRY_RUN_OPT, PRIORITY_OPT, NWSYNC_OPT,
+     OFFLINE_INST_OPT, ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT,
      NOCONFLICTSCHECK_OPT, NEW_PRIMARY_OPT, HOTPLUG_OPT,
-     HOTPLUG_IF_POSSIBLE_OPT],
+     HOTPLUG_IF_POSSIBLE_OPT, INSTANCE_COMMUNICATION_OPT],
     "<instance>", "Alters the parameters of an instance"),
   "shutdown": (
     GenericManyOps("shutdown", _ShutdownInstance), [ArgInstance()],

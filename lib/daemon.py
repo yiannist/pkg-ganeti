@@ -679,7 +679,8 @@ def _HandleSigHup(reopen_fn, signum, frame): # pylint: disable=W0613
 def GenericMain(daemon_name, optionparser,
                 check_fn, prepare_fn, exec_fn,
                 multithreaded=False, console_logging=False,
-                default_ssl_cert=None, default_ssl_key=None):
+                default_ssl_cert=None, default_ssl_key=None,
+                warn_breach=False):
   """Shared main function for daemons.
 
   @type daemon_name: string
@@ -706,6 +707,10 @@ def GenericMain(daemon_name, optionparser,
   @param default_ssl_cert: Default SSL certificate path
   @type default_ssl_key: string
   @param default_ssl_key: Default SSL key path
+  @type warn_breach: bool
+  @param warn_breach: issue a warning at daemon launch time, before
+      daemonizing, about the possibility of breaking parameter privacy
+      invariants through the otherwise helpful debug logging.
 
   """
   optionparser.add_option("-f", "--foreground", dest="fork",
@@ -809,8 +814,28 @@ def GenericMain(daemon_name, optionparser,
 
   log_filename = constants.DAEMONS_LOGFILES[daemon_name]
 
+  # node-daemon logging in lib/http/server.py, _HandleServerRequestInner
+  if options.debug and warn_breach:
+    sys.stderr.write(constants.DEBUG_MODE_CONFIDENTIALITY_WARNING % daemon_name)
+
   if options.fork:
-    utils.CloseFDs()
+    # Newer GnuTLS versions (>= 3.3.0) use a library constructor for
+    # initialization and open /dev/urandom on library load time, way before we
+    # fork(). Closing /dev/urandom causes subsequent ganeti.http.client
+    # requests to fail and the process to receive a SIGABRT. As we cannot
+    # reliably detect GnuTLS's socket, we work our way around this by keeping
+    # all fds referring to /dev/urandom open.
+    noclose_fds = []
+    for fd in os.listdir("/proc/self/fd"):
+      try:
+        if os.readlink(os.path.join("/proc/self/fd", fd)) == "/dev/urandom":
+          noclose_fds.append(int(fd))
+      except EnvironmentError:
+        # The fd might have disappeared (although it shouldn't as we're running
+        # single-threaded).
+        continue
+
+    utils.CloseFDs(noclose_fds=noclose_fds)
     (wpipe, stdio_reopen_fn) = utils.Daemonize(logfile=log_filename)
   else:
     (wpipe, stdio_reopen_fn) = (None, None)

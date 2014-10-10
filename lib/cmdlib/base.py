@@ -62,6 +62,33 @@ class ResultWithJobs(object):
     self.other = kwargs
 
 
+class LUWConfdClient(object):
+  """Wrapper class for wconfd client calls from LUs.
+
+  Correctly updates the cache of the LU's owned locks
+  when leaving. Also transparently adds the context
+  for resource requests.
+
+  """
+  def __init__(self, lu):
+    self.lu = lu
+
+  def TryUpdateLocks(self, req):
+    self.lu.wconfd.Client().TryUpdateLocks(self.lu.wconfdcontext, req)
+    self.lu.wconfdlocks = \
+      self.lu.wconfd.Client().ListLocks(self.lu.wconfdcontext)
+
+  def DownGradeLocksLevel(self, level):
+    self.lu.wconfd.Client().DownGradeLocksLevel(self.lu.wconfdcontext, level)
+    self.lu.wconfdlocks = \
+      self.lu.wconfd.Client().ListLocks(self.lu.wconfdcontext)
+
+  def FreeLocksLevel(self, level):
+    self.lu.wconfd.Client().FreeLocksLevel(self.lu.wconfdcontext, level)
+    self.lu.wconfdlocks = \
+      self.lu.wconfd.Client().ListLocks(self.lu.wconfdcontext)
+
+
 class LogicalUnit(object):
   """Logical Unit base class.
 
@@ -85,29 +112,37 @@ class LogicalUnit(object):
   HTYPE = None
   REQ_BGL = True
 
-  def __init__(self, processor, op, context, rpc_runner):
+  def __init__(self, processor, op, context, cfg,
+               rpc_runner, wconfdcontext, wconfd):
     """Constructor for LogicalUnit.
 
     This needs to be overridden in derived classes in order to check op
     validity.
 
+    @type wconfdcontext: (int, string)
+    @param wconfdcontext: the identity of the logical unit to represent itself
+        to wconfd when asking for resources; it is given as job id and livelock
+        file.
+    @param wconfd: the wconfd class to use; dependency injection to allow
+        testability.
+
     """
     self.proc = processor
     self.op = op
-    self.cfg = context.cfg
-    self.glm = context.glm
-    # readability alias
-    self.owned_locks = context.glm.list_owned
+    self.cfg = cfg
+    self.wconfdlocks = []
+    self.wconfdcontext = wconfdcontext
     self.context = context
     self.rpc = rpc_runner
+    self.wconfd = wconfd # wconfd module to use, for testing
 
     # Dictionaries used to declare locking needs to mcpu
     self.needed_locks = None
     self.share_locks = dict.fromkeys(locking.LEVELS, 0)
     self.opportunistic_locks = dict.fromkeys(locking.LEVELS, False)
+    self.opportunistic_locks_count = dict.fromkeys(locking.LEVELS, 1)
 
     self.add_locks = {}
-    self.remove_locks = {}
 
     # Used to force good behavior when calling helper functions
     self.recalculate_locks = {}
@@ -131,6 +166,61 @@ class LogicalUnit(object):
     self.op.Validate(True)
 
     self.CheckArguments()
+
+  def WConfdClient(self):
+    return LUWConfdClient(self)
+
+  def owned_locks(self, level):
+    """Return the list of locks owned by the LU at a given level.
+
+    This method assumes that is field wconfdlocks is set correctly
+    by mcpu.
+
+    """
+    levelprefix = "%s/" % (locking.LEVEL_NAMES[level],)
+    locks = set([lock[0][len(levelprefix):]
+                for lock in self.wconfdlocks
+                if lock[0].startswith(levelprefix)])
+    expand_fns = {
+      locking.LEVEL_CLUSTER: (lambda: [locking.BGL]),
+      locking.LEVEL_INSTANCE:
+        lambda: self.cfg.GetInstanceNames(self.cfg.GetInstanceList()),
+      locking.LEVEL_NODE_ALLOC: (lambda: [locking.NAL]),
+      locking.LEVEL_NODEGROUP: self.cfg.GetNodeGroupList,
+      locking.LEVEL_NODE: self.cfg.GetNodeList,
+      locking.LEVEL_NODE_RES: self.cfg.GetNodeList,
+      locking.LEVEL_NETWORK: self.cfg.GetNetworkList,
+      }
+    if locking.LOCKSET_NAME in locks:
+      return expand_fns[level]()
+    else:
+      return locks
+
+  def release_request(self, level, names):
+    """Return a request to release the specified locks of the given level.
+
+    Correctly break up the group lock to do so.
+
+    """
+    levelprefix = "%s/" % (locking.LEVEL_NAMES[level],)
+    release = [[levelprefix + lock, "release"] for lock in names]
+
+    # if we break up the set-lock, make sure we ask for the rest of it.
+    setlock = levelprefix + locking.LOCKSET_NAME
+    if [setlock, "exclusive"] in self.wconfdlocks:
+      owned = self.owned_locks(level)
+      request = [[levelprefix + lock, "exclusive"]
+                 for lock in owned
+                 if lock not in names]
+    elif [setlock, "shared"] in self.wconfdlocks:
+      owned = self.owned_locks(level)
+      request = [[levelprefix + lock, "shared"]
+                 for lock in owned
+                 if lock not in names]
+    else:
+      request = []
+
+    return release + [[setlock, "release"]] + request
 
   def CheckArguments(self):
     """Check syntactic validity for the opcode arguments.
@@ -392,7 +482,8 @@ class LogicalUnit(object):
     for _, instance in self.cfg.GetMultiInstanceInfoByName(locked_i):
       wanted_node_uuids.append(instance.primary_node)
       if not primary_only:
-        wanted_node_uuids.extend(instance.secondary_nodes)
+        wanted_node_uuids.extend(
+          self.cfg.GetInstanceSecondaryNodes(instance.uuid))
 
     if self.recalculate_locks[level] == constants.LOCKS_REPLACE:
       self.needed_locks[level] = wanted_node_uuids
@@ -524,7 +615,6 @@ class QueryBase(object):
 
     # caller specified names and we must keep the same order
     assert self.names
-    assert not self.do_locking or lu.glm.is_owned(lock_level)
 
     missing = set(self.wanted).difference(names)
     if missing:

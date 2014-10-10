@@ -46,6 +46,7 @@ import errno
 from optparse import OptionParser
 
 from ganeti import utils
+from ganeti import wconfd
 from ganeti import constants
 from ganeti import compat
 from ganeti import errors
@@ -163,6 +164,9 @@ class Instance(object):
 
     """
     op = opcodes.OpInstanceStartup(instance_name=self.name, force=False)
+    op.reason = [(constants.OPCODE_REASON_SRC_WATCHER,
+                  "Restarting instance %s" % self.name,
+                  utils.EpochNano())]
     cli.SubmitOpCode(op, cl=cl)
 
   def ActivateDisks(self, cl):
@@ -170,6 +174,9 @@ class Instance(object):
 
     """
     op = opcodes.OpInstanceActivateDisks(instance_name=self.name)
+    op.reason = [(constants.OPCODE_REASON_SRC_WATCHER,
+                  "Activating disks for instance %s" % self.name,
+                  utils.EpochNano())]
     cli.SubmitOpCode(op, cl=cl)
 
   def NeedsCleanup(self):
@@ -218,6 +225,9 @@ def _CleanupInstance(cl, notepad, inst, locks):
   op = opcodes.OpInstanceShutdown(instance_name=inst.name,
                                   admin_state_source=constants.USER_SOURCE)
 
+  op.reason = [(constants.OPCODE_REASON_SRC_WATCHER,
+                "Cleaning up instance %s" % inst.name,
+                utils.EpochNano())]
   try:
     cli.SubmitOpCode(op, cl=cl)
     if notepad.NumberOfCleanupAttempts(inst.name):
@@ -341,8 +351,12 @@ def _VerifyDisks(cl, uuid, nodes, instances):
   """Run a per-group "gnt-cluster verify-disks".
 
   """
-  job_id = cl.SubmitJob([opcodes.OpGroupVerifyDisks(
-      group_name=uuid, priority=constants.OP_PRIO_LOW)])
+  op = opcodes.OpGroupVerifyDisks(
+    group_name=uuid, priority=constants.OP_PRIO_LOW)
+  op.reason = [(constants.OPCODE_REASON_SRC_WATCHER,
+                "Verifying disks of group %s" % uuid,
+                utils.EpochNano())]
+  job_id = cl.SubmitJob([op])
   ((_, offline_disk_instances, _), ) = \
     cli.PollJob(job_id, cl=cl, feedback_fn=logging.debug)
   cl.ArchiveJob(job_id)
@@ -415,6 +429,25 @@ def IsRapiResponding(hostname):
   else:
     logging.debug("Reported RAPI version %s", master_version)
     return master_version == constants.RAPI_VERSION
+
+
+def IsWconfdResponding():
+  """Probes an echo RPC to WConfD.
+
+  """
+  probe_string = "ganeti watcher probe %d" % time.time()
+
+  try:
+    result = wconfd.Client().Echo(probe_string)
+  except Exception, err: # pylint: disable=W0703
+    logging.warning("WConfd connection error: %s", err)
+    return False
+
+  if result != probe_string:
+    logging.warning("WConfd echo('%s') returned '%s'", probe_string, result)
+    return False
+
+  return True
 
 
 def ParseOptions():
@@ -554,15 +587,15 @@ def _MergeInstanceStatus(filename, pergroup_filename, groups):
   _WriteInstanceStatus(filename, inststatus)
 
 
-def GetLuxiClient(try_restart, query=False):
-  """Tries to connect to the master daemon.
+def GetLuxiClient(try_restart):
+  """Tries to connect to the luxi daemon.
 
   @type try_restart: bool
   @param try_restart: Whether to attempt to restart the master daemon
 
   """
   try:
-    return cli.GetClient(query=query)
+    return cli.GetClient()
   except errors.OpPrereqError, err:
     # this is, from cli.GetClient, a not-master case
     raise NotMasterError("Not on master node (%s)" % err)
@@ -571,14 +604,14 @@ def GetLuxiClient(try_restart, query=False):
     if not try_restart:
       raise
 
-    logging.warning("Master daemon seems to be down (%s), trying to restart",
+    logging.warning("Luxi daemon seems to be down (%s), trying to restart",
                     err)
 
-    if not utils.EnsureDaemon(constants.MASTERD):
+    if not utils.EnsureDaemon(constants.LUXID):
       raise errors.GenericError("Can't start the master daemon")
 
     # Retry the connection
-    return cli.GetClient(query=query)
+    return cli.GetClient()
 
 
 def _StartGroupChildren(cl, wait):
@@ -657,13 +690,13 @@ def _GlobalWatcher(opts):
 
   try:
     client = GetLuxiClient(True)
-    query_client = GetLuxiClient(True, query=True)
   except NotMasterError:
     # Don't proceed on non-master nodes
     return constants.EXIT_SUCCESS
 
   # we are on master now
   utils.EnsureDaemon(constants.RAPI)
+  utils.EnsureDaemon(constants.WCONFD)
 
   # If RAPI isn't responding to queries, try one restart
   logging.debug("Attempting to talk to remote API on %s",
@@ -677,11 +710,21 @@ def _GlobalWatcher(opts):
       logging.fatal("RAPI is not responding")
   logging.debug("Successfully talked to remote API")
 
+  # If WConfD isn't responding to queries, try one restart
+  logging.debug("Attempting to talk to WConfD")
+  if not IsWconfdResponding():
+    logging.warning("WConfD not responsive, restarting daemon")
+    utils.StopDaemon(constants.WCONFD)
+    utils.EnsureDaemon(constants.WCONFD)
+    logging.debug("Second attempt to talk to WConfD")
+    if not IsWconfdResponding():
+      logging.fatal("WConfD is not responding")
+
   _CheckMaster(client)
   _ArchiveJobs(client, opts.job_age)
 
   # Spawn child processes for all node groups
-  _StartGroupChildren(query_client, opts.wait_children)
+  _StartGroupChildren(client, opts.wait_children)
 
   return constants.EXIT_SUCCESS
 
@@ -802,11 +845,10 @@ def _GroupWatcher(opts):
   try:
     # Connect to master daemon
     client = GetLuxiClient(False)
-    query_client = GetLuxiClient(False, query=True)
 
     _CheckMaster(client)
 
-    (nodes, instances, locks) = _GetGroupData(query_client, group_uuid)
+    (nodes, instances, locks) = _GetGroupData(client, group_uuid)
 
     # Update per-group instance status file
     _UpdateInstanceStatus(inst_status_path, instances.values())

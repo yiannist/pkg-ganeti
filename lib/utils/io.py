@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 """
 
 import os
+import re
 import logging
 import shutil
 import tempfile
@@ -108,6 +109,7 @@ def ReadFile(file_name, size=-1, preread=None):
   @param preread: Function called before file is read
   @rtype: str
   @return: the (possibly partial) content of the file
+  @raise IOError: if the file cannot be opened
 
   """
   f = open(file_name, "r")
@@ -616,8 +618,8 @@ def FindFile(name, search_path, test=os.path.exists):
 
   @type name: str
   @param name: the name to look for
-  @type search_path: str
-  @param search_path: location to start at
+  @type search_path: iterable of string
+  @param search_path: locations to start at
   @type test: callable
   @param test: a function taking one argument that should return True
       if the a given object is valid; the default value is
@@ -676,6 +678,16 @@ def IsBelowDir(root, other_path):
     prepared_root = "%s%s" % (norm_root, os.sep)
 
   return os.path.commonprefix([prepared_root, norm_other]) == prepared_root
+
+
+URL_RE = re.compile(r'(https?|ftps?)://')
+
+
+def IsUrl(path):
+  """Check whether a path is a HTTP URL.
+
+  """
+  return URL_RE.match(path)
 
 
 def PathJoin(*args):

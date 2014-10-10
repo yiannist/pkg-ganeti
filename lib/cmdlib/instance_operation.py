@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -46,11 +46,11 @@ from ganeti import utils
 from ganeti.cmdlib.base import LogicalUnit, NoHooksLU
 from ganeti.cmdlib.common import INSTANCE_ONLINE, INSTANCE_DOWN, \
   CheckHVParams, CheckInstanceState, CheckNodeOnline, GetUpdatedParams, \
-  CheckOSParams, ShareAll
+  CheckOSParams, CheckOSImage, ShareAll
 from ganeti.cmdlib.instance_storage import StartInstanceDisks, \
-  ShutdownInstanceDisks
+  ShutdownInstanceDisks, ImageDisks
 from ganeti.cmdlib.instance_utils import BuildInstanceHookEnvByObject, \
-  CheckInstanceBridgesExist, CheckNodeFreeMemory, CheckNodeHasOS
+  CheckInstanceBridgesExist, CheckNodeFreeMemory, UpdateMetadata
 from ganeti.hypervisor import hv_base
 
 
@@ -104,7 +104,8 @@ class LUInstanceStartup(LogicalUnit):
     """Build hooks nodes.
 
     """
-    nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
+    nl = [self.cfg.GetMasterNode()] + \
+        list(self.cfg.GetInstanceNodes(self.instance.uuid))
     return (nl, nl)
 
   def CheckPrereq(self):
@@ -126,8 +127,8 @@ class LUInstanceStartup(LogicalUnit):
       filled_hvp.update(self.op.hvparams)
       hv_type = hypervisor.GetHypervisorClass(self.instance.hypervisor)
       hv_type.CheckParameterSyntax(filled_hvp)
-      CheckHVParams(self, self.instance.all_nodes, self.instance.hypervisor,
-                    filled_hvp)
+      CheckHVParams(self, self.cfg.GetInstanceNodes(self.instance.uuid),
+                    self.instance.hypervisor, filled_hvp)
 
     CheckInstanceState(self, self.instance, INSTANCE_ONLINE)
 
@@ -174,7 +175,7 @@ class LUInstanceStartup(LogicalUnit):
 
     """
     if not self.op.no_remember:
-      self.cfg.MarkInstanceUp(self.instance.uuid)
+      self.instance = self.cfg.MarkInstanceUp(self.instance.uuid)
 
     if self.primary_offline:
       assert self.op.ignore_offline_nodes
@@ -190,6 +191,7 @@ class LUInstanceStartup(LogicalUnit):
         ShutdownInstanceDisks(self, self.instance)
 
       StartInstanceDisks(self, self.instance, self.op.force)
+      self.instance = self.cfg.GetInstanceInfo(self.instance.uuid)
 
       result = \
         self.rpc.call_instance_start(self.instance.primary_node,
@@ -237,7 +239,8 @@ class LUInstanceShutdown(LogicalUnit):
     """Build hooks nodes.
 
     """
-    nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
+    nl = [self.cfg.GetMasterNode()] + \
+      list(self.cfg.GetInstanceNodes(self.instance.uuid))
     return (nl, nl)
 
   def CheckPrereq(self):
@@ -287,6 +290,8 @@ class LUInstanceShutdown(LogicalUnit):
     # If the instance is offline we shouldn't mark it as down, as that
     # resets the offline flag.
     if not self.op.no_remember and self.instance.admin_state in INSTANCE_ONLINE:
+      self.instance = self.cfg.MarkInstanceDown(self.instance.uuid)
+
       if self.op.admin_state_source == constants.ADMIN_SOURCE:
         self.cfg.MarkInstanceDown(self.instance.uuid)
       elif self.op.admin_state_source == constants.USER_SOURCE:
@@ -313,6 +318,9 @@ class LUInstanceReinstall(LogicalUnit):
   HTYPE = constants.HTYPE_INSTANCE
   REQ_BGL = False
 
+  def CheckArguments(self):
+    CheckOSImage(self.op)
+
   def ExpandNames(self):
     self._ExpandAndLockInstance()
 
@@ -328,7 +336,8 @@ class LUInstanceReinstall(LogicalUnit):
     """Build hooks nodes.
 
     """
-    nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
+    nl = [self.cfg.GetMasterNode()] + \
+      list(self.cfg.GetInstanceNodes(self.instance.uuid))
     return (nl, nl)
 
   def CheckPrereq(self):
@@ -349,47 +358,111 @@ class LUInstanceReinstall(LogicalUnit):
                                  errors.ECODE_INVAL)
     CheckInstanceState(self, instance, INSTANCE_DOWN, msg="cannot reinstall")
 
+    # Handle OS parameters
+    self._MergeValidateOsParams(instance)
+
+    self.instance = instance
+
+  def _MergeValidateOsParams(self, instance):
+    "Handle the OS parameter merging and validation for the target instance."
+    node_uuids = list(self.cfg.GetInstanceNodes(instance.uuid))
+
+    self.op.osparams = self.op.osparams or {}
+    self.op.osparams_private = self.op.osparams_private or {}
+    self.op.osparams_secret = self.op.osparams_secret or {}
+
+    # Handle the use of 'default' values.
+    params_public = GetUpdatedParams(instance.osparams, self.op.osparams)
+    params_private = GetUpdatedParams(instance.osparams_private,
+                                        self.op.osparams_private)
+    params_secret = self.op.osparams_secret
+
+    # Handle OS parameters
     if self.op.os_type is not None:
-      # OS verification
-      CheckNodeHasOS(self, instance.primary_node, self.op.os_type,
-                     self.op.force_variant)
       instance_os = self.op.os_type
     else:
       instance_os = instance.os
 
-    node_uuids = list(instance.all_nodes)
+    cluster = self.cfg.GetClusterInfo()
+    self.osparams = cluster.SimpleFillOS(
+      instance_os,
+      params_public,
+      os_params_private=params_private,
+      os_params_secret=params_secret
+    )
 
-    if self.op.osparams:
-      i_osdict = GetUpdatedParams(instance.osparams, self.op.osparams)
-      CheckOSParams(self, True, node_uuids, instance_os, i_osdict)
-      self.os_inst = i_osdict # the new dict (without defaults)
-    else:
-      self.os_inst = None
+    self.osparams_private = params_private
+    self.osparams_secret = params_secret
 
-    self.instance = instance
+    CheckOSParams(self, True, node_uuids, instance_os, self.osparams,
+                  self.op.force_variant)
+
+  def _ReinstallOSScripts(self, instance, osparams, debug_level):
+    """Reinstall OS scripts on an instance.
+
+    @type instance: L{objects.Instance}
+    @param instance: instance of which the OS scripts should run
+
+    @type osparams: L{dict}
+    @param osparams: OS parameters
+
+    @type debug_level: non-negative int
+    @param debug_level: debug level
+
+    @rtype: NoneType
+    @return: None
+    @raise errors.OpExecError: in case of failure
+
+    """
+    self.LogInfo("Running instance OS create scripts...")
+    result = self.rpc.call_instance_os_add(instance.primary_node,
+                                           (instance, osparams),
+                                           True,
+                                           debug_level)
+    result.Raise("Could not install OS for instance '%s' on node '%s'" %
+                 (instance.name, self.cfg.GetNodeName(instance.primary_node)))
 
   def Exec(self, feedback_fn):
     """Reinstall the instance.
 
     """
-    if self.op.os_type is not None:
-      feedback_fn("Changing OS to '%s'..." % self.op.os_type)
-      self.instance.os = self.op.os_type
-      # Write to configuration
-      self.cfg.Update(self.instance, feedback_fn)
+    os_image = objects.GetOSImage(self.op.osparams)
 
-    StartInstanceDisks(self, self.instance, None)
-    try:
-      feedback_fn("Running the instance OS create scripts...")
-      # FIXME: pass debug option from opcode to backend
-      result = self.rpc.call_instance_os_add(self.instance.primary_node,
-                                             (self.instance, self.os_inst),
-                                             True, self.op.debug_level)
-      result.Raise("Could not install OS for instance %s on node %s" %
-                   (self.instance.name,
-                    self.cfg.GetNodeName(self.instance.primary_node)))
-    finally:
-      ShutdownInstanceDisks(self, self.instance)
+    if os_image is not None:
+      feedback_fn("Using OS image '%s', not changing instance"
+                  " configuration" % os_image)
+    else:
+      os_image = objects.GetOSImage(self.instance.osparams)
+
+    os_type = self.op.os_type
+
+    if os_type is not None:
+      feedback_fn("Changing OS scripts to '%s'..." % os_type)
+      self.instance.os = os_type
+      self.cfg.Update(self.instance, feedback_fn)
+    else:
+      os_type = self.instance.os
+
+    if not os_image and not os_type:
+      self.LogInfo("No OS scripts or OS image specified or found in the"
+                   " instance's configuration, nothing to install")
+    else:
+      StartInstanceDisks(self, self.instance, None)
+      self.instance = self.cfg.GetInstanceInfo(self.instance.uuid)
+      try:
+        if os_image:
+          ImageDisks(self, self.instance, os_image)
+
+        if os_type:
+          self._ReinstallOSScripts(self.instance, self.osparams,
+                                   self.op.debug_level)
+
+        UpdateMetadata(feedback_fn, self.rpc, self.instance,
+                       osparams_public=self.osparams,
+                       osparams_private=self.osparams_private,
+                       osparams_secret=self.osparams_secret)
+      finally:
+        ShutdownInstanceDisks(self, self.instance)
 
 
 class LUInstanceReboot(LogicalUnit):
@@ -423,7 +496,8 @@ class LUInstanceReboot(LogicalUnit):
     """Build hooks nodes.
 
     """
-    nl = [self.cfg.GetMasterNode()] + list(self.instance.all_nodes)
+    nl = [self.cfg.GetMasterNode()] + \
+      list(self.cfg.GetInstanceNodes(self.instance.uuid))
     return (nl, nl)
 
   def CheckPrereq(self):
@@ -471,16 +545,19 @@ class LUInstanceReboot(LogicalUnit):
                                                  self.op.reason)
         result.Raise("Could not shutdown instance for full reboot")
         ShutdownInstanceDisks(self, self.instance)
+        self.instance = self.cfg.GetInstanceInfo(self.instance.uuid)
       else:
         self.LogInfo("Instance %s was already stopped, starting now",
                      self.instance.name)
       StartInstanceDisks(self, self.instance, self.op.ignore_secondaries)
+      self.instance = self.cfg.GetInstanceInfo(self.instance.uuid)
       result = self.rpc.call_instance_start(current_node_uuid,
                                             (self.instance, None, None), False,
                                             self.op.reason)
       msg = result.fail_msg
       if msg:
         ShutdownInstanceDisks(self, self.instance)
+        self.instance = self.cfg.GetInstanceInfo(self.instance.uuid)
         raise errors.OpExecError("Could not start instance for"
                                  " full reboot: %s" % msg)
 

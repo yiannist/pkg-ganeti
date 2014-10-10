@@ -73,7 +73,7 @@ case_LogFiles = do
   assertEqual "Mismatch in number of returned log files"
     (length decoded) (length daemons)
   mapM_ (uncurry (assertEqual "Different result after encoding/decoding")
-        ) $ zip decoded dfiles
+        ) $ zip dfiles decoded
 
 -- | Tests the compatibility between Haskell and Python users.
 case_UsersGroups :: Assertion
@@ -92,16 +92,20 @@ case_UsersGroups = do
               \         constants.NODED_USER,\n\
               \         constants.RAPI_USER,\n\
               \         constants.CONFD_USER,\n\
+              \         constants.WCONFD_USER,\n\
               \         constants.KVMD_USER,\n\
               \         constants.LUXID_USER,\n\
+              \         constants.METAD_USER,\n\
               \         constants.MOND_USER,\n\
               \        ]\n\
               \groups = [constants.MASTERD_GROUP,\n\
               \          constants.NODED_GROUP,\n\
               \          constants.RAPI_GROUP,\n\
               \          constants.CONFD_GROUP,\n\
+              \          constants.WCONFD_GROUP,\n\
               \          constants.KVMD_GROUP,\n\
               \          constants.LUXID_GROUP,\n\
+              \          constants.METAD_GROUP,\n\
               \          constants.MOND_GROUP,\n\
               \          constants.DAEMONS_GROUP,\n\
               \          constants.ADMIN_GROUP,\n\
@@ -123,9 +127,9 @@ case_UsersGroups = do
   assertEqual "Mismatch in number of returned users"
     (length py_groups) (length groups)
   mapM_ (uncurry (assertEqual "Different result for users")
-        ) $ zip py_users users
+        ) $ zip users py_users
   mapM_ (uncurry (assertEqual "Different result for groups")
-        ) $ zip py_groups groups
+        ) $ zip groups py_groups
 
 testSuite "Runtime"
           [ 'case_LogFiles

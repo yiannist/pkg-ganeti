@@ -120,7 +120,7 @@ def _PreparePaths(rootdir, hostname):
                        (_ROOTDIR_ENVNAME, _HOSTNAME_ENVNAME))
 
   if rootdir:
-    assert rootdir == os.path.normpath(rootdir)
+    assert rootdir == os.path.normpath(rootdir), "Not normalized: " + rootdir
 
     _CheckHostname(hostname)
 
@@ -200,14 +200,14 @@ def AddNodePrefix(path, _noderoot=_VIRT_NODEROOT):
   directory specified in the environment.
 
   """
-  assert os.path.isabs(path)
+  assert os.path.isabs(path), "Path not absolute: " + path
 
   if _noderoot:
     result = "%s/%s" % (_noderoot, path)
   else:
     result = path
 
-  assert os.path.isabs(result)
+  assert os.path.isabs(result), "Path not absolute: " + path
 
   return os.path.normpath(result)
 
@@ -219,7 +219,7 @@ def _RemoveNodePrefix(path, _noderoot=_VIRT_NODEROOT):
   path.
 
   """
-  assert os.path.isabs(path)
+  assert os.path.isabs(path), "Path not absolute: " + path
 
   norm_path = os.path.normpath(path)
 
@@ -237,7 +237,7 @@ def _RemoveNodePrefix(path, _noderoot=_VIRT_NODEROOT):
   else:
     result = norm_path
 
-  assert os.path.isabs(result)
+  assert os.path.isabs(result), "Path not absolute: " + path
 
   return result
 
@@ -250,7 +250,7 @@ def MakeVirtualPath(path, _noderoot=_VIRT_NODEROOT):
   undo the process. Virtual paths are meant to be transported via RPC.
 
   """
-  assert os.path.isabs(path)
+  assert os.path.isabs(path), "Path not absolute: " + path
 
   if _noderoot and path not in _VPATH_WHITELIST:
     return _VIRT_PATH_PREFIX + _RemoveNodePrefix(path, _noderoot=_noderoot)
@@ -266,7 +266,7 @@ def LocalizeVirtualPath(path, _noderoot=_VIRT_NODEROOT):
   Virtual paths are meant to be transported via RPC.
 
   """
-  assert os.path.isabs(path)
+  assert os.path.isabs(path), "Path not absolute: " + path
 
   if _noderoot and path not in _VPATH_WHITELIST:
     if path.startswith(_VIRT_PATH_PREFIX):

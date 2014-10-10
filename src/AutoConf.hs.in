@@ -7,7 +7,7 @@ from @AutoConf.hs.in@.
 
 {-
 
-Copyright (C) 2013 Google Inc.
+Copyright (C) 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -121,6 +121,9 @@ ipPath = "IP_PATH"
 socatPath :: String
 socatPath = "SOCAT_PATH"
 
+pythonPath :: String
+pythonPath = "PYTHON_PATH"
+
 socatUseEscape :: Bool
 socatUseEscape = SOCAT_USE_ESCAPE
 
@@ -169,6 +172,12 @@ masterdUser = "MASTERD_USER"
 masterdGroup :: String
 masterdGroup = "MASTERD_GROUP"
 
+metadUser :: String
+metadUser = "METAD_USER"
+
+metadGroup :: String
+metadGroup = "METAD_GROUP"
+
 rapiUser :: String
 rapiUser = "RAPI_USER"
 
@@ -180,6 +189,12 @@ confdUser = "CONFD_USER"
 
 confdGroup :: String
 confdGroup = "CONFD_GROUP"
+
+wconfdUser :: String
+wconfdUser = "WCONFD_USER"
+
+wconfdGroup :: String
+wconfdGroup = "WCONFD_GROUP"
 
 kvmdUser :: String
 kvmdUser = "KVMD_USER"
@@ -225,6 +240,9 @@ enableRestrictedCommands = ENABLE_RESTRICTED_COMMANDS
 
 enableMond :: Bool
 enableMond = ENABLE_MOND
+
+enableMetad :: Bool
+enableMetad = ENABLE_METADATA
 
 hasGnuLn :: Bool
 hasGnuLn = HAS_GNU_LN

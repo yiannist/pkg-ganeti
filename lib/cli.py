@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -53,6 +53,7 @@ from ganeti import netutils
 from ganeti import qlang
 from ganeti import objects
 from ganeti import pathutils
+from ganeti import serializer
 
 from ganeti.runtime import (GetClient)
 
@@ -79,6 +80,7 @@ __all__ = [
   "CLUSTER_DOMAIN_SECRET_OPT",
   "CONFIRM_OPT",
   "CP_SIZE_OPT",
+  "COMPRESSION_TOOLS_OPT",
   "DEBUG_OPT",
   "DEBUG_SIMERR_OPT",
   "DISKIDX_OPT",
@@ -126,10 +128,14 @@ __all__ = [
   "IGNORE_SIZE_OPT",
   "INCLUDEDEFAULTS_OPT",
   "INTERVAL_OPT",
+  "INSTALL_IMAGE_OPT",
+  "INSTANCE_COMMUNICATION_OPT",
+  "INSTANCE_COMMUNICATION_NETWORK_OPT",
   "MAC_PREFIX_OPT",
   "MAINTAIN_NODE_HEALTH_OPT",
   "MASTER_NETDEV_OPT",
   "MASTER_NETMASK_OPT",
+  "MAX_TRACK_OPT",
   "MC_OPT",
   "MIGRATION_MODE_OPT",
   "MODIFY_ETCHOSTS_OPT",
@@ -173,8 +179,10 @@ __all__ = [
   "ON_PRIMARY_OPT",
   "ON_SECONDARY_OPT",
   "OFFLINE_OPT",
-  "OSPARAMS_OPT",
   "OS_OPT",
+  "OSPARAMS_OPT",
+  "OSPARAMS_PRIVATE_OPT",
+  "OSPARAMS_SECRET_OPT",
   "OS_SIZE_OPT",
   "OOB_TIMEOUT_OPT",
   "POWER_DELAY_OPT",
@@ -235,6 +243,12 @@ __all__ = [
   "VG_NAME_OPT",
   "WFSYNC_OPT",
   "YES_DOIT_OPT",
+  "ZEROING_IMAGE_OPT",
+  "ZERO_FREE_SPACE_OPT",
+  "HELPER_STARTUP_TIMEOUT_OPT",
+  "HELPER_SHUTDOWN_TIMEOUT_OPT",
+  "ZEROING_TIMEOUT_FIXED_OPT",
+  "ZEROING_TIMEOUT_PER_MIB_OPT",
   "DISK_STATE_OPT",
   "HV_STATE_OPT",
   "IGNORE_IPOLICY_OPT",
@@ -356,6 +370,7 @@ _QFT_NAMES = {
   constants.QFT_TEXT: "Text",
   constants.QFT_BOOL: "Boolean",
   constants.QFT_NUMBER: "Number",
+  constants.QFT_NUMBER_FLOAT: "Floating-point number",
   constants.QFT_UNIT: "Storage size",
   constants.QFT_TIMESTAMP: "Timestamp",
   constants.QFT_OTHER: "Custom",
@@ -540,7 +555,7 @@ def ListTags(opts, args):
 
   """
   kind, name = _ExtractTagsObject(opts, args)
-  cl = GetClient(query=True)
+  cl = GetClient()
   result = cl.QueryTags(kind, name)
   result = list(result)
   result.sort()
@@ -691,6 +706,15 @@ def check_key_val(option, opt, value):  # pylint: disable=W0613
   return _SplitKeyVal(opt, value, True)
 
 
+def check_key_private_val(option, opt, value):  # pylint: disable=W0613
+  """Custom parser class for private and secret key=val,key=val options.
+
+  This will store the parsed values as a dict {key: val}.
+
+  """
+  return serializer.PrivateDict(_SplitKeyVal(opt, value, True))
+
+
 def _SplitListKeyVal(opt, value):
   retval = {}
   for elem in value.split("/"):
@@ -793,6 +817,7 @@ class CliOption(Option):
     "multilistidentkeyval",
     "identkeyval",
     "keyval",
+    "keyprivateval",
     "unit",
     "bool",
     "list",
@@ -802,6 +827,7 @@ class CliOption(Option):
   TYPE_CHECKER["multilistidentkeyval"] = check_multilist_ident_key_val
   TYPE_CHECKER["identkeyval"] = check_ident_key_val
   TYPE_CHECKER["keyval"] = check_key_val
+  TYPE_CHECKER["keyprivateval"] = check_key_private_val
   TYPE_CHECKER["unit"] = check_unit
   TYPE_CHECKER["bool"] = check_bool
   TYPE_CHECKER["list"] = check_list
@@ -951,6 +977,21 @@ OS_OPT = cli_option("-o", "--os-type", dest="os", help="What OS to run",
 OSPARAMS_OPT = cli_option("-O", "--os-parameters", dest="osparams",
                           type="keyval", default={},
                           help="OS parameters")
+
+OSPARAMS_PRIVATE_OPT = cli_option("--os-parameters-private",
+                                  dest="osparams_private",
+                                  type="keyprivateval",
+                                  default=serializer.PrivateDict(),
+                                  help="Private OS parameters"
+                                       " (won't be logged)")
+
+OSPARAMS_SECRET_OPT = cli_option("--os-parameters-secret",
+                                 dest="osparams_secret",
+                                 type="keyprivateval",
+                                 default=serializer.PrivateDict(),
+                                 help="Secret OS parameters (won't be logged or"
+                                      " saved; you must supply these for every"
+                                      " operation.)")
 
 FORCE_VARIANT_OPT = cli_option("--force-variant", dest="force_variant",
                                action="store_true", default=False,
@@ -1301,6 +1342,17 @@ RQL_OPT = cli_option("--max-running-jobs", dest="max_running_jobs",
                      type="int", help="Set the maximal number of jobs to "
                                       "run simultaneously")
 
+MAX_TRACK_OPT = cli_option("--max-tracked-jobs", dest="max_tracked_jobs",
+                           type="int", help="Set the maximal number of jobs to "
+                                            "be tracked simultaneously for "
+                                            "scheduling")
+
+COMPRESSION_TOOLS_OPT = \
+    cli_option("--compression-tools",
+               dest="compression_tools", type="string", default=None,
+               help="Comma-separated list of compression tools which are"
+                    " allowed to be used by Ganeti in various operations")
+
 VG_NAME_OPT = cli_option("--vg-name", dest="vg_name",
                          help=("Enables LVM and specifies the volume group"
                                " name (cluster-wide) for disk allocation"
@@ -1407,13 +1459,12 @@ TIMEOUT_OPT = cli_option("--timeout", dest="timeout", type="int",
                          help="Maximum time to wait")
 
 COMPRESS_OPT = cli_option("--compress", dest="compress",
-                          default=constants.IEC_NONE,
-                          help="The compression mode to use",
-                          choices=list(constants.IEC_ALL))
+                          type="string", default=constants.IEC_NONE,
+                          help="The compression mode to use")
 
 TRANSPORT_COMPRESSION_OPT = \
     cli_option("--transport-compression", dest="transport_compression",
-               default=constants.IEC_NONE, choices=list(constants.IEC_ALL),
+               type="string", default=constants.IEC_NONE,
                help="The compression mode to use during transport")
 
 SHUTDOWN_TIMEOUT_OPT = cli_option("--shutdown-timeout",
@@ -1572,6 +1623,11 @@ PRIORITY_OPT = cli_option("--priority", default=None, dest="priority",
                           callback=_PriorityOptionCb,
                           help="Priority for opcode processing")
 
+OPPORTUNISTIC_OPT = cli_option("--opportunistic-locking",
+                               dest="opportunistic_locking",
+                               action="store_true", default=False,
+                               help="Opportunistically acquire locks")
+
 HID_OS_OPT = cli_option("--hidden", dest="hidden",
                         type="bool", default=None, metavar=_YORNO,
                         help="Sets the hidden flag on the OS")
@@ -1720,6 +1776,59 @@ HOTPLUG_IF_POSSIBLE_OPT = cli_option("--hotplug-if-possible",
                                      help="Hotplug devices in case"
                                           " hotplug is supported")
 
+INSTALL_IMAGE_OPT = \
+    cli_option("--install-image",
+               dest="install_image",
+               action="store",
+               type="string",
+               default=None,
+               help="The OS image to use for running the OS scripts safely")
+
+INSTANCE_COMMUNICATION_OPT = \
+    cli_option("-c", "--communication",
+               dest="instance_communication",
+               help=constants.INSTANCE_COMMUNICATION_DOC,
+               type="bool")
+
+INSTANCE_COMMUNICATION_NETWORK_OPT = \
+    cli_option("--instance-communication-network",
+               dest="instance_communication_network",
+               type="string",
+               help="Set the network name for instance communication")
+
+ZEROING_IMAGE_OPT = \
+    cli_option("--zeroing-image",
+               dest="zeroing_image", action="store", default=None,
+               help="The OS image to use to zero instance disks")
+
+ZERO_FREE_SPACE_OPT = \
+    cli_option("--zero-free-space",
+               dest="zero_free_space", action="store_true", default=False,
+               help="Whether to zero the free space on the disks of the "
+                    "instance prior to the export")
+
+HELPER_STARTUP_TIMEOUT_OPT = \
+    cli_option("--helper-startup-timeout",
+               dest="helper_startup_timeout", action="store", type="int",
+               help="Startup timeout for the helper VM")
+
+HELPER_SHUTDOWN_TIMEOUT_OPT = \
+    cli_option("--helper-shutdown-timeout",
+               dest="helper_shutdown_timeout", action="store", type="int",
+               help="Shutdown timeout for the helper VM")
+
+ZEROING_TIMEOUT_FIXED_OPT = \
+    cli_option("--zeroing-timeout-fixed",
+               dest="zeroing_timeout_fixed", action="store", type="int",
+               help="The fixed amount of time to wait before assuming that the "
+                    "zeroing failed")
+
+ZEROING_TIMEOUT_PER_MIB_OPT = \
+    cli_option("--zeroing-timeout-per-mib",
+               dest="zeroing_timeout_per_mib", action="store", type="float",
+               help="The amount of time to wait per MiB of data to zero, in "
+                    "addition to the fixed timeout")
+
 #: Options provided by all commands
 COMMON_OPTS = [DEBUG_OPT, REASON_OPT]
 
@@ -1748,7 +1857,10 @@ COMMON_CREATE_OPTS = [
   NONICS_OPT,
   NWSYNC_OPT,
   OSPARAMS_OPT,
+  OSPARAMS_PRIVATE_OPT,
+  OSPARAMS_SECRET_OPT,
   OS_SIZE_OPT,
+  OPPORTUNISTIC_OPT,
   SUBMIT_OPT,
   PRINT_JOBID_OPT,
   TAG_ADD_OPT,
@@ -2591,7 +2703,7 @@ def GenericMain(commands, override=None, aliases=None,
   utils.SetupLogging(pathutils.LOG_COMMANDS, logname, debug=options.debug,
                      stderr_logging=True)
 
-  logging.info("Command line: %s", cmdline)
+  logging.debug("Command line: %s", cmdline)
 
   try:
     result = func(options, args)
@@ -2752,6 +2864,12 @@ def GenericInstanceCreate(mode, opts, args):
   utils.ForceDictType(hvparams, constants.HVS_PARAMETER_TYPES)
   FixHvParams(hvparams)
 
+  osparams_private = opts.osparams_private or serializer.PrivateDict()
+  osparams_secret = opts.osparams_secret or serializer.PrivateDict()
+
+  helper_startup_timeout = opts.helper_startup_timeout
+  helper_shutdown_timeout = opts.helper_shutdown_timeout
+
   if mode == constants.INSTANCE_CREATE:
     start = opts.start
     os_type = opts.os
@@ -2761,6 +2879,10 @@ def GenericInstanceCreate(mode, opts, args):
     no_install = opts.no_install
     identify_defaults = False
     compress = constants.IEC_NONE
+    if opts.instance_communication is None:
+      instance_communication = False
+    else:
+      instance_communication = opts.instance_communication
   elif mode == constants.INSTANCE_IMPORT:
     start = False
     os_type = None
@@ -2770,36 +2892,44 @@ def GenericInstanceCreate(mode, opts, args):
     no_install = None
     identify_defaults = opts.identify_defaults
     compress = opts.compress
+    instance_communication = False
   else:
     raise errors.ProgrammerError("Invalid creation mode %s" % mode)
 
-  op = opcodes.OpInstanceCreate(instance_name=instance,
-                                disks=disks,
-                                disk_template=opts.disk_template,
-                                nics=nics,
-                                conflicts_check=opts.conflicts_check,
-                                pnode=pnode, snode=snode,
-                                ip_check=opts.ip_check,
-                                name_check=opts.name_check,
-                                wait_for_sync=opts.wait_for_sync,
-                                file_storage_dir=opts.file_storage_dir,
-                                file_driver=opts.file_driver,
-                                iallocator=opts.iallocator,
-                                hypervisor=hypervisor,
-                                hvparams=hvparams,
-                                beparams=opts.beparams,
-                                osparams=opts.osparams,
-                                mode=mode,
-                                start=start,
-                                os_type=os_type,
-                                force_variant=force_variant,
-                                src_node=src_node,
-                                src_path=src_path,
-                                compress=compress,
-                                tags=tags,
-                                no_install=no_install,
-                                identify_defaults=identify_defaults,
-                                ignore_ipolicy=opts.ignore_ipolicy)
+  op = opcodes.OpInstanceCreate(
+    instance_name=instance,
+    disks=disks,
+    disk_template=opts.disk_template,
+    nics=nics,
+    conflicts_check=opts.conflicts_check,
+    pnode=pnode, snode=snode,
+    ip_check=opts.ip_check,
+    name_check=opts.name_check,
+    wait_for_sync=opts.wait_for_sync,
+    file_storage_dir=opts.file_storage_dir,
+    file_driver=opts.file_driver,
+    iallocator=opts.iallocator,
+    hypervisor=hypervisor,
+    hvparams=hvparams,
+    beparams=opts.beparams,
+    osparams=opts.osparams,
+    osparams_private=osparams_private,
+    osparams_secret=osparams_secret,
+    mode=mode,
+    opportunistic_locking=opts.opportunistic_locking,
+    start=start,
+    os_type=os_type,
+    force_variant=force_variant,
+    src_node=src_node,
+    src_path=src_path,
+    compress=compress,
+    tags=tags,
+    no_install=no_install,
+    identify_defaults=identify_defaults,
+    ignore_ipolicy=opts.ignore_ipolicy,
+    instance_communication=instance_communication,
+    helper_startup_timeout=helper_startup_timeout,
+    helper_shutdown_timeout=helper_shutdown_timeout)
 
   SubmitOrSend(op, opts)
   return 0
@@ -2919,18 +3049,15 @@ def RunWhileClusterStopped(feedback_fn, fn, *args):
 
   # This ensures we're running on the master daemon
   cl = GetClient()
-  # Query client
-  qcl = GetClient(query=True)
 
   (cluster_name, master_node) = \
     cl.QueryConfigValues(["cluster_name", "master_node"])
 
-  online_nodes = GetOnlineNodes([], cl=qcl)
-  ssh_ports = GetNodesSshPorts(online_nodes, qcl)
+  online_nodes = GetOnlineNodes([], cl=cl)
+  ssh_ports = GetNodesSshPorts(online_nodes, cl)
 
   # Don't keep a reference to the client. The master daemon will go away.
   del cl
-  del qcl
 
   assert master_node in online_nodes
 
@@ -3060,6 +3187,7 @@ _DEFAULT_FORMAT_QUERY = {
   constants.QFT_TEXT: (str, False),
   constants.QFT_BOOL: (_FormatBool, False),
   constants.QFT_NUMBER: (str, True),
+  constants.QFT_NUMBER_FLOAT: (str, True),
   constants.QFT_TIMESTAMP: (utils.FormatTime, False),
   constants.QFT_OTHER: (str, False),
   constants.QFT_UNKNOWN: (str, False),
@@ -3541,7 +3669,7 @@ def GetOnlineNodes(nodes, cl=None, nowarn=False, secondary_ips=False,
 
   """
   if cl is None:
-    cl = GetClient(query=True)
+    cl = GetClient()
 
   qfilter = []
 
@@ -3598,7 +3726,7 @@ def GetNodesSshPorts(nodes, cl):
   @param nodes: the names of nodes
   @type nodes: a list of strings
   @param cl: a client to use for the query
-  @type cl: L{Client}
+  @type cl: L{ganeti.luxi.Client}
   @return: the list of SSH ports corresponding to the nodes
   @rtype: a list of tuples
   """
@@ -3809,7 +3937,7 @@ class JobExecutor(object):
       return [row[1:3] for row in self.jobs]
 
 
-def FormatParamsDictInfo(param_dict, actual):
+def FormatParamsDictInfo(param_dict, actual, roman=False):
   """Formats a parameter dictionary.
 
   @type param_dict: dict
@@ -3824,9 +3952,10 @@ def FormatParamsDictInfo(param_dict, actual):
   ret = {}
   for (key, data) in actual.items():
     if isinstance(data, dict) and data:
-      ret[key] = FormatParamsDictInfo(param_dict.get(key, {}), data)
+      ret[key] = FormatParamsDictInfo(param_dict.get(key, {}), data, roman)
     else:
-      ret[key] = str(param_dict.get(key, "default (%s)" % data))
+      default_str = "default (%s)" % compat.TryToRoman(data, roman)
+      ret[key] = str(compat.TryToRoman(param_dict.get(key, default_str), roman))
   return ret
 
 
@@ -3838,7 +3967,7 @@ def _FormatListInfoDefault(data, def_data):
   return ret
 
 
-def FormatPolicyInfo(custom_ipolicy, eff_ipolicy, iscluster):
+def FormatPolicyInfo(custom_ipolicy, eff_ipolicy, iscluster, roman=False):
   """Formats an instance policy.
 
   @type custom_ipolicy: dict
@@ -3848,6 +3977,8 @@ def FormatPolicyInfo(custom_ipolicy, eff_ipolicy, iscluster):
       cluster
   @type iscluster: bool
   @param iscluster: the policy is at cluster level
+  @type roman: bool
+  @param roman: whether to print the values in roman numerals
   @rtype: list of pairs
   @return: formatted data, suitable for L{PrintGenericInfo}
 
@@ -3861,14 +3992,14 @@ def FormatPolicyInfo(custom_ipolicy, eff_ipolicy, iscluster):
     for (k, minmax) in enumerate(custom_minmax):
       minmax_out.append([
         ("%s/%s" % (key, k),
-         FormatParamsDictInfo(minmax[key], minmax[key]))
+         FormatParamsDictInfo(minmax[key], minmax[key], roman))
         for key in constants.ISPECS_MINMAX_KEYS
         ])
   else:
     for (k, minmax) in enumerate(eff_ipolicy[constants.ISPECS_MINMAX]):
       minmax_out.append([
         ("%s/%s" % (key, k),
-         FormatParamsDictInfo({}, minmax[key]))
+         FormatParamsDictInfo({}, minmax[key], roman))
         for key in constants.ISPECS_MINMAX_KEYS
         ])
   ret = [("bounds specs", minmax_out)]
@@ -3877,7 +4008,7 @@ def FormatPolicyInfo(custom_ipolicy, eff_ipolicy, iscluster):
     stdspecs = custom_ipolicy[constants.ISPECS_STD]
     ret.append(
       (constants.ISPECS_STD,
-       FormatParamsDictInfo(stdspecs, stdspecs))
+       FormatParamsDictInfo(stdspecs, stdspecs, roman))
       )
 
   ret.append(
@@ -3885,8 +4016,11 @@ def FormatPolicyInfo(custom_ipolicy, eff_ipolicy, iscluster):
      _FormatListInfoDefault(custom_ipolicy.get(constants.IPOLICY_DTS),
                             eff_ipolicy[constants.IPOLICY_DTS]))
     )
+  to_roman = compat.TryToRoman
   ret.extend([
-    (key, str(custom_ipolicy.get(key, "default (%s)" % eff_ipolicy[key])))
+    (key, str(to_roman(custom_ipolicy.get(key,
+                                          "default (%s)" % eff_ipolicy[key]),
+                       roman)))
     for key in constants.IPOLICY_PARAMETERS
     ])
   return ret
@@ -4155,6 +4289,39 @@ def CreateIPolicyFromOpts(ispecs_mem_size=None,
   return ipolicy_out
 
 
+def _NotAContainer(data):
+  """ Checks whether the input is not a container data type.
+
+  @rtype: bool
+
+  """
+  return not (isinstance(data, (list, dict, tuple)))
+
+
+def _GetAlignmentMapping(data):
+  """ Returns info about alignment if present in an encoded ordered dictionary.
+
+  @type data: list of tuple
+  @param data: The encoded ordered dictionary, as defined in
+               L{_SerializeGenericInfo}.
+  @rtype: dict of any to int
+  @return: The dictionary mapping alignment groups to the maximum length of the
+           dictionary key found in the group.
+
+  """
+  alignment_map = {}
+  for entry in data:
+    if len(entry) > 2:
+      group_key = entry[2]
+      key_length = len(entry[0])
+      if group_key in alignment_map:
+        alignment_map[group_key] = max(alignment_map[group_key], key_length)
+      else:
+        alignment_map[group_key] = key_length
+
+  return alignment_map
+
+
 def _SerializeGenericInfo(buf, data, level, afterkey=False):
   """Formatting core of L{PrintGenericInfo}.
 
@@ -4187,20 +4354,32 @@ def _SerializeGenericInfo(buf, data, level, afterkey=False):
         _SerializeGenericInfo(buf, data[key], level + 1, afterkey=True)
   elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], tuple):
     # list of tuples (an ordered dictionary)
+    # the tuples may have two or three members - key, value, and alignment group
+    # if the alignment group is present, align all values sharing the same group
     if afterkey:
       buf.write("\n")
       doindent = True
     else:
       doindent = False
-    for (key, val) in data:
+
+    alignment_mapping = _GetAlignmentMapping(data)
+    for entry in data:
+      key, val = entry[0:2]
       if doindent:
         buf.write(baseind * level)
       else:
         doindent = True
       buf.write(key)
       buf.write(": ")
+      if len(entry) > 2:
+        max_key_length = alignment_mapping[entry[2]]
+        buf.write(" " * (max_key_length - len(key)))
       _SerializeGenericInfo(buf, val, level + 1, afterkey=True)
-  elif isinstance(data, list):
+  elif isinstance(data, tuple) and all(map(_NotAContainer, data)):
+    # tuples with simple content are serialized as inline lists
+    buf.write("[%s]\n" % utils.CommaJoin(data))
+  elif isinstance(data, list) or isinstance(data, tuple):
+    # lists and tuples
     if not data:
       buf.write("\n")
     else:
@@ -4233,9 +4412,11 @@ def PrintGenericInfo(data):
       can be:
         - dictionaries, where keys are strings and values are of any of the
           types listed here
-        - lists of pairs (key, value), where key is a string and value is of
-          any of the types listed here; it's a way to encode ordered
-          dictionaries
+        - lists of tuples (key, value) or (key, value, alignment_group), where
+          key is a string, value is of any of the types listed here, and
+          alignment_group can be any hashable value; it's a way to encode
+          ordered dictionaries; any entries sharing the same alignment group are
+          aligned by appending whitespace before the value as needed
         - lists of any of the types listed here
         - strings
 

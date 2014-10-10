@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -48,13 +48,13 @@ import os
 import random
 import logging
 import time
+import threading
 import itertools
 
 from ganeti import errors
-from ganeti import locking
 from ganeti import utils
 from ganeti import constants
-import ganeti.rpc.node as rpc
+import ganeti.wconfd as wc
 from ganeti import objects
 from ganeti import serializer
 from ganeti import uidpool
@@ -64,7 +64,58 @@ from ganeti import pathutils
 from ganeti import network
 
 
-_config_lock = locking.SharedLock("ConfigWriter")
+def GetWConfdContext(ec_id, livelock):
+  """Prepare a context for communication with WConfd.
+
+  WConfd needs to know the identity of each caller to properly manage locks and
+  detect job death. This helper function prepares the identity object given a
+  job ID (optional) and a livelock file.
+
+  @type ec_id: int, or None
+  @param ec_id: the job ID or None, if the caller isn't a job
+  @type livelock: L{ganeti.utils.livelock.LiveLock}
+  @param livelock: a livelock object holding the lockfile needed for WConfd
+  @return: the WConfd context
+
+  """
+  if ec_id is None:
+    return (threading.current_thread().getName(),
+            livelock.GetPath(), os.getpid())
+  else:
+    return (ec_id,
+            livelock.GetPath(), os.getpid())
+
+
+def GetConfig(ec_id, livelock, **kwargs):
+  """A utility function for constructing instances of ConfigWriter.
+
+  It prepares a WConfd context and uses it to create a ConfigWriter instance.
+
+  @type ec_id: int, or None
+  @param ec_id: the job ID or None, if the caller isn't a job
+  @type livelock: L{ganeti.utils.livelock.LiveLock}
+  @param livelock: a livelock object holding the lockfile needed for WConfd
+  @type kwargs: dict
+  @param kwargs: Any additional arguments for the ConfigWriter constructor
+  @rtype: L{ConfigWriter}
+  @return: the ConfigWriter context
+
+  """
+  kwargs['wconfdcontext'] = GetWConfdContext(ec_id, livelock)
+  kwargs['wconfd'] = wc.Client()
+  return ConfigWriter(**kwargs)
+
+
+def _ConfigSync(shared=0):
+  """Configuration synchronization decorator.
+
+  """
+  def wrap(fn):
+    def sync_function(*args, **kwargs):
+      with args[0].GetConfigManager(shared):
+        return fn(*args, **kwargs)
+    return sync_function
+  return wrap
 
 # job id used for resource management at config upgrade time
 _UPGRADE_CONFIG_JID = "jid-cfg-upgrade"
@@ -177,18 +228,61 @@ def _CheckInstanceDiskIvNames(disks):
   return result
 
 
+class ConfigManager(object):
+  """Locks the configuration and exposes it to be read or modified.
+
+  """
+  def __init__(self, config_writer, shared=False):
+    assert isinstance(config_writer, ConfigWriter), \
+           "invalid argument: Not a ConfigWriter"
+    self._config_writer = config_writer
+    self._shared = shared
+
+  def __enter__(self):
+    try:
+      self._config_writer._OpenConfig(self._shared) # pylint: disable=W0212
+    except Exception:
+      logging.debug("Opening configuration failed")
+      try:
+        self._config_writer._CloseConfig(False) # pylint: disable=W0212
+      except Exception: # pylint: disable=W0703
+        logging.debug("Closing configuration failed as well")
+      raise
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    # save the configuration, if this was a write opreration that succeeded
+    if exc_type is not None:
+      logging.debug("Configuration operation failed,"
+                    " the changes will not be saved")
+    # pylint: disable=W0212
+    self._config_writer._CloseConfig(not self._shared and exc_type is None)
+    return False
+
+
+def _UpdateIvNames(base_idx, disks):
+  """Update the C{iv_name} attribute of disks.
+
+  @type disks: list of L{objects.Disk}
+
+  """
+  for (idx, disk) in enumerate(disks):
+    disk.iv_name = "disk/%s" % (base_idx + idx)
+
+
 class ConfigWriter(object):
   """The interface to the cluster configuration.
 
-  @ivar _temporary_lvs: reservation manager for temporary LVs
+  WARNING: The class is no longer thread-safe!
+  Each thread must construct a separate instance.
+
   @ivar _all_rms: a list of all temporary reservation managers
 
   """
   def __init__(self, cfg_file=None, offline=False, _getents=runtime.GetEnts,
-               accept_foreign=False):
+               accept_foreign=False, wconfdcontext=None, wconfd=None):
     self.write_count = 0
-    self._lock = _config_lock
     self._config_data = None
+    self._SetConfigData(None)
     self._offline = offline
     if cfg_file is None:
       self._cfg_file = pathutils.CLUSTER_CONF_FILE
@@ -196,35 +290,27 @@ class ConfigWriter(object):
       self._cfg_file = cfg_file
     self._getents = _getents
     self._temporary_ids = TemporaryReservationManager()
-    self._temporary_drbds = {}
-    self._temporary_macs = TemporaryReservationManager()
-    self._temporary_secrets = TemporaryReservationManager()
-    self._temporary_lvs = TemporaryReservationManager()
-    self._temporary_ips = TemporaryReservationManager()
-    self._all_rms = [self._temporary_ids, self._temporary_macs,
-                     self._temporary_secrets, self._temporary_lvs,
-                     self._temporary_ips]
-    # Note: in order to prevent errors when resolving our name in
-    # _DistributeConfig, we compute it here once and reuse it; it's
+    self._all_rms = [self._temporary_ids]
+    # Note: in order to prevent errors when resolving our name later,
+    # we compute it here once and reuse it; it's
     # better to raise an error before starting to modify the config
     # file than after it was modified
     self._my_hostname = netutils.Hostname.GetSysName()
-    self._last_cluster_serial = -1
     self._cfg_id = None
-    self._context = None
-    self._OpenConfig(accept_foreign)
+    self._wconfdcontext = wconfdcontext
+    self._wconfd = wconfd
+    self._accept_foreign = accept_foreign
+    self._lock_count = 0
+    self._lock_current_shared = None
 
-  def _GetRpc(self, address_list):
-    """Returns RPC runner for configuration.
+  def _ConfigData(self):
+    return self._config_data
 
-    """
-    return rpc.ConfigRunner(self._context, address_list)
+  def _SetConfigData(self, cfg):
+    self._config_data = cfg
 
-  def SetContext(self, context):
-    """Sets Ganeti context.
-
-    """
-    self._context = context
+  def _GetWConfdContext(self):
+    return self._wconfdcontext
 
   # this method needs to be static, so that we can call it on the class
   @staticmethod
@@ -234,7 +320,7 @@ class ConfigWriter(object):
     """
     return os.path.exists(pathutils.CLUSTER_CONF_FILE)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNdParams(self, node):
     """Get the node params populated with cluster defaults.
 
@@ -244,9 +330,9 @@ class ConfigWriter(object):
 
     """
     nodegroup = self._UnlockedGetNodeGroup(node.group)
-    return self._config_data.cluster.FillND(node, nodegroup)
+    return self._ConfigData().cluster.FillND(node, nodegroup)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNdGroupParams(self, nodegroup):
     """Get the node groups params populated with cluster defaults.
 
@@ -255,9 +341,9 @@ class ConfigWriter(object):
     @return: A dict with the filled in node group params
 
     """
-    return self._config_data.cluster.FillNDGroup(nodegroup)
+    return self._ConfigData().cluster.FillNDGroup(nodegroup)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceDiskParams(self, instance):
     """Get the disk params populated with inherit chain.
 
@@ -270,7 +356,315 @@ class ConfigWriter(object):
     nodegroup = self._UnlockedGetNodeGroup(node.group)
     return self._UnlockedGetGroupDiskParams(nodegroup)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  def _UnlockedGetInstanceDisks(self, inst_uuid):
+    """Return the disks' info for the given instance
+
+    @type inst_uuid: string
+    @param inst_uuid: The UUID of the instance we want to know the disks for
+
+    @rtype: List of L{objects.Disk}
+    @return: A list with all the disks' info
+
+    """
+    instance = self._UnlockedGetInstanceInfo(inst_uuid)
+    if instance is None:
+      raise errors.ConfigurationError("Unknown instance '%s'" % inst_uuid)
+
+    return [self._UnlockedGetDiskInfo(disk_uuid)
+            for disk_uuid in instance.disks]
+
+  @_ConfigSync(shared=1)
+  def GetInstanceDisks(self, inst_uuid):
+    """Return the disks' info for the given instance
+
+    This is a simple wrapper over L{_UnlockedGetInstanceDisks}.
+
+    """
+    return self._UnlockedGetInstanceDisks(inst_uuid)
+
+  def _UnlockedAddDisk(self, disk):
+    """Add a disk to the config.
+
+    @type disk: L{objects.Disk}
+    @param disk: The disk object
+
+    """
+    if not isinstance(disk, objects.Disk):
+      raise errors.ProgrammerError("Invalid type passed to _UnlockedAddDisk")
+
+    logging.info("Adding disk %s to configuration", disk.uuid)
+
+    self._CheckUniqueUUID(disk, include_temporary=False)
+    disk.serial_no = 1
+    disk.ctime = disk.mtime = time.time()
+    disk.UpgradeConfig()
+    self._ConfigData().disks[disk.uuid] = disk
+    self._ConfigData().cluster.serial_no += 1
+
+  def _UnlockedAttachInstanceDisk(self, inst_uuid, disk_uuid, idx=None):
+    """Attach a disk to an instance.
+
+    @type inst_uuid: string
+    @param inst_uuid: The UUID of the instance object
+    @type disk_uuid: string
+    @param disk_uuid: The UUID of the disk object
+    @type idx: int
+    @param idx: the index of the newly attached disk; if not
+      passed, the disk will be attached as the last one.
+
+    """
+    instance = self._UnlockedGetInstanceInfo(inst_uuid)
+    if instance is None:
+      raise errors.ConfigurationError("Instance %s doesn't exist"
+                                      % inst_uuid)
+    if disk_uuid not in self._ConfigData().disks:
+      raise errors.ConfigurationError("Disk %s doesn't exist" % disk_uuid)
+
+    if idx is None:
+      idx = len(instance.disks)
+    else:
+      if idx < 0:
+        raise IndexError("Not accepting negative indices other than -1")
+      elif idx > len(instance.disks):
+        raise IndexError("Got disk index %s, but there are only %s" %
+                         (idx, len(instance.disks)))
+
+    # Disk must not be attached anywhere else
+    for inst in self._ConfigData().instances.values():
+      if disk_uuid in inst.disks:
+        raise errors.ReservationError("Disk %s already attached to instance %s"
+                                      % (disk_uuid, inst.name))
+
+    instance.disks.insert(idx, disk_uuid)
+    instance_disks = self._UnlockedGetInstanceDisks(inst_uuid)
+    _UpdateIvNames(idx, instance_disks[idx:])
+    instance.serial_no += 1
+    instance.mtime = time.time()
+
+  @_ConfigSync()
+  def AddInstanceDisk(self, inst_uuid, disk, idx=None):
+    """Add a disk to the config and attach it to instance.
+
+    This is a simple wrapper over L{_UnlockedAddDisk} and
+    L{_UnlockedAttachInstanceDisk}.
+
+    """
+    self._UnlockedAddDisk(disk)
+    self._UnlockedAttachInstanceDisk(inst_uuid, disk.uuid, idx)
+
+  def _UnlockedDetachInstanceDisk(self, inst_uuid, disk_uuid):
+    """Detach a disk from an instance.
+
+    @type inst_uuid: string
+    @param inst_uuid: The UUID of the instance object
+    @type disk_uuid: string
+    @param disk_uuid: The UUID of the disk object
+
+    """
+    instance = self._UnlockedGetInstanceInfo(inst_uuid)
+    if instance is None:
+      raise errors.ConfigurationError("Instance %s doesn't exist"
+                                      % inst_uuid)
+    if disk_uuid not in self._ConfigData().disks:
+      raise errors.ConfigurationError("Disk %s doesn't exist" % disk_uuid)
+
+    # Check if disk is attached to the instance
+    if disk_uuid not in instance.disks:
+      raise errors.ProgrammerError("Disk %s is not attached to an instance"
+                                   % disk_uuid)
+
+    idx = instance.disks.index(disk_uuid)
+    instance.disks.remove(disk_uuid)
+    instance_disks = self._UnlockedGetInstanceDisks(inst_uuid)
+    _UpdateIvNames(idx, instance_disks[idx:])
+    instance.serial_no += 1
+    instance.mtime = time.time()
+
+  def _UnlockedRemoveDisk(self, disk_uuid):
+    """Remove the disk from the configuration.
+
+    @type disk_uuid: string
+    @param disk_uuid: The UUID of the disk object
+
+    """
+    if disk_uuid not in self._ConfigData().disks:
+      raise errors.ConfigurationError("Disk %s doesn't exist" % disk_uuid)
+
+    # Disk must not be attached anywhere
+    for inst in self._ConfigData().instances.values():
+      if disk_uuid in inst.disks:
+        raise errors.ReservationError("Cannot remove disk %s. Disk is"
+                                      " attached to instance %s"
+                                      % (disk_uuid, inst.name))
+
+    # Remove disk from config file
+    del self._ConfigData().disks[disk_uuid]
+    self._ConfigData().cluster.serial_no += 1
+
+  @_ConfigSync()
+  def RemoveInstanceDisk(self, inst_uuid, disk_uuid):
+    """Detach a disk from an instance and remove it from the config.
+
+    This is a simple wrapper over L{_UnlockedDetachInstanceDisk} and
+    L{_UnlockedRemoveDisk}.
+
+    """
+    self._UnlockedDetachInstanceDisk(inst_uuid, disk_uuid)
+    self._UnlockedRemoveDisk(disk_uuid)
+
+  def _UnlockedGetDiskInfo(self, disk_uuid):
+    """Returns information about a disk.
+
+    It takes the information from the configuration file.
+
+    @param disk_uuid: UUID of the disk
+
+    @rtype: L{objects.Disk}
+    @return: the disk object
+
+    """
+    if disk_uuid not in self._ConfigData().disks:
+      return None
+
+    return self._ConfigData().disks[disk_uuid]
+
+  @_ConfigSync(shared=1)
+  def GetDiskInfo(self, disk_uuid):
+    """Returns information about a disk.
+
+    This is a simple wrapper over L{_UnlockedGetDiskInfo}.
+
+    """
+    return self._UnlockedGetDiskInfo(disk_uuid)
+
+  def _AllInstanceNodes(self, inst_uuid):
+    """Compute the set of all disk-related nodes for an instance.
+
+    This abstracts away some work from '_UnlockedGetInstanceNodes'
+    and '_UnlockedGetInstanceSecondaryNodes'.
+
+    @type inst_uuid: string
+    @param inst_uuid: The UUID of the instance we want to get nodes for
+    @rtype: set of strings
+    @return: A set of names for all the nodes of the instance
+
+    """
+    instance = self._UnlockedGetInstanceInfo(inst_uuid)
+    if instance is None:
+      raise errors.ConfigurationError("Unknown instance '%s'" % inst_uuid)
+
+    instance_disks = self._UnlockedGetInstanceDisks(inst_uuid)
+    all_nodes = []
+    for disk in instance_disks:
+      all_nodes.extend(disk.all_nodes)
+    return (set(all_nodes), instance)
+
+  def _UnlockedGetInstanceNodes(self, inst_uuid):
+    """Get all disk-related nodes for an instance.
+
+    For non-DRBD, this will be empty, for DRBD it will contain both
+    the primary and the secondaries.
+
+    @type inst_uuid: string
+    @param inst_uuid: The UUID of the instance we want to get nodes for
+    @rtype: list of strings
+    @return: A list of names for all the nodes of the instance
+
+    """
+    (all_nodes, instance) = self._AllInstanceNodes(inst_uuid)
+    # ensure that primary node is always the first
+    all_nodes.discard(instance.primary_node)
+    return (instance.primary_node, ) + tuple(all_nodes)
+
+  @_ConfigSync(shared=1)
+  def GetInstanceNodes(self, inst_uuid):
+    """Get all disk-related nodes for an instance.
+
+    This is just a wrapper over L{_UnlockedGetInstanceNodes}
+
+    """
+    return self._UnlockedGetInstanceNodes(inst_uuid)
+
+  def _UnlockedGetInstanceSecondaryNodes(self, inst_uuid):
+    """Get the list of secondary nodes.
+
+    @type inst_uuid: string
+    @param inst_uuid: The UUID of the instance we want to get nodes for
+    @rtype: list of strings
+    @return: A list of names for all the secondary nodes of the instance
+
+    """
+    (all_nodes, instance) = self._AllInstanceNodes(inst_uuid)
+    all_nodes.discard(instance.primary_node)
+    return tuple(all_nodes)
+
+  @_ConfigSync(shared=1)
+  def GetInstanceSecondaryNodes(self, inst_uuid):
+    """Get the list of secondary nodes.
+
+    This is a simple wrapper over L{_UnlockedGetInstanceSecondaryNodes}.
+
+    """
+    return self._UnlockedGetInstanceSecondaryNodes(inst_uuid)
+
+  def _UnlockedGetInstanceLVsByNode(self, inst_uuid, lvmap=None):
+    """Provide a mapping of node to LVs a given instance owns.
+
+    @type inst_uuid: string
+    @param inst_uuid: The UUID of the instance we want to
+        compute the LVsByNode for
+    @type lvmap: dict
+    @param lvmap: Optional dictionary to receive the
+        'node' : ['lv', ...] data.
+    @rtype: dict or None
+    @return: None if lvmap arg is given, otherwise, a dictionary of
+        the form { 'node_uuid' : ['volume1', 'volume2', ...], ... };
+        volumeN is of the form "vg_name/lv_name", compatible with
+        GetVolumeList()
+
+    """
+    def _MapLVsByNode(lvmap, devices, node_uuid):
+      """Recursive helper function."""
+      if not node_uuid in lvmap:
+        lvmap[node_uuid] = []
+
+      for dev in devices:
+        if dev.dev_type == constants.DT_PLAIN:
+          lvmap[node_uuid].append(dev.logical_id[0] + "/" + dev.logical_id[1])
+
+        elif dev.dev_type in constants.DTS_DRBD:
+          if dev.children:
+            _MapLVsByNode(lvmap, dev.children, dev.logical_id[0])
+            _MapLVsByNode(lvmap, dev.children, dev.logical_id[1])
+
+        elif dev.children:
+          _MapLVsByNode(lvmap, dev.children, node_uuid)
+
+    instance = self._UnlockedGetInstanceInfo(inst_uuid)
+    if instance is None:
+      raise errors.ConfigurationError("Unknown instance '%s'" % inst_uuid)
+
+    if lvmap is None:
+      lvmap = {}
+      ret = lvmap
+    else:
+      ret = None
+
+    _MapLVsByNode(lvmap,
+                  self._UnlockedGetInstanceDisks(instance.uuid),
+                  instance.primary_node)
+    return ret
+
+  @_ConfigSync(shared=1)
+  def GetInstanceLVsByNode(self, inst_uuid, lvmap=None):
+    """Provide a mapping of node to LVs a given instance owns.
+
+    This is a simple wrapper over L{_UnlockedGetInstanceLVsByNode}
+
+    """
+    return self._UnlockedGetInstanceLVsByNode(inst_uuid, lvmap=lvmap)
+
+  @_ConfigSync(shared=1)
   def GetGroupDiskParams(self, group):
     """Get the disk params populated with inherit chain.
 
@@ -289,212 +683,116 @@ class ConfigWriter(object):
     @return: A dict with the filled in disk params
 
     """
-    return self._config_data.cluster.SimpleFillDP(group.diskparams)
+    data = self._ConfigData().cluster.SimpleFillDP(group.diskparams)
+    assert isinstance(data, dict), "Not a dictionary: " + str(data)
+    return data
 
-  def _UnlockedGetNetworkMACPrefix(self, net_uuid):
-    """Return the network mac prefix if it exists or the cluster level default.
-
-    """
-    prefix = None
-    if net_uuid:
-      nobj = self._UnlockedGetNetwork(net_uuid)
-      if nobj.mac_prefix:
-        prefix = nobj.mac_prefix
-
-    return prefix
-
-  def _GenerateOneMAC(self, prefix=None):
-    """Return a function that randomly generates a MAC suffic
-       and appends it to the given prefix. If prefix is not given get
-       the cluster level default.
-
-    """
-    if not prefix:
-      prefix = self._config_data.cluster.mac_prefix
-
-    def GenMac():
-      byte1 = random.randrange(0, 256)
-      byte2 = random.randrange(0, 256)
-      byte3 = random.randrange(0, 256)
-      mac = "%s:%02x:%02x:%02x" % (prefix, byte1, byte2, byte3)
-      return mac
-
-    return GenMac
-
-  @locking.ssynchronized(_config_lock, shared=1)
-  def GenerateMAC(self, net_uuid, ec_id):
+  def GenerateMAC(self, net_uuid, _ec_id):
     """Generate a MAC for an instance.
 
     This should check the current instances for duplicates.
 
     """
-    existing = self._AllMACs()
-    prefix = self._UnlockedGetNetworkMACPrefix(net_uuid)
-    gen_mac = self._GenerateOneMAC(prefix)
-    return self._temporary_ids.Generate(existing, gen_mac, ec_id)
+    return self._wconfd.GenerateMAC(self._GetWConfdContext(), net_uuid)
 
-  @locking.ssynchronized(_config_lock, shared=1)
-  def ReserveMAC(self, mac, ec_id):
+  def ReserveMAC(self, mac, _ec_id):
     """Reserve a MAC for an instance.
 
     This only checks instances managed by this cluster, it does not
     check for potential collisions elsewhere.
 
     """
-    all_macs = self._AllMACs()
-    if mac in all_macs:
-      raise errors.ReservationError("mac already in use")
-    else:
-      self._temporary_macs.Reserve(ec_id, mac)
+    self._wconfd.ReserveMAC(self._GetWConfdContext(), mac)
 
-  def _UnlockedCommitTemporaryIps(self, ec_id):
+  def _UnlockedCommitTemporaryIps(self, _ec_id):
     """Commit all reserved IP address to their respective pools
 
     """
-    for action, address, net_uuid in self._temporary_ips.GetECReserved(ec_id):
+    if self._offline:
+      raise errors.ProgrammerError("Can't call CommitTemporaryIps"
+                                   " in offline mode")
+    ips = self._wconfd.ListReservedIps(self._GetWConfdContext())
+    for action, address, net_uuid in ips:
       self._UnlockedCommitIp(action, net_uuid, address)
 
   def _UnlockedCommitIp(self, action, net_uuid, address):
     """Commit a reserved IP address to an IP pool.
 
-    The IP address is taken from the network's IP pool and marked as reserved.
+    The IP address is taken from the network's IP pool and marked as free.
 
     """
     nobj = self._UnlockedGetNetwork(net_uuid)
+    if nobj is None:
+      raise errors.ProgrammerError("Network '%s' not found" % (net_uuid, ))
     pool = network.AddressPool(nobj)
     if action == constants.RESERVE_ACTION:
       pool.Reserve(address)
     elif action == constants.RELEASE_ACTION:
       pool.Release(address)
 
-  def _UnlockedReleaseIp(self, net_uuid, address, ec_id):
+  def ReleaseIp(self, net_uuid, address, _ec_id):
     """Give a specific IP address back to an IP pool.
 
-    The IP address is returned to the IP pool designated by pool_id and marked
-    as reserved.
-
-    """
-    self._temporary_ips.Reserve(ec_id,
-                                (constants.RELEASE_ACTION, address, net_uuid))
-
-  @locking.ssynchronized(_config_lock, shared=1)
-  def ReleaseIp(self, net_uuid, address, ec_id):
-    """Give a specified IP address back to an IP pool.
-
-    This is just a wrapper around _UnlockedReleaseIp.
+    The IP address is returned to the IP pool and marked as reserved.
 
     """
     if net_uuid:
-      self._UnlockedReleaseIp(net_uuid, address, ec_id)
+      if self._offline:
+        raise errors.ProgrammerError("Can't call ReleaseIp in offline mode")
+      self._wconfd.ReleaseIp(self._GetWConfdContext(), net_uuid, address)
 
-  @locking.ssynchronized(_config_lock, shared=1)
-  def GenerateIp(self, net_uuid, ec_id):
+  def GenerateIp(self, net_uuid, _ec_id):
     """Find a free IPv4 address for an instance.
 
     """
-    nobj = self._UnlockedGetNetwork(net_uuid)
-    pool = network.AddressPool(nobj)
+    if self._offline:
+      raise errors.ProgrammerError("Can't call GenerateIp in offline mode")
+    return self._wconfd.GenerateIp(self._GetWConfdContext(), net_uuid)
 
-    def gen_one():
-      try:
-        ip = pool.GenerateFree()
-      except errors.AddressPoolError:
-        raise errors.ReservationError("Cannot generate IP. Network is full")
-      return (constants.RESERVE_ACTION, ip, net_uuid)
-
-    _, address, _ = self._temporary_ips.Generate([], gen_one, ec_id)
-    return address
-
-  def _UnlockedReserveIp(self, net_uuid, address, ec_id, check=True):
+  def ReserveIp(self, net_uuid, address, _ec_id, check=True):
     """Reserve a given IPv4 address for use by an instance.
 
     """
-    nobj = self._UnlockedGetNetwork(net_uuid)
-    pool = network.AddressPool(nobj)
-    try:
-      isreserved = pool.IsReserved(address)
-      isextreserved = pool.IsReserved(address, external=True)
-    except errors.AddressPoolError:
-      raise errors.ReservationError("IP address not in network")
-    if isreserved:
-      raise errors.ReservationError("IP address already in use")
-    if check and isextreserved:
-      raise errors.ReservationError("IP is externally reserved")
+    if self._offline:
+      raise errors.ProgrammerError("Can't call ReserveIp in offline mode")
+    return self._wconfd.ReserveIp(self._GetWConfdContext(), net_uuid, address,
+                                  check)
 
-    return self._temporary_ips.Reserve(ec_id,
-                                       (constants.RESERVE_ACTION,
-                                        address, net_uuid))
-
-  @locking.ssynchronized(_config_lock, shared=1)
-  def ReserveIp(self, net_uuid, address, ec_id, check=True):
-    """Reserve a given IPv4 address for use by an instance.
-
-    """
-    if net_uuid:
-      return self._UnlockedReserveIp(net_uuid, address, ec_id, check)
-
-  @locking.ssynchronized(_config_lock, shared=1)
-  def ReserveLV(self, lv_name, ec_id):
+  def ReserveLV(self, lv_name, _ec_id):
     """Reserve an VG/LV pair for an instance.
 
     @type lv_name: string
     @param lv_name: the logical volume name to reserve
 
     """
-    all_lvs = self._AllLVs()
-    if lv_name in all_lvs:
-      raise errors.ReservationError("LV already in use")
-    else:
-      self._temporary_lvs.Reserve(ec_id, lv_name)
+    return self._wconfd.ReserveLV(self._GetWConfdContext(), lv_name)
 
-  @locking.ssynchronized(_config_lock, shared=1)
-  def GenerateDRBDSecret(self, ec_id):
+  def GenerateDRBDSecret(self, _ec_id):
     """Generate a DRBD secret.
 
     This checks the current disks for duplicates.
 
     """
-    return self._temporary_secrets.Generate(self._AllDRBDSecrets(),
-                                            utils.GenerateSecret,
-                                            ec_id)
+    return self._wconfd.GenerateDRBDSecret(self._GetWConfdContext())
 
+  # FIXME: After _AllIDs is removed, move it to config_mock.py
   def _AllLVs(self):
     """Compute the list of all LVs.
 
     """
     lvnames = set()
-    for instance in self._config_data.instances.values():
-      node_data = instance.MapLVsByNode()
+    for instance in self._ConfigData().instances.values():
+      node_data = self._UnlockedGetInstanceLVsByNode(instance.uuid)
       for lv_list in node_data.values():
         lvnames.update(lv_list)
     return lvnames
-
-  def _AllDisks(self):
-    """Compute the list of all Disks (recursively, including children).
-
-    """
-    def DiskAndAllChildren(disk):
-      """Returns a list containing the given disk and all of his children.
-
-      """
-      disks = [disk]
-      if disk.children:
-        for child_disk in disk.children:
-          disks.extend(DiskAndAllChildren(child_disk))
-      return disks
-
-    disks = []
-    for instance in self._config_data.instances.values():
-      for disk in instance.disks:
-        disks.extend(DiskAndAllChildren(disk))
-    return disks
 
   def _AllNICs(self):
     """Compute the list of all NICs.
 
     """
     nics = []
-    for instance in self._config_data.instances.values():
+    for instance in self._ConfigData().instances.values():
       nics.extend(instance.nics)
     return nics
 
@@ -511,8 +809,8 @@ class ConfigWriter(object):
     if include_temporary:
       existing.update(self._temporary_ids.GetReserved())
     existing.update(self._AllLVs())
-    existing.update(self._config_data.instances.keys())
-    existing.update(self._config_data.nodes.keys())
+    existing.update(self._ConfigData().instances.keys())
+    existing.update(self._ConfigData().nodes.keys())
     existing.update([i.uuid for i in self._AllUUIDObjects() if i.uuid])
     return existing
 
@@ -529,7 +827,7 @@ class ConfigWriter(object):
     existing = self._AllIDs(include_temporary=False)
     return self._temporary_ids.Generate(existing, utils.NewUUID, ec_id)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GenerateUniqueID(self, ec_id):
     """Generate an unique ID.
 
@@ -549,7 +847,7 @@ class ConfigWriter(object):
 
     """
     result = []
-    for instance in self._config_data.instances.values():
+    for instance in self._ConfigData().instances.values():
       for nic in instance.nics:
         result.append(nic.mac)
 
@@ -571,34 +869,36 @@ class ConfigWriter(object):
           helper(child, result)
 
     result = []
-    for instance in self._config_data.instances.values():
-      for disk in instance.disks:
-        helper(disk, result)
+    for disk in self._ConfigData().disks.values():
+      helper(disk, result)
 
     return result
 
-  def _CheckDiskIDs(self, disk, l_ids):
-    """Compute duplicate disk IDs
+  @staticmethod
+  def _VerifyDisks(data, result):
+    """Per-disk verification checks
 
-    @type disk: L{objects.Disk}
-    @param disk: the disk at which to start searching
-    @type l_ids: list
-    @param l_ids: list of current logical ids
-    @rtype: list
-    @return: a list of error messages
+    Extends L{result} with diagnostic information about the disks.
+
+    @type data: see L{_ConfigData}
+    @param data: configuration data
+
+    @type result: list of strings
+    @param result: list containing diagnostic messages
 
     """
-    result = []
-    if disk.logical_id is not None:
-      if disk.logical_id in l_ids:
-        result.append("duplicate logical id %s" % str(disk.logical_id))
-      else:
-        l_ids.append(disk.logical_id)
-
-    if disk.children:
-      for child in disk.children:
-        result.extend(self._CheckDiskIDs(child, l_ids))
-    return result
+    instance_disk_uuids = [d for insts in data.instances.values()
+                           for d in insts.disks]
+    for disk_uuid in data.disks:
+      disk = data.disks[disk_uuid]
+      result.extend(["disk %s error: %s" % (disk.uuid, msg)
+                     for msg in disk.Verify()])
+      if disk.uuid != disk_uuid:
+        result.append("disk '%s' is indexed by wrong UUID '%s'" %
+                      (disk.name, disk_uuid))
+      if disk.uuid not in instance_disk_uuids:
+        result.append("disk '%s' is not attached to any instance" %
+                      disk.uuid)
 
   def _UnlockedVerifyConfig(self):
     """Verify function.
@@ -612,34 +912,19 @@ class ConfigWriter(object):
     result = []
     seen_macs = []
     ports = {}
-    data = self._config_data
+    data = self._ConfigData()
     cluster = data.cluster
-    seen_lids = []
 
-    # global cluster checks
-    if not cluster.enabled_hypervisors:
-      result.append("enabled hypervisors list doesn't have any entries")
-    invalid_hvs = set(cluster.enabled_hypervisors) - constants.HYPER_TYPES
-    if invalid_hvs:
-      result.append("enabled hypervisors contains invalid entries: %s" %
-                    utils.CommaJoin(invalid_hvs))
-    missing_hvp = (set(cluster.enabled_hypervisors) -
-                   set(cluster.hvparams.keys()))
-    if missing_hvp:
-      result.append("hypervisor parameters missing for the enabled"
-                    " hypervisor(s) %s" % utils.CommaJoin(missing_hvp))
-
-    if not cluster.enabled_disk_templates:
-      result.append("enabled disk templates list doesn't have any entries")
-    invalid_disk_templates = set(cluster.enabled_disk_templates) \
-                               - constants.DISK_TEMPLATES
-    if invalid_disk_templates:
-      result.append("enabled disk templates list contains invalid entries:"
-                    " %s" % utils.CommaJoin(invalid_disk_templates))
-
-    if cluster.master_node not in data.nodes:
-      result.append("cluster has invalid primary node '%s'" %
-                    cluster.master_node)
+    # First call WConfd to perform its checks, if we're not offline
+    if not self._offline:
+      try:
+        self._wconfd.VerifyConfig()
+      except errors.ConfigVerifyError, err:
+        try:
+          for msg in err.args[1]:
+            result.append(msg)
+        except IndexError:
+          pass
 
     def _helper(owner, attr, value, template):
       try:
@@ -715,6 +1000,8 @@ class ConfigWriter(object):
           )
         )
 
+    self._VerifyDisks(data, result)
+
     # per-instance checks
     for instance_uuid in data.instances:
       instance = data.instances[instance_uuid]
@@ -724,7 +1011,7 @@ class ConfigWriter(object):
       if instance.primary_node not in data.nodes:
         result.append("instance '%s' has invalid primary node '%s'" %
                       (instance.name, instance.primary_node))
-      for snode in instance.secondary_nodes:
+      for snode in self._UnlockedGetInstanceSecondaryNodes(instance.uuid):
         if snode not in data.nodes:
           result.append("instance '%s' has invalid secondary node '%s'" %
                         (instance.name, snode))
@@ -751,8 +1038,15 @@ class ConfigWriter(object):
         _helper("instance %s" % instance.name, "beparams",
                 cluster.FillBE(instance), constants.BES_PARAMETER_TYPES)
 
+      # check that disks exists
+      for disk_uuid in instance.disks:
+        if disk_uuid not in data.disks:
+          result.append("Instance '%s' has invalid disk '%s'" %
+                        (instance.name, disk_uuid))
+
+      instance_disks = self._UnlockedGetInstanceDisks(instance.uuid)
       # gather the drbd ports for duplicate checks
-      for (idx, dsk) in enumerate(instance.disks):
+      for (idx, dsk) in enumerate(instance_disks):
         if dsk.dev_type in constants.DTS_DRBD:
           tcp_port = dsk.logical_id[2]
           if tcp_port not in ports:
@@ -765,13 +1059,7 @@ class ConfigWriter(object):
           ports[net_port] = []
         ports[net_port].append((instance.name, "network port"))
 
-      # instance disk verify
-      for idx, disk in enumerate(instance.disks):
-        result.extend(["instance '%s' disk %d error: %s" %
-                       (instance.name, idx, msg) for msg in disk.Verify()])
-        result.extend(self._CheckDiskIDs(disk, seen_lids))
-
-      wrong_names = _CheckInstanceDiskIvNames(instance.disks)
+      wrong_names = _CheckInstanceDiskIvNames(instance_disks)
       if wrong_names:
         tmp = "; ".join(("name of disk %s should be '%s', but is '%s'" %
                          (idx, exp_name, actual_name))
@@ -855,10 +1143,7 @@ class ConfigWriter(object):
                 constants.NDS_PARAMETER_TYPES)
 
     # drbd minors check
-    _, duplicates = self._UnlockedComputeDRBDMap()
-    for node, minor, instance_a, instance_b in duplicates:
-      result.append("DRBD minor %d on node %s is assigned twice to instances"
-                    " %s and %s" % (minor, node, instance_a, instance_b))
+    # FIXME: The check for DRBD map needs to be implemented in WConfd
 
     # IP checks
     default_nicparams = cluster.nicparams[constants.PP_DEFAULT]
@@ -902,7 +1187,34 @@ class ConfigWriter(object):
 
     return result
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  def _UnlockedVerifyConfigAndLog(self, feedback_fn=None):
+    """Verify the configuration and log any errors.
+
+    The errors get logged as critical errors and also to the feedback function,
+    if given.
+
+    @param feedback_fn: Callable feedback function
+    @rtype: list
+    @return: a list of error messages; a non-empty list signifies
+        configuration errors
+
+    """
+    assert feedback_fn is None or callable(feedback_fn)
+
+    # Warn on config errors, but don't abort the save - the
+    # configuration has already been modified, and we can't revert;
+    # the best we can do is to warn the user and save as is, leaving
+    # recovery to the user
+    config_errors = self._UnlockedVerifyConfig()
+    if config_errors:
+      errmsg = ("Configuration data is not consistent: %s" %
+                (utils.CommaJoin(config_errors)))
+      logging.critical(errmsg)
+      if feedback_fn:
+        feedback_fn(errmsg)
+    return config_errors
+
+  @_ConfigSync(shared=1)
   def VerifyConfig(self):
     """Verify function.
 
@@ -915,7 +1227,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedVerifyConfig()
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def AddTcpUdpPort(self, port):
     """Adds a new port to the available port pool.
 
@@ -927,16 +1239,16 @@ class ConfigWriter(object):
     if not isinstance(port, int):
       raise errors.ProgrammerError("Invalid type passed for port")
 
-    self._config_data.cluster.tcpudp_port_pool.add(port)
+    self._ConfigData().cluster.tcpudp_port_pool.add(port)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetPortList(self):
     """Returns a copy of the current port list.
 
     """
-    return self._config_data.cluster.tcpudp_port_pool.copy()
+    return self._ConfigData().cluster.tcpudp_port_pool.copy()
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def AllocatePort(self):
     """Allocate a port.
 
@@ -946,83 +1258,38 @@ class ConfigWriter(object):
 
     """
     # If there are TCP/IP ports configured, we use them first.
-    if self._config_data.cluster.tcpudp_port_pool:
-      port = self._config_data.cluster.tcpudp_port_pool.pop()
+    if self._ConfigData().cluster.tcpudp_port_pool:
+      port = self._ConfigData().cluster.tcpudp_port_pool.pop()
     else:
-      port = self._config_data.cluster.highest_used_port + 1
+      port = self._ConfigData().cluster.highest_used_port + 1
       if port >= constants.LAST_DRBD_PORT:
         raise errors.ConfigurationError("The highest used port is greater"
                                         " than %s. Aborting." %
                                         constants.LAST_DRBD_PORT)
-      self._config_data.cluster.highest_used_port = port
-
-    self._WriteConfig()
+      self._ConfigData().cluster.highest_used_port = port
     return port
 
-  def _UnlockedComputeDRBDMap(self):
-    """Compute the used DRBD minor/nodes.
-
-    @rtype: (dict, list)
-    @return: dictionary of node_uuid: dict of minor: instance_uuid;
-        the returned dict will have all the nodes in it (even if with
-        an empty list), and a list of duplicates; if the duplicates
-        list is not empty, the configuration is corrupted and its caller
-        should raise an exception
-
-    """
-    def _AppendUsedMinors(get_node_name_fn, instance, disk, used):
-      duplicates = []
-      if disk.dev_type == constants.DT_DRBD8 and len(disk.logical_id) >= 5:
-        node_a, node_b, _, minor_a, minor_b = disk.logical_id[:5]
-        for node_uuid, minor in ((node_a, minor_a), (node_b, minor_b)):
-          assert node_uuid in used, \
-            ("Node '%s' of instance '%s' not found in node list" %
-             (get_node_name_fn(node_uuid), instance.name))
-          if minor in used[node_uuid]:
-            duplicates.append((node_uuid, minor, instance.uuid,
-                               used[node_uuid][minor]))
-          else:
-            used[node_uuid][minor] = instance.uuid
-      if disk.children:
-        for child in disk.children:
-          duplicates.extend(_AppendUsedMinors(get_node_name_fn, instance, child,
-                                              used))
-      return duplicates
-
-    duplicates = []
-    my_dict = dict((node_uuid, {}) for node_uuid in self._config_data.nodes)
-    for instance in self._config_data.instances.itervalues():
-      for disk in instance.disks:
-        duplicates.extend(_AppendUsedMinors(self._UnlockedGetNodeName,
-                                            instance, disk, my_dict))
-    for (node_uuid, minor), inst_uuid in self._temporary_drbds.iteritems():
-      if minor in my_dict[node_uuid] and my_dict[node_uuid][minor] != inst_uuid:
-        duplicates.append((node_uuid, minor, inst_uuid,
-                           my_dict[node_uuid][minor]))
-      else:
-        my_dict[node_uuid][minor] = inst_uuid
-    return my_dict, duplicates
-
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def ComputeDRBDMap(self):
     """Compute the used DRBD minor/nodes.
 
-    This is just a wrapper over L{_UnlockedComputeDRBDMap}.
+    This is just a wrapper over a call to WConfd.
 
     @return: dictionary of node_uuid: dict of minor: instance_uuid;
         the returned dict will have all the nodes in it (even if with
         an empty list).
 
     """
-    d_map, duplicates = self._UnlockedComputeDRBDMap()
-    if duplicates:
-      raise errors.ConfigurationError("Duplicate DRBD ports detected: %s" %
-                                      str(duplicates))
-    return d_map
+    if self._offline:
+      raise errors.ProgrammerError("Can't call ComputeDRBDMap in offline mode")
+    else:
+      return dict(map(lambda (k, v): (k, dict(v)),
+                      self._wconfd.ComputeDRBDMap()))
 
-  @locking.ssynchronized(_config_lock)
   def AllocateDRBDMinor(self, node_uuids, inst_uuid):
     """Allocate a drbd minor.
+
+    This is just a wrapper over a call to WConfd.
 
     The free minor will be automatically computed from the existing
     devices. A node can be given multiple times in order to allocate
@@ -1036,48 +1303,19 @@ class ConfigWriter(object):
     assert isinstance(inst_uuid, basestring), \
            "Invalid argument '%s' passed to AllocateDRBDMinor" % inst_uuid
 
-    d_map, duplicates = self._UnlockedComputeDRBDMap()
-    if duplicates:
-      raise errors.ConfigurationError("Duplicate DRBD ports detected: %s" %
-                                      str(duplicates))
-    result = []
-    for nuuid in node_uuids:
-      ndata = d_map[nuuid]
-      if not ndata:
-        # no minors used, we can start at 0
-        result.append(0)
-        ndata[0] = inst_uuid
-        self._temporary_drbds[(nuuid, 0)] = inst_uuid
-        continue
-      keys = ndata.keys()
-      keys.sort()
-      ffree = utils.FirstFree(keys)
-      if ffree is None:
-        # return the next minor
-        # TODO: implement high-limit check
-        minor = keys[-1] + 1
-      else:
-        minor = ffree
-      # double-check minor against current instances
-      assert minor not in d_map[nuuid], \
-             ("Attempt to reuse allocated DRBD minor %d on node %s,"
-              " already allocated to instance %s" %
-              (minor, nuuid, d_map[nuuid][minor]))
-      ndata[minor] = inst_uuid
-      # double-check minor against reservation
-      r_key = (nuuid, minor)
-      assert r_key not in self._temporary_drbds, \
-             ("Attempt to reuse reserved DRBD minor %d on node %s,"
-              " reserved for instance %s" %
-              (minor, nuuid, self._temporary_drbds[r_key]))
-      self._temporary_drbds[r_key] = inst_uuid
-      result.append(minor)
+    if self._offline:
+      raise errors.ProgrammerError("Can't call AllocateDRBDMinor"
+                                   " in offline mode")
+
+    result = self._wconfd.AllocateDRBDMinor(inst_uuid, node_uuids)
     logging.debug("Request to allocate drbd minors, input: %s, returning %s",
                   node_uuids, result)
     return result
 
   def _UnlockedReleaseDRBDMinors(self, inst_uuid):
     """Release temporary drbd minors allocated for a given instance.
+
+    This is just a wrapper over a call to WConfd.
 
     @type inst_uuid: string
     @param inst_uuid: the instance for which temporary minors should be
@@ -1086,11 +1324,13 @@ class ConfigWriter(object):
     """
     assert isinstance(inst_uuid, basestring), \
            "Invalid argument passed to ReleaseDRBDMinors"
-    for key, uuid in self._temporary_drbds.items():
-      if uuid == inst_uuid:
-        del self._temporary_drbds[key]
+    # in offline mode we allow the calls to release DRBD minors,
+    # because then nothing can be allocated anyway;
+    # this is useful for testing
+    if not self._offline:
+      self._wconfd.ReleaseDRBDMinors(inst_uuid)
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def ReleaseDRBDMinors(self, inst_uuid):
     """Release temporary drbd minors allocated for a given instance.
 
@@ -1107,43 +1347,43 @@ class ConfigWriter(object):
     """
     self._UnlockedReleaseDRBDMinors(inst_uuid)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetConfigVersion(self):
     """Get the configuration version.
 
     @return: Config version
 
     """
-    return self._config_data.version
+    return self._ConfigData().version
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetClusterName(self):
     """Get cluster name.
 
     @return: Cluster name
 
     """
-    return self._config_data.cluster.cluster_name
+    return self._ConfigData().cluster.cluster_name
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterNode(self):
     """Get the UUID of the master node for this cluster.
 
     @return: Master node UUID
 
     """
-    return self._config_data.cluster.master_node
+    return self._ConfigData().cluster.master_node
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterNodeName(self):
     """Get the hostname of the master node for this cluster.
 
     @return: Master node hostname
 
     """
-    return self._UnlockedGetNodeName(self._config_data.cluster.master_node)
+    return self._UnlockedGetNodeName(self._ConfigData().cluster.master_node)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterNodeInfo(self):
     """Get the master node information for this cluster.
 
@@ -1151,67 +1391,67 @@ class ConfigWriter(object):
     @return: Master node L{objects.Node} object
 
     """
-    return self._UnlockedGetNodeInfo(self._config_data.cluster.master_node)
+    return self._UnlockedGetNodeInfo(self._ConfigData().cluster.master_node)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterIP(self):
     """Get the IP of the master node for this cluster.
 
     @return: Master IP
 
     """
-    return self._config_data.cluster.master_ip
+    return self._ConfigData().cluster.master_ip
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterNetdev(self):
     """Get the master network device for this cluster.
 
     """
-    return self._config_data.cluster.master_netdev
+    return self._ConfigData().cluster.master_netdev
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterNetmask(self):
     """Get the netmask of the master node for this cluster.
 
     """
-    return self._config_data.cluster.master_netmask
+    return self._ConfigData().cluster.master_netmask
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetUseExternalMipScript(self):
     """Get flag representing whether to use the external master IP setup script.
 
     """
-    return self._config_data.cluster.use_external_mip_script
+    return self._ConfigData().cluster.use_external_mip_script
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetFileStorageDir(self):
     """Get the file storage dir for this cluster.
 
     """
-    return self._config_data.cluster.file_storage_dir
+    return self._ConfigData().cluster.file_storage_dir
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetSharedFileStorageDir(self):
     """Get the shared file storage dir for this cluster.
 
     """
-    return self._config_data.cluster.shared_file_storage_dir
+    return self._ConfigData().cluster.shared_file_storage_dir
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetGlusterStorageDir(self):
     """Get the Gluster storage dir for this cluster.
 
     """
-    return self._config_data.cluster.gluster_storage_dir
+    return self._ConfigData().cluster.gluster_storage_dir
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetHypervisorType(self):
     """Get the hypervisor type for this cluster.
 
     """
-    return self._config_data.cluster.enabled_hypervisors[0]
+    return self._ConfigData().cluster.enabled_hypervisors[0]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetRsaHostKey(self):
     """Return the rsa hostkey from the config.
 
@@ -1219,9 +1459,9 @@ class ConfigWriter(object):
     @return: the rsa hostkey
 
     """
-    return self._config_data.cluster.rsahostkeypub
+    return self._ConfigData().cluster.rsahostkeypub
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetDsaHostKey(self):
     """Return the dsa hostkey from the config.
 
@@ -1229,16 +1469,16 @@ class ConfigWriter(object):
     @return: the dsa hostkey
 
     """
-    return self._config_data.cluster.dsahostkeypub
+    return self._ConfigData().cluster.dsahostkeypub
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetDefaultIAllocator(self):
     """Get the default instance allocator for this cluster.
 
     """
-    return self._config_data.cluster.default_iallocator
+    return self._ConfigData().cluster.default_iallocator
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetDefaultIAllocatorParameters(self):
     """Get the default instance allocator parameters for this cluster.
 
@@ -1246,18 +1486,18 @@ class ConfigWriter(object):
     @return: dict of iallocator parameters
 
     """
-    return self._config_data.cluster.default_iallocator_params
+    return self._ConfigData().cluster.default_iallocator_params
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetPrimaryIPFamily(self):
     """Get cluster primary ip family.
 
     @return: primary ip family
 
     """
-    return self._config_data.cluster.primary_ip_family
+    return self._ConfigData().cluster.primary_ip_family
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterNetworkParameters(self):
     """Get network parameters of the master node.
 
@@ -1265,7 +1505,7 @@ class ConfigWriter(object):
     @return: network parameters of the master node
 
     """
-    cluster = self._config_data.cluster
+    cluster = self._ConfigData().cluster
     result = objects.MasterNetworkParameters(
       uuid=cluster.master_node, ip=cluster.master_ip,
       netmask=cluster.master_netmask, netdev=cluster.master_netdev,
@@ -1273,7 +1513,81 @@ class ConfigWriter(object):
 
     return result
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync(shared=1)
+  def GetInstallImage(self):
+    """Get the install image location
+
+    @rtype: string
+    @return: location of the install image
+
+    """
+    return self._ConfigData().cluster.install_image
+
+  @_ConfigSync()
+  def SetInstallImage(self, install_image):
+    """Set the install image location
+
+    @type install_image: string
+    @param install_image: location of the install image
+
+    """
+    self._ConfigData().cluster.install_image = install_image
+
+  @_ConfigSync(shared=1)
+  def GetInstanceCommunicationNetwork(self):
+    """Get cluster instance communication network
+
+    @rtype: string
+    @return: instance communication network, which is the name of the
+             network used for instance communication
+
+    """
+    return self._ConfigData().cluster.instance_communication_network
+
+  @_ConfigSync()
+  def SetInstanceCommunicationNetwork(self, network_name):
+    """Set cluster instance communication network
+
+    @type network_name: string
+    @param network_name: instance communication network, which is the name of
+                         the network used for instance communication
+
+    """
+    self._ConfigData().cluster.instance_communication_network = network_name
+
+  @_ConfigSync(shared=1)
+  def GetZeroingImage(self):
+    """Get the zeroing image location
+
+    @rtype: string
+    @return: the location of the zeroing image
+
+    """
+    return self._config_data.cluster.zeroing_image
+
+  @_ConfigSync(shared=1)
+  def GetCompressionTools(self):
+    """Get cluster compression tools
+
+    @rtype: list of string
+    @return: a list of tools that are cleared for use in this cluster for the
+             purpose of compressing data
+
+    """
+    return self._ConfigData().cluster.compression_tools
+
+  @_ConfigSync()
+  def SetCompressionTools(self, tools):
+    """Set cluster compression tools
+
+    @type tools: list of string
+    @param tools: a list of tools that are cleared for use in this cluster for
+                  the purpose of compressing data
+
+    """
+    self._ConfigData().cluster.compression_tools = tools
+
+  @_ConfigSync()
   def AddNodeGroup(self, group, ec_id, check_uuid=True):
     """Add a node group to the configuration.
 
@@ -1291,7 +1605,6 @@ class ConfigWriter(object):
 
     """
     self._UnlockedAddNodeGroup(group, ec_id, check_uuid)
-    self._WriteConfig()
 
   def _UnlockedAddNodeGroup(self, group, ec_id, check_uuid):
     """Add a node group to the configuration.
@@ -1319,10 +1632,10 @@ class ConfigWriter(object):
     group.ctime = group.mtime = time.time()
     group.UpgradeConfig()
 
-    self._config_data.nodegroups[group.uuid] = group
-    self._config_data.cluster.serial_no += 1
+    self._ConfigData().nodegroups[group.uuid] = group
+    self._ConfigData().cluster.serial_no += 1
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def RemoveNodeGroup(self, group_uuid):
     """Remove a node group from the configuration.
 
@@ -1332,15 +1645,14 @@ class ConfigWriter(object):
     """
     logging.info("Removing node group %s from configuration", group_uuid)
 
-    if group_uuid not in self._config_data.nodegroups:
+    if group_uuid not in self._ConfigData().nodegroups:
       raise errors.ConfigurationError("Unknown node group '%s'" % group_uuid)
 
-    assert len(self._config_data.nodegroups) != 1, \
+    assert len(self._ConfigData().nodegroups) != 1, \
             "Group '%s' is the only group, cannot be removed" % group_uuid
 
-    del self._config_data.nodegroups[group_uuid]
-    self._config_data.cluster.serial_no += 1
-    self._WriteConfig()
+    del self._ConfigData().nodegroups[group_uuid]
+    self._ConfigData().cluster.serial_no += 1
 
   def _UnlockedLookupNodeGroup(self, target):
     """Lookup a node group's UUID.
@@ -1353,20 +1665,20 @@ class ConfigWriter(object):
 
     """
     if target is None:
-      if len(self._config_data.nodegroups) != 1:
+      if len(self._ConfigData().nodegroups) != 1:
         raise errors.OpPrereqError("More than one node group exists. Target"
                                    " group must be specified explicitly.")
       else:
-        return self._config_data.nodegroups.keys()[0]
-    if target in self._config_data.nodegroups:
+        return self._ConfigData().nodegroups.keys()[0]
+    if target in self._ConfigData().nodegroups:
       return target
-    for nodegroup in self._config_data.nodegroups.values():
+    for nodegroup in self._ConfigData().nodegroups.values():
       if nodegroup.name == target:
         return nodegroup.uuid
     raise errors.OpPrereqError("Node group '%s' not found" % target,
                                errors.ECODE_NOENT)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def LookupNodeGroup(self, target):
     """Lookup a node group's UUID.
 
@@ -1389,12 +1701,12 @@ class ConfigWriter(object):
     @return: nodegroup object, or None if not found
 
     """
-    if uuid not in self._config_data.nodegroups:
+    if uuid not in self._ConfigData().nodegroups:
       return None
 
-    return self._config_data.nodegroups[uuid]
+    return self._ConfigData().nodegroups[uuid]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeGroup(self, uuid):
     """Lookup a node group.
 
@@ -1410,16 +1722,16 @@ class ConfigWriter(object):
     """Get the configuration of all node groups.
 
     """
-    return dict(self._config_data.nodegroups)
+    return dict(self._ConfigData().nodegroups)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetAllNodeGroupsInfo(self):
     """Get the configuration of all node groups.
 
     """
     return self._UnlockedGetAllNodeGroupsInfo()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetAllNodeGroupsInfoDict(self):
     """Get the configuration of all node groups expressed as a dictionary of
     dictionaries.
@@ -1428,14 +1740,14 @@ class ConfigWriter(object):
     return dict(map(lambda (uuid, ng): (uuid, ng.ToDict()),
                     self._UnlockedGetAllNodeGroupsInfo().items()))
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeGroupList(self):
     """Get a list of node groups.
 
     """
-    return self._config_data.nodegroups.keys()
+    return self._ConfigData().nodegroups.keys()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeGroupMembersByNodes(self, nodes):
     """Get nodes which are member in the same nodegroups as the given nodes.
 
@@ -1446,7 +1758,7 @@ class ConfigWriter(object):
                      for member_uuid in
                        self._UnlockedGetNodeGroup(ngfn(node_uuid)).members)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMultiNodeGroupInfo(self, group_uuids):
     """Get the configuration of multiple node groups.
 
@@ -1457,7 +1769,7 @@ class ConfigWriter(object):
     """
     return [(uuid, self._UnlockedGetNodeGroup(uuid)) for uuid in group_uuids]
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def AddInstance(self, instance, ec_id):
     """Add an instance to the config.
 
@@ -1470,10 +1782,6 @@ class ConfigWriter(object):
     if not isinstance(instance, objects.Instance):
       raise errors.ProgrammerError("Invalid type passed to AddInstance")
 
-    if instance.disk_template != constants.DT_DISKLESS:
-      all_lvs = instance.MapLVsByNode()
-      logging.info("Instance '%s' DISK_LAYOUT: %s", instance.name, all_lvs)
-
     all_macs = self._AllMACs()
     for nic in instance.nics:
       if nic.mac in all_macs:
@@ -1485,11 +1793,12 @@ class ConfigWriter(object):
 
     instance.serial_no = 1
     instance.ctime = instance.mtime = time.time()
-    self._config_data.instances[instance.uuid] = instance
-    self._config_data.cluster.serial_no += 1
+    self._ConfigData().instances[instance.uuid] = instance
+    self._ConfigData().cluster.serial_no += 1
     self._UnlockedReleaseDRBDMinors(instance.uuid)
+    # FIXME: After RemoveInstance is moved to WConfd, use its internal
+    # function from TempRes module instead.
     self._UnlockedCommitTemporaryIps(ec_id)
-    self._WriteConfig()
 
   def _EnsureUUID(self, item, ec_id):
     """Ensures a given object has a valid UUID.
@@ -1522,11 +1831,14 @@ class ConfigWriter(object):
                          admin_state_source):
     """Set the instance's status to a given value.
 
+    @rtype: L{objects.Instance}
+    @return: the updated instance object
+
     """
-    if inst_uuid not in self._config_data.instances:
+    if inst_uuid not in self._ConfigData().instances:
       raise errors.ConfigurationError("Unknown instance '%s'" %
                                       inst_uuid)
-    instance = self._config_data.instances[inst_uuid]
+    instance = self._ConfigData().instances[inst_uuid]
 
     if status is None:
       status = instance.admin_state
@@ -1546,55 +1858,62 @@ class ConfigWriter(object):
       instance.admin_state_source = admin_state_source
       instance.serial_no += 1
       instance.mtime = time.time()
-      self._WriteConfig()
+    return instance
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def MarkInstanceUp(self, inst_uuid):
     """Mark the instance status to up in the config.
 
     This also sets the instance disks active flag.
 
-    """
-    self._SetInstanceStatus(inst_uuid, constants.ADMINST_UP, True,
-                            constants.ADMIN_SOURCE)
+    @rtype: L{objects.Instance}
+    @return: the updated instance object
 
-  @locking.ssynchronized(_config_lock)
+    """
+    return self._SetInstanceStatus(inst_uuid, constants.ADMINST_UP, True,
+                                   constants.ADMIN_SOURCE)
+
+  @_ConfigSync()
   def MarkInstanceOffline(self, inst_uuid):
     """Mark the instance status to down in the config.
 
     This also clears the instance disks active flag.
 
-    """
-    self._SetInstanceStatus(inst_uuid, constants.ADMINST_OFFLINE, False,
-                            constants.ADMIN_SOURCE)
+    @rtype: L{objects.Instance}
+    @return: the updated instance object
 
-  @locking.ssynchronized(_config_lock)
+    """
+    return self._SetInstanceStatus(inst_uuid, constants.ADMINST_OFFLINE, False,
+                                   constants.ADMIN_SOURCE)
+
+  @_ConfigSync()
   def RemoveInstance(self, inst_uuid):
     """Remove the instance from the configuration.
 
     """
-    if inst_uuid not in self._config_data.instances:
+    if inst_uuid not in self._ConfigData().instances:
       raise errors.ConfigurationError("Unknown instance '%s'" % inst_uuid)
 
     # If a network port has been allocated to the instance,
     # return it to the pool of free ports.
-    inst = self._config_data.instances[inst_uuid]
+    inst = self._ConfigData().instances[inst_uuid]
     network_port = getattr(inst, "network_port", None)
     if network_port is not None:
-      self._config_data.cluster.tcpudp_port_pool.add(network_port)
+      self._ConfigData().cluster.tcpudp_port_pool.add(network_port)
 
     instance = self._UnlockedGetInstanceInfo(inst_uuid)
 
+    # FIXME: After RemoveInstance is moved to WConfd, use its internal
+    # function from TempRes module.
     for nic in instance.nics:
       if nic.network and nic.ip:
         # Return all IP addresses to the respective address pools
         self._UnlockedCommitIp(constants.RELEASE_ACTION, nic.network, nic.ip)
 
-    del self._config_data.instances[inst_uuid]
-    self._config_data.cluster.serial_no += 1
-    self._WriteConfig()
+    del self._ConfigData().instances[inst_uuid]
+    self._ConfigData().cluster.serial_no += 1
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def RenameInstance(self, inst_uuid, new_name):
     """Rename an instance.
 
@@ -1603,13 +1922,14 @@ class ConfigWriter(object):
     rename.
 
     """
-    if inst_uuid not in self._config_data.instances:
+    if inst_uuid not in self._ConfigData().instances:
       raise errors.ConfigurationError("Unknown instance '%s'" % inst_uuid)
 
-    inst = self._config_data.instances[inst_uuid]
+    inst = self._ConfigData().instances[inst_uuid]
     inst.name = new_name
 
-    for (_, disk) in enumerate(inst.disks):
+    instance_disks = self._UnlockedGetInstanceDisks(inst_uuid)
+    for (_, disk) in enumerate(instance_disks):
       if disk.dev_type in [constants.DT_FILE, constants.DT_SHARED_FILE]:
         # rename the file paths in logical and physical id
         file_storage_dir = os.path.dirname(os.path.dirname(disk.logical_id[1]))
@@ -1618,22 +1938,23 @@ class ConfigWriter(object):
                                           os.path.basename(disk.logical_id[1])))
 
     # Force update of ssconf files
-    self._config_data.cluster.serial_no += 1
+    self._ConfigData().cluster.serial_no += 1
 
-    self._WriteConfig()
-
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def MarkInstanceDown(self, inst_uuid):
     """Mark the status of an instance to down in the configuration.
 
     This does not touch the instance disks active flag, as shut down instances
     can still have active disks.
 
-    """
-    self._SetInstanceStatus(inst_uuid, constants.ADMINST_DOWN, None,
-                            constants.ADMIN_SOURCE)
+    @rtype: L{objects.Instance}
+    @return: the updated instance object
 
-  @locking.ssynchronized(_config_lock)
+    """
+    return self._SetInstanceStatus(inst_uuid, constants.ADMINST_DOWN, None,
+                                   constants.ADMIN_SOURCE)
+
+  @_ConfigSync()
   def MarkInstanceUserDown(self, inst_uuid):
     """Mark the status of an instance to user down in the configuration.
 
@@ -1645,19 +1966,25 @@ class ConfigWriter(object):
     self._SetInstanceStatus(inst_uuid, constants.ADMINST_DOWN, None,
                             constants.USER_SOURCE)
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def MarkInstanceDisksActive(self, inst_uuid):
     """Mark the status of instance disks active.
 
-    """
-    self._SetInstanceStatus(inst_uuid, None, True, None)
+    @rtype: L{objects.Instance}
+    @return: the updated instance object
 
-  @locking.ssynchronized(_config_lock)
+    """
+    return self._SetInstanceStatus(inst_uuid, None, True, None)
+
+  @_ConfigSync()
   def MarkInstanceDisksInactive(self, inst_uuid):
     """Mark the status of instance disks inactive.
 
+    @rtype: L{objects.Instance}
+    @return: the updated instance object
+
     """
-    self._SetInstanceStatus(inst_uuid, None, False, None)
+    return self._SetInstanceStatus(inst_uuid, None, False, None)
 
   def _UnlockedGetInstanceList(self):
     """Get the list of instances.
@@ -1665,9 +1992,9 @@ class ConfigWriter(object):
     This function is for internal use, when the config lock is already held.
 
     """
-    return self._config_data.instances.keys()
+    return self._ConfigData().instances.keys()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceList(self):
     """Get the list of instances.
 
@@ -1698,12 +2025,12 @@ class ConfigWriter(object):
     This function is for internal use, when the config lock is already held.
 
     """
-    if inst_uuid not in self._config_data.instances:
+    if inst_uuid not in self._ConfigData().instances:
       return None
 
-    return self._config_data.instances[inst_uuid]
+    return self._ConfigData().instances[inst_uuid]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceInfo(self, inst_uuid):
     """Returns information about an instance.
 
@@ -1718,7 +2045,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetInstanceInfo(inst_uuid)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceNodeGroups(self, inst_uuid, primary_only=False):
     """Returns set of node group UUIDs for instance's nodes.
 
@@ -1732,12 +2059,12 @@ class ConfigWriter(object):
     if primary_only:
       nodes = [instance.primary_node]
     else:
-      nodes = instance.all_nodes
+      nodes = self._UnlockedGetInstanceNodes(instance.uuid)
 
     return frozenset(self._UnlockedGetNodeInfo(node_uuid).group
                      for node_uuid in nodes)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceNetworks(self, inst_uuid):
     """Returns set of network UUIDs for instance's nics.
 
@@ -1755,7 +2082,7 @@ class ConfigWriter(object):
 
     return frozenset(networks)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMultiInstanceInfo(self, inst_uuids):
     """Get the configuration of multiple instances.
 
@@ -1768,7 +2095,7 @@ class ConfigWriter(object):
     """
     return [(uuid, self._UnlockedGetInstanceInfo(uuid)) for uuid in inst_uuids]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMultiInstanceInfoByName(self, inst_names):
     """Get the configuration of multiple instances.
 
@@ -1785,7 +2112,7 @@ class ConfigWriter(object):
       result.append((instance.uuid, instance))
     return result
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetAllInstancesInfo(self):
     """Get the configuration of all instances.
 
@@ -1801,7 +2128,7 @@ class ConfigWriter(object):
                     for inst_uuid in self._UnlockedGetInstanceList()])
     return my_dict
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstancesInfoByFilter(self, filter_fn):
     """Get instance configuration with a filter.
 
@@ -1814,10 +2141,10 @@ class ConfigWriter(object):
 
     """
     return dict((uuid, inst)
-                for (uuid, inst) in self._config_data.instances.items()
+                for (uuid, inst) in self._ConfigData().instances.items()
                 if filter_fn(inst))
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceInfoByName(self, inst_name):
     """Get the L{objects.Instance} object for a named instance.
 
@@ -1841,7 +2168,7 @@ class ConfigWriter(object):
       raise errors.OpExecError("Unknown instance: %s" % inst_uuid)
     return inst_info.name
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceName(self, inst_uuid):
     """Gets the instance name for the passed instance.
 
@@ -1853,7 +2180,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetInstanceName(inst_uuid)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetInstanceNames(self, inst_uuids):
     """Gets the instance names for the passed list of nodes.
 
@@ -1865,11 +2192,22 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetInstanceNames(inst_uuids)
 
+  @_ConfigSync()
+  def SetInstancePrimaryNode(self, inst_uuid, target_node_uuid):
+    """Sets the primary node of an existing instance
+
+    @param inst_uuid: instance UUID
+    @type inst_uuid: string
+    @param target_node_uuid: the new primary node UUID
+    @type target_node_uuid: string
+
+    """
+    self._UnlockedGetInstanceInfo(inst_uuid).primary_node = target_node_uuid
+
   def _UnlockedGetInstanceNames(self, inst_uuids):
     return [self._UnlockedGetInstanceName(uuid) for uuid in inst_uuids]
 
-  @locking.ssynchronized(_config_lock)
-  def AddNode(self, node, ec_id):
+  def _UnlockedAddNode(self, node, ec_id):
     """Add a node to the configuration.
 
     @type node: L{objects.Node}
@@ -1883,24 +2221,33 @@ class ConfigWriter(object):
     node.serial_no = 1
     node.ctime = node.mtime = time.time()
     self._UnlockedAddNodeToGroup(node.uuid, node.group)
-    self._config_data.nodes[node.uuid] = node
-    self._config_data.cluster.serial_no += 1
-    self._WriteConfig()
+    assert node.uuid in self._ConfigData().nodegroups[node.group].members
+    self._ConfigData().nodes[node.uuid] = node
+    self._ConfigData().cluster.serial_no += 1
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
+  def AddNode(self, node, ec_id):
+    """Add a node to the configuration.
+
+    @type node: L{objects.Node}
+    @param node: a Node instance
+
+    """
+    self._UnlockedAddNode(node, ec_id)
+
+  @_ConfigSync()
   def RemoveNode(self, node_uuid):
     """Remove a node from the configuration.
 
     """
     logging.info("Removing node %s from configuration", node_uuid)
 
-    if node_uuid not in self._config_data.nodes:
+    if node_uuid not in self._ConfigData().nodes:
       raise errors.ConfigurationError("Unknown node '%s'" % node_uuid)
 
-    self._UnlockedRemoveNodeFromGroup(self._config_data.nodes[node_uuid])
-    del self._config_data.nodes[node_uuid]
-    self._config_data.cluster.serial_no += 1
-    self._WriteConfig()
+    self._UnlockedRemoveNodeFromGroup(self._ConfigData().nodes[node_uuid])
+    del self._ConfigData().nodes[node_uuid]
+    self._ConfigData().cluster.serial_no += 1
 
   def ExpandNodeName(self, short_name):
     """Attempt to expand an incomplete node name into a node UUID.
@@ -1930,12 +2277,12 @@ class ConfigWriter(object):
     @return: the node object
 
     """
-    if node_uuid not in self._config_data.nodes:
+    if node_uuid not in self._ConfigData().nodes:
       return None
 
-    return self._config_data.nodes[node_uuid]
+    return self._ConfigData().nodes[node_uuid]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeInfo(self, node_uuid):
     """Get the configuration of a node, as stored in the config.
 
@@ -1949,7 +2296,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetNodeInfo(node_uuid)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeInstances(self, node_uuid):
     """Get the instances of a node, as stored in the config.
 
@@ -1961,14 +2308,14 @@ class ConfigWriter(object):
     """
     pri = []
     sec = []
-    for inst in self._config_data.instances.values():
+    for inst in self._ConfigData().instances.values():
       if inst.primary_node == node_uuid:
         pri.append(inst.uuid)
-      if node_uuid in inst.secondary_nodes:
+      if node_uuid in self._UnlockedGetInstanceSecondaryNodes(inst.uuid):
         sec.append(inst.uuid)
     return (pri, sec)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeGroupInstances(self, uuid, primary_only=False):
     """Get the instances of a node group.
 
@@ -1981,10 +2328,10 @@ class ConfigWriter(object):
     if primary_only:
       nodes_fn = lambda inst: [inst.primary_node]
     else:
-      nodes_fn = lambda inst: inst.all_nodes
+      nodes_fn = lambda inst: self._UnlockedGetInstanceNodes(inst.uuid)
 
     return frozenset(inst.uuid
-                     for inst in self._config_data.instances.values()
+                     for inst in self._ConfigData().instances.values()
                      for node_uuid in nodes_fn(inst)
                      if self._UnlockedGetNodeInfo(node_uuid).group == uuid)
 
@@ -1996,12 +2343,12 @@ class ConfigWriter(object):
 
     """
     result = ""
-    hvparams = self._config_data.cluster.hvparams[hvname]
+    hvparams = self._ConfigData().cluster.hvparams[hvname]
     for key in hvparams:
       result += "%s=%s\n" % (key, hvparams[key])
     return result
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetHvparamsString(self, hvname):
     """Return the hypervisor parameters of the given hypervisor.
 
@@ -2023,9 +2370,9 @@ class ConfigWriter(object):
     @rtype: list
 
     """
-    return self._config_data.nodes.keys()
+    return self._ConfigData().nodes.keys()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeList(self):
     """Return the list of nodes which are in the configuration.
 
@@ -2040,14 +2387,14 @@ class ConfigWriter(object):
                  for node in self._UnlockedGetNodeList()]
     return [node.uuid for node in all_nodes if not node.offline]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetOnlineNodeList(self):
     """Return the list of nodes which are online.
 
     """
     return self._UnlockedGetOnlineNodeList()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetVmCapableNodeList(self):
     """Return the list of nodes which are not vm capable.
 
@@ -2056,16 +2403,25 @@ class ConfigWriter(object):
                  for node in self._UnlockedGetNodeList()]
     return [node.uuid for node in all_nodes if node.vm_capable]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNonVmCapableNodeList(self):
-    """Return the list of nodes which are not vm capable.
+    """Return the list of nodes' uuids which are not vm capable.
 
     """
     all_nodes = [self._UnlockedGetNodeInfo(node)
                  for node in self._UnlockedGetNodeList()]
     return [node.uuid for node in all_nodes if not node.vm_capable]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
+  def GetNonVmCapableNodeNameList(self):
+    """Return the list of nodes' names which are not vm capable.
+
+    """
+    all_nodes = [self._UnlockedGetNodeInfo(node)
+                 for node in self._UnlockedGetNodeList()]
+    return [node.name for node in all_nodes if not node.vm_capable]
+
+  @_ConfigSync(shared=1)
   def GetMultiNodeInfo(self, node_uuids):
     """Get the configuration of multiple nodes.
 
@@ -2087,7 +2443,7 @@ class ConfigWriter(object):
     return dict([(node_uuid, self._UnlockedGetNodeInfo(node_uuid))
                  for node_uuid in self._UnlockedGetNodeList()])
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetAllNodesInfo(self):
     """Get the configuration of all nodes.
 
@@ -2104,7 +2460,7 @@ class ConfigWriter(object):
         return node
     return None
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeInfoByName(self, node_name):
     """Get the L{objects.Node} object for a named node.
 
@@ -2116,7 +2472,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetNodeInfoByName(node_name)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeGroupInfoByName(self, nodegroup_name):
     """Get the L{objects.NodeGroup} object for a named node group.
 
@@ -2142,7 +2498,7 @@ class ConfigWriter(object):
     else:
       raise errors.ProgrammerError("Can't handle node spec '%s'" % node_spec)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeName(self, node_spec):
     """Gets the node name for the passed node.
 
@@ -2157,7 +2513,7 @@ class ConfigWriter(object):
   def _UnlockedGetNodeNames(self, node_specs):
     return [self._UnlockedGetNodeName(node_spec) for node_spec in node_specs]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeNames(self, node_specs):
     """Gets the node names for the passed list of nodes.
 
@@ -2169,7 +2525,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetNodeNames(node_specs)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNodeGroupsFromNodes(self, node_uuids):
     """Returns groups for a list of nodes.
 
@@ -2191,17 +2547,17 @@ class ConfigWriter(object):
 
     """
     mc_now = mc_should = mc_max = 0
-    for node in self._config_data.nodes.values():
+    for node in self._ConfigData().nodes.values():
       if exceptions and node.uuid in exceptions:
         continue
       if not (node.offline or node.drained) and node.master_capable:
         mc_max += 1
       if node.master_candidate:
         mc_now += 1
-    mc_should = min(mc_max, self._config_data.cluster.candidate_pool_size)
+    mc_should = min(mc_max, self._ConfigData().cluster.candidate_pool_size)
     return (mc_now, mc_should, mc_max)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMasterCandidateStats(self, exceptions=None):
     """Get the number of current and maximum possible candidates.
 
@@ -2215,7 +2571,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetMasterCandidateStats(exceptions)
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def MaintainCandidatePool(self, exception_node_uuids):
     """Try to grow the candidate pool to the desired size.
 
@@ -2229,12 +2585,12 @@ class ConfigWriter(object):
                           exception_node_uuids)
     mod_list = []
     if mc_now < mc_max:
-      node_list = self._config_data.nodes.keys()
+      node_list = self._ConfigData().nodes.keys()
       random.shuffle(node_list)
       for uuid in node_list:
         if mc_now >= mc_max:
           break
-        node = self._config_data.nodes[uuid]
+        node = self._ConfigData().nodes[uuid]
         if (node.master_candidate or node.offline or node.drained or
             node.uuid in exception_node_uuids or not node.master_capable):
           continue
@@ -2247,8 +2603,7 @@ class ConfigWriter(object):
         logging.warning("Warning: MaintainCandidatePool didn't manage to"
                         " fill the candidate pool (%d/%d)", mc_now, mc_max)
       if mod_list:
-        self._config_data.cluster.serial_no += 1
-        self._WriteConfig()
+        self._ConfigData().cluster.serial_no += 1
 
     return mod_list
 
@@ -2256,31 +2611,31 @@ class ConfigWriter(object):
     """Add a given node to the specified group.
 
     """
-    if nodegroup_uuid not in self._config_data.nodegroups:
+    if nodegroup_uuid not in self._ConfigData().nodegroups:
       # This can happen if a node group gets deleted between its lookup and
       # when we're adding the first node to it, since we don't keep a lock in
       # the meantime. It's ok though, as we'll fail cleanly if the node group
       # is not found anymore.
       raise errors.OpExecError("Unknown node group: %s" % nodegroup_uuid)
-    if node_uuid not in self._config_data.nodegroups[nodegroup_uuid].members:
-      self._config_data.nodegroups[nodegroup_uuid].members.append(node_uuid)
+    if node_uuid not in self._ConfigData().nodegroups[nodegroup_uuid].members:
+      self._ConfigData().nodegroups[nodegroup_uuid].members.append(node_uuid)
 
   def _UnlockedRemoveNodeFromGroup(self, node):
     """Remove a given node from its group.
 
     """
     nodegroup = node.group
-    if nodegroup not in self._config_data.nodegroups:
+    if nodegroup not in self._ConfigData().nodegroups:
       logging.warning("Warning: node '%s' has unknown node group '%s'"
                       " (while being removed from it)", node.uuid, nodegroup)
-    nodegroup_obj = self._config_data.nodegroups[nodegroup]
+    nodegroup_obj = self._ConfigData().nodegroups[nodegroup]
     if node.uuid not in nodegroup_obj.members:
       logging.warning("Warning: node '%s' not a member of its node group '%s'"
                       " (while being removed from it)", node.uuid, nodegroup)
     else:
       nodegroup_obj.members.remove(node.uuid)
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def AssignGroupNodes(self, mods):
     """Changes the group of a number of nodes.
 
@@ -2288,8 +2643,8 @@ class ConfigWriter(object):
     @param mods: Node membership modifications
 
     """
-    groups = self._config_data.nodegroups
-    nodes = self._config_data.nodes
+    groups = self._ConfigData().nodegroups
+    nodes = self._ConfigData().nodes
 
     resmod = []
 
@@ -2349,227 +2704,221 @@ class ConfigWriter(object):
       obj.mtime = now
 
     # Force ssconf update
-    self._config_data.cluster.serial_no += 1
-
-    self._WriteConfig()
+    self._ConfigData().cluster.serial_no += 1
 
   def _BumpSerialNo(self):
     """Bump up the serial number of the config.
 
     """
-    self._config_data.serial_no += 1
-    self._config_data.mtime = time.time()
+    self._ConfigData().serial_no += 1
+    self._ConfigData().mtime = time.time()
 
   def _AllUUIDObjects(self):
     """Returns all objects with uuid attributes.
 
     """
-    return (self._config_data.instances.values() +
-            self._config_data.nodes.values() +
-            self._config_data.nodegroups.values() +
-            self._config_data.networks.values() +
-            self._AllDisks() +
+    return (self._ConfigData().instances.values() +
+            self._ConfigData().nodes.values() +
+            self._ConfigData().nodegroups.values() +
+            self._ConfigData().networks.values() +
+            self._ConfigData().disks.values() +
             self._AllNICs() +
-            [self._config_data.cluster])
+            [self._ConfigData().cluster])
 
-  def _OpenConfig(self, accept_foreign):
-    """Read the config data from disk.
+  def GetConfigManager(self, shared=False):
+    """Returns a ConfigManager, which is suitable to perform a synchronized
+    block of configuration operations.
+
+    WARNING: This blocks all other configuration operations, so anything that
+    runs inside the block should be very fast, preferably not using any IO.
+    """
+
+    return ConfigManager(self, shared)
+
+  def _AddLockCount(self, count):
+    self._lock_count += count
+    return self._lock_count
+
+  def _LockCount(self):
+    return self._lock_count
+
+  def _OpenConfig(self, shared):
+    """Read the config data from WConfd or disk.
 
     """
-    raw_data = utils.ReadFile(self._cfg_file)
+    if self._AddLockCount(1) > 1:
+      if self._lock_current_shared and not shared:
+        self._AddLockCount(-1)
+        raise errors.ConfigurationError("Can't request an exclusive"
+                                        " configuration lock while holding"
+                                        " shared")
+      else:
+        return # we already have the lock, do nothing
+    else:
+      self._lock_current_shared = shared
+    # Read the configuration data. If offline, read the file directly.
+    # If online, call WConfd.
+    if self._offline:
+      try:
+        raw_data = utils.ReadFile(self._cfg_file)
+        data_dict = serializer.Load(raw_data)
+        # Make sure the configuration has the right version
+        _ValidateConfig(data_dict)
+        data = objects.ConfigData.FromDict(data_dict)
+      except errors.ConfigVersionMismatch:
+        raise
+      except Exception, err:
+        raise errors.ConfigurationError(err)
 
+      self._cfg_id = utils.GetFileID(path=self._cfg_file)
+
+      if (not hasattr(data, "cluster") or
+          not hasattr(data.cluster, "rsahostkeypub")):
+        raise errors.ConfigurationError("Incomplete configuration"
+                                        " (missing cluster.rsahostkeypub)")
+
+      if not data.cluster.master_node in data.nodes:
+        msg = ("The configuration denotes node %s as master, but does not"
+               " contain information about this node" %
+               data.cluster.master_node)
+        raise errors.ConfigurationError(msg)
+
+      master_info = data.nodes[data.cluster.master_node]
+      if master_info.name != self._my_hostname and not self._accept_foreign:
+        msg = ("The configuration denotes node %s as master, while my"
+               " hostname is %s; opening a foreign configuration is only"
+               " possible in accept_foreign mode" %
+               (master_info.name, self._my_hostname))
+        raise errors.ConfigurationError(msg)
+
+      self._SetConfigData(data)
+
+      # Upgrade configuration if needed
+      self._UpgradeConfig(saveafter=True)
+    else:
+      # poll until we acquire the lock
+      while True:
+        dict_data = \
+          self._wconfd.LockConfig(self._GetWConfdContext(), bool(shared))
+        logging.debug("Received config from WConfd.LockConfig [shared=%s]",
+                      bool(shared))
+        if dict_data is not None:
+          break
+        time.sleep(random.random())
+
+      try:
+        self._SetConfigData(objects.ConfigData.FromDict(dict_data))
+      except Exception, err:
+        raise errors.ConfigurationError(err)
+
+      # Transitional fix until ConfigWriter is completely rewritten into
+      # Haskell
+      self._UpgradeConfig()
+
+  def _CloseConfig(self, save):
+    """Release resources relating the config data.
+
+    """
+    if self._AddLockCount(-1) > 0:
+      return # we still have the lock, do nothing
     try:
-      data_dict = serializer.Load(raw_data)
-      # Make sure the configuration has the right version
-      _ValidateConfig(data_dict)
-      data = objects.ConfigData.FromDict(data_dict)
-    except errors.ConfigVersionMismatch:
-      raise
+      if save:
+        self._WriteConfig()
     except Exception, err:
-      raise errors.ConfigurationError(err)
+      logging.critical("Can't write the configuration: %s", str(err))
+      raise
+    finally:
+      if not self._offline:
+        try:
+          self._wconfd.UnlockConfig(self._GetWConfdContext())
+        except AttributeError:
+          # If the configuration hasn't been initialized yet, just ignore it.
+          pass
+        logging.debug("Configuration in WConfd unlocked")
 
-    if (not hasattr(data, "cluster") or
-        not hasattr(data.cluster, "rsahostkeypub")):
-      raise errors.ConfigurationError("Incomplete configuration"
-                                      " (missing cluster.rsahostkeypub)")
-
-    if not data.cluster.master_node in data.nodes:
-      msg = ("The configuration denotes node %s as master, but does not"
-             " contain information about this node" %
-             data.cluster.master_node)
-      raise errors.ConfigurationError(msg)
-
-    master_info = data.nodes[data.cluster.master_node]
-    if master_info.name != self._my_hostname and not accept_foreign:
-      msg = ("The configuration denotes node %s as master, while my"
-             " hostname is %s; opening a foreign configuration is only"
-             " possible in accept_foreign mode" %
-             (master_info.name, self._my_hostname))
-      raise errors.ConfigurationError(msg)
-
-    self._config_data = data
-    # reset the last serial as -1 so that the next write will cause
-    # ssconf update
-    self._last_cluster_serial = -1
-
-    # Upgrade configuration if needed
-    self._UpgradeConfig()
-
-    self._cfg_id = utils.GetFileID(path=self._cfg_file)
-
-  def _UpgradeConfig(self):
+  # TODO: To WConfd
+  def _UpgradeConfig(self, saveafter=False):
     """Run any upgrade steps.
 
     This method performs both in-object upgrades and also update some data
     elements that need uniqueness across the whole configuration or interact
     with other objects.
 
-    @warning: this function will call L{_WriteConfig()}, but also
-        L{DropECReservations} so it needs to be called only from a
-        "safe" place (the constructor). If one wanted to call it with
-        the lock held, a DropECReservationUnlocked would need to be
-        created first, to avoid causing deadlock.
+    @warning: if 'saveafter' is 'True', this function will call
+        L{_WriteConfig()} so it needs to be called only from a
+        "safe" place.
 
     """
     # Keep a copy of the persistent part of _config_data to check for changes
     # Serialization doesn't guarantee order in dictionaries
-    oldconf = copy.deepcopy(self._config_data.ToDict())
+    oldconf = copy.deepcopy(self._ConfigData().ToDict())
 
     # In-object upgrades
-    self._config_data.UpgradeConfig()
+    self._ConfigData().UpgradeConfig()
 
     for item in self._AllUUIDObjects():
       if item.uuid is None:
         item.uuid = self._GenerateUniqueID(_UPGRADE_CONFIG_JID)
-    if not self._config_data.nodegroups:
+    if not self._ConfigData().nodegroups:
       default_nodegroup_name = constants.INITIAL_NODE_GROUP_NAME
       default_nodegroup = objects.NodeGroup(name=default_nodegroup_name,
                                             members=[])
       self._UnlockedAddNodeGroup(default_nodegroup, _UPGRADE_CONFIG_JID, True)
-    for node in self._config_data.nodes.values():
+    for node in self._ConfigData().nodes.values():
       if not node.group:
-        node.group = self.LookupNodeGroup(None)
+        node.group = self._UnlockedLookupNodeGroup(None)
       # This is technically *not* an upgrade, but needs to be done both when
       # nodegroups are being added, and upon normally loading the config,
       # because the members list of a node group is discarded upon
       # serializing/deserializing the object.
       self._UnlockedAddNodeToGroup(node.uuid, node.group)
 
-    modified = (oldconf != self._config_data.ToDict())
-    if modified:
+    modified = (oldconf != self._ConfigData().ToDict())
+    if modified and saveafter:
       self._WriteConfig()
-      # This is ok even if it acquires the internal lock, as _UpgradeConfig is
-      # only called at config init time, without the lock held
-      self.DropECReservations(_UPGRADE_CONFIG_JID)
+      self._UnlockedDropECReservations(_UPGRADE_CONFIG_JID)
     else:
-      config_errors = self._UnlockedVerifyConfig()
-      if config_errors:
-        errmsg = ("Loaded configuration data is not consistent: %s" %
-                  (utils.CommaJoin(config_errors)))
-        logging.critical(errmsg)
+      if self._offline:
+        self._UnlockedVerifyConfigAndLog()
 
-  def _DistributeConfig(self, feedback_fn):
-    """Distribute the configuration to the other nodes.
-
-    Currently, this only copies the configuration file. In the future,
-    it could be used to encapsulate the 2/3-phase update mechanism.
-
-    """
-    if self._offline:
-      return True
-
-    bad = False
-
-    node_list = []
-    addr_list = []
-    myhostname = self._my_hostname
-    # we can skip checking whether _UnlockedGetNodeInfo returns None
-    # since the node list comes from _UnlocketGetNodeList, and we are
-    # called with the lock held, so no modifications should take place
-    # in between
-    for node_uuid in self._UnlockedGetNodeList():
-      node_info = self._UnlockedGetNodeInfo(node_uuid)
-      if node_info.name == myhostname or not node_info.master_candidate:
-        continue
-      node_list.append(node_info.name)
-      addr_list.append(node_info.primary_ip)
-
-    # TODO: Use dedicated resolver talking to config writer for name resolution
-    result = \
-      self._GetRpc(addr_list).call_upload_file(node_list, self._cfg_file)
-    for to_node, to_result in result.items():
-      msg = to_result.fail_msg
-      if msg:
-        msg = ("Copy of file %s to node %s failed: %s" %
-               (self._cfg_file, to_node, msg))
-        logging.error(msg)
-
-        if feedback_fn:
-          feedback_fn(msg)
-
-        bad = True
-
-    return not bad
-
-  def _WriteConfig(self, destination=None, feedback_fn=None):
+  def _WriteConfig(self, destination=None):
     """Write the configuration data to persistent storage.
 
     """
-    assert feedback_fn is None or callable(feedback_fn)
-
-    # Warn on config errors, but don't abort the save - the
-    # configuration has already been modified, and we can't revert;
-    # the best we can do is to warn the user and save as is, leaving
-    # recovery to the user
-    config_errors = self._UnlockedVerifyConfig()
-    if config_errors:
-      errmsg = ("Configuration data is not consistent: %s" %
-                (utils.CommaJoin(config_errors)))
-      logging.critical(errmsg)
-      if feedback_fn:
-        feedback_fn(errmsg)
-
     if destination is None:
       destination = self._cfg_file
-    self._BumpSerialNo()
-    txt = serializer.Dump(self._config_data.ToDict())
 
-    getents = self._getents()
-    try:
-      fd = utils.SafeWriteFile(destination, self._cfg_id, data=txt,
-                               close=False, gid=getents.confd_gid, mode=0640)
-    except errors.LockError:
-      raise errors.ConfigurationError("The configuration file has been"
-                                      " modified since the last write, cannot"
-                                      " update")
-    try:
-      self._cfg_id = utils.GetFileID(fd=fd)
-    finally:
-      os.close(fd)
+    # Save the configuration data. If offline, write the file directly.
+    # If online, call WConfd.
+    if self._offline:
+      self._BumpSerialNo()
+      txt = serializer.DumpJson(
+        self._ConfigData().ToDict(_with_private=True),
+        private_encoder=serializer.EncodeWithPrivateFields
+      )
+
+      getents = self._getents()
+      try:
+        fd = utils.SafeWriteFile(destination, self._cfg_id, data=txt,
+                                 close=False, gid=getents.confd_gid, mode=0640)
+      except errors.LockError:
+        raise errors.ConfigurationError("The configuration file has been"
+                                        " modified since the last write, cannot"
+                                        " update")
+      try:
+        self._cfg_id = utils.GetFileID(fd=fd)
+      finally:
+        os.close(fd)
+    else:
+      try:
+        self._wconfd.WriteConfig(self._GetWConfdContext(),
+                                 self._ConfigData().ToDict())
+      except errors.LockError:
+        raise errors.ConfigurationError("The configuration file has been"
+                                        " modified since the last write, cannot"
+                                        " update")
 
     self.write_count += 1
-
-    # and redistribute the config file to master candidates
-    self._DistributeConfig(feedback_fn)
-
-    # Write ssconf files on all nodes (including locally)
-    if self._last_cluster_serial < self._config_data.cluster.serial_no:
-      if not self._offline:
-        result = self._GetRpc(None).call_write_ssconf_files(
-          self._UnlockedGetNodeNames(self._UnlockedGetOnlineNodeList()),
-          self._UnlockedGetSsconfValues())
-
-        for nname, nresu in result.items():
-          msg = nresu.fail_msg
-          if msg:
-            errmsg = ("Error while uploading ssconf files to"
-                      " node %s: %s" % (nname, msg))
-            logging.warning(errmsg)
-
-            if feedback_fn:
-              feedback_fn(errmsg)
-
-      self._last_cluster_serial = self._config_data.cluster.serial_no
 
   def _GetAllHvparamsStrings(self, hypervisors):
     """Get the hvparams of all given hypervisors from the config.
@@ -2637,7 +2986,7 @@ class ConfigWriter(object):
     node_snd_ips_data = fn(node_snd_ips)
     node_vm_capable_data = fn(node_vm_capable)
 
-    cluster = self._config_data.cluster
+    cluster = self._ConfigData().cluster
     cluster_tags = fn(cluster.GetTags())
 
     master_candidates_certs = fn("%s=%s" % (mc_uuid, mc_cert)
@@ -2650,10 +2999,10 @@ class ConfigWriter(object):
     uid_pool = uidpool.FormatUidPool(cluster.uid_pool, separator="\n")
 
     nodegroups = ["%s %s" % (nodegroup.uuid, nodegroup.name) for nodegroup in
-                  self._config_data.nodegroups.values()]
+                  self._ConfigData().nodegroups.values()]
     nodegroups_data = fn(utils.NiceSort(nodegroups))
     networks = ["%s %s" % (net.uuid, net.name) for net in
-                self._config_data.networks.values()]
+                self._ConfigData().networks.values()]
     networks_data = fn(utils.NiceSort(networks))
 
     ssconf_values = {
@@ -2695,53 +3044,51 @@ class ConfigWriter(object):
                                       " values: %s" % err)
     return ssconf_values
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetSsconfValues(self):
     """Wrapper using lock around _UnlockedGetSsconf().
 
     """
     return self._UnlockedGetSsconfValues()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetVGName(self):
     """Return the volume group name.
 
     """
-    return self._config_data.cluster.volume_group_name
+    return self._ConfigData().cluster.volume_group_name
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def SetVGName(self, vg_name):
     """Set the volume group name.
 
     """
-    self._config_data.cluster.volume_group_name = vg_name
-    self._config_data.cluster.serial_no += 1
-    self._WriteConfig()
+    self._ConfigData().cluster.volume_group_name = vg_name
+    self._ConfigData().cluster.serial_no += 1
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetDRBDHelper(self):
     """Return DRBD usermode helper.
 
     """
-    return self._config_data.cluster.drbd_usermode_helper
+    return self._ConfigData().cluster.drbd_usermode_helper
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def SetDRBDHelper(self, drbd_helper):
     """Set DRBD usermode helper.
 
     """
-    self._config_data.cluster.drbd_usermode_helper = drbd_helper
-    self._config_data.cluster.serial_no += 1
-    self._WriteConfig()
+    self._ConfigData().cluster.drbd_usermode_helper = drbd_helper
+    self._ConfigData().cluster.serial_no += 1
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetMACPrefix(self):
     """Return the mac prefix.
 
     """
-    return self._config_data.cluster.mac_prefix
+    return self._ConfigData().cluster.mac_prefix
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetClusterInfo(self):
     """Returns information about the cluster
 
@@ -2749,16 +3096,24 @@ class ConfigWriter(object):
     @return: the cluster object
 
     """
-    return self._config_data.cluster
+    return self._ConfigData().cluster
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def HasAnyDiskOfType(self, dev_type):
     """Check if in there is at disk of the given type in the configuration.
 
     """
-    return self._config_data.HasAnyDiskOfType(dev_type)
+    return self._ConfigData().HasAnyDiskOfType(dev_type)
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync(shared=1)
+  def GetDetachedConfig(self):
+    """Returns a detached version of a ConfigManager, which represents
+    a read-only snapshot of the configuration at this particular time.
+
+    """
+    return DetachedConfig(self._ConfigData())
+
+  @_ConfigSync()
   def Update(self, target, feedback_fn, ec_id=None):
     """Notify function to be called after updates.
 
@@ -2774,58 +3129,81 @@ class ConfigWriter(object):
     @param feedback_fn: Callable feedback function
 
     """
-    if self._config_data is None:
+    if self._ConfigData() is None:
       raise errors.ProgrammerError("Configuration file not read,"
                                    " cannot save.")
+
+    def check_serial(target, current):
+      if current is None:
+        raise errors.ConfigurationError("Configuration object unknown")
+      elif current.serial_no != target.serial_no:
+        raise errors.ConfigurationError("Configuration object updated since"
+                                        " it has been read: %d != %d",
+                                        current.serial_no, target.serial_no)
+
+    def replace_in(target, tdict):
+      check_serial(target, tdict.get(target.uuid))
+      tdict[target.uuid] = target
+
     update_serial = False
     if isinstance(target, objects.Cluster):
-      test = target == self._config_data.cluster
+      check_serial(target, self._ConfigData().cluster)
+      self._ConfigData().cluster = target
     elif isinstance(target, objects.Node):
-      test = target in self._config_data.nodes.values()
+      replace_in(target, self._ConfigData().nodes)
       update_serial = True
     elif isinstance(target, objects.Instance):
-      test = target in self._config_data.instances.values()
+      replace_in(target, self._ConfigData().instances)
     elif isinstance(target, objects.NodeGroup):
-      test = target in self._config_data.nodegroups.values()
+      replace_in(target, self._ConfigData().nodegroups)
     elif isinstance(target, objects.Network):
-      test = target in self._config_data.networks.values()
+      replace_in(target, self._ConfigData().networks)
+    elif isinstance(target, objects.Disk):
+      replace_in(target, self._ConfigData().disks)
     else:
       raise errors.ProgrammerError("Invalid object type (%s) passed to"
                                    " ConfigWriter.Update" % type(target))
-    if not test:
-      raise errors.ConfigurationError("Configuration updated since object"
-                                      " has been read or unknown object")
     target.serial_no += 1
     target.mtime = now = time.time()
 
     if update_serial:
       # for node updates, we need to increase the cluster serial too
-      self._config_data.cluster.serial_no += 1
-      self._config_data.cluster.mtime = now
+      self._ConfigData().cluster.serial_no += 1
+      self._ConfigData().cluster.mtime = now
 
     if isinstance(target, objects.Instance):
       self._UnlockedReleaseDRBDMinors(target.uuid)
 
     if ec_id is not None:
       # Commit all ips reserved by OpInstanceSetParams and OpGroupSetParams
+      # FIXME: After RemoveInstance is moved to WConfd, use its internal
+      # functions from TempRes module.
       self._UnlockedCommitTemporaryIps(ec_id)
 
-    self._WriteConfig(feedback_fn=feedback_fn)
+    # Just verify the configuration with our feedback function.
+    # It will get written automatically by the decorator.
+    self._UnlockedVerifyConfigAndLog(feedback_fn=feedback_fn)
 
-  @locking.ssynchronized(_config_lock)
-  def DropECReservations(self, ec_id):
+  def _UnlockedDropECReservations(self, _ec_id):
     """Drop per-execution-context reservations
 
     """
+    # FIXME: Remove the following two lines after all reservations are moved to
+    # wconfd.
     for rm in self._all_rms:
-      rm.DropECReservations(ec_id)
+      rm.DropECReservations(_ec_id)
+    if not self._offline:
+      self._wconfd.DropAllReservations(self._GetWConfdContext())
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  def DropECReservations(self, ec_id):
+    self._UnlockedDropECReservations(ec_id)
+
+  @_ConfigSync(shared=1)
   def GetAllNetworksInfo(self):
     """Get configuration info of all the networks.
 
     """
-    return dict(self._config_data.networks)
+    return dict(self._ConfigData().networks)
 
   def _UnlockedGetNetworkList(self):
     """Get the list of networks.
@@ -2833,9 +3211,9 @@ class ConfigWriter(object):
     This function is for internal use, when the config lock is already held.
 
     """
-    return self._config_data.networks.keys()
+    return self._ConfigData().networks.keys()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNetworkList(self):
     """Get the list of networks.
 
@@ -2844,13 +3222,13 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetNetworkList()
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNetworkNames(self):
     """Get a list of network names
 
     """
     names = [net.name
-             for net in self._config_data.networks.values()]
+             for net in self._ConfigData().networks.values()]
     return names
 
   def _UnlockedGetNetwork(self, uuid):
@@ -2859,12 +3237,12 @@ class ConfigWriter(object):
     This function is for internal use, when the config lock is already held.
 
     """
-    if uuid not in self._config_data.networks:
+    if uuid not in self._ConfigData().networks:
       return None
 
-    return self._config_data.networks[uuid]
+    return self._ConfigData().networks[uuid]
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetNetwork(self, uuid):
     """Returns information about a network.
 
@@ -2878,7 +3256,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedGetNetwork(uuid)
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def AddNetwork(self, net, ec_id, check_uuid=True):
     """Add a network to the configuration.
 
@@ -2889,7 +3267,6 @@ class ConfigWriter(object):
 
     """
     self._UnlockedAddNetwork(net, ec_id, check_uuid)
-    self._WriteConfig()
 
   def _UnlockedAddNetwork(self, net, ec_id, check_uuid):
     """Add a network to the configuration.
@@ -2902,8 +3279,8 @@ class ConfigWriter(object):
 
     net.serial_no = 1
     net.ctime = net.mtime = time.time()
-    self._config_data.networks[net.uuid] = net
-    self._config_data.cluster.serial_no += 1
+    self._ConfigData().networks[net.uuid] = net
+    self._ConfigData().cluster.serial_no += 1
 
   def _UnlockedLookupNetwork(self, target):
     """Lookup a network's UUID.
@@ -2917,15 +3294,15 @@ class ConfigWriter(object):
     """
     if target is None:
       return None
-    if target in self._config_data.networks:
+    if target in self._ConfigData().networks:
       return target
-    for net in self._config_data.networks.values():
+    for net in self._ConfigData().networks.values():
       if net.name == target:
         return net.uuid
     raise errors.OpPrereqError("Network '%s' not found" % target,
                                errors.ECODE_NOENT)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def LookupNetwork(self, target):
     """Lookup a network's UUID.
 
@@ -2939,7 +3316,7 @@ class ConfigWriter(object):
     """
     return self._UnlockedLookupNetwork(target)
 
-  @locking.ssynchronized(_config_lock)
+  @_ConfigSync()
   def RemoveNetwork(self, network_uuid):
     """Remove a network from the configuration.
 
@@ -2949,12 +3326,11 @@ class ConfigWriter(object):
     """
     logging.info("Removing network %s from configuration", network_uuid)
 
-    if network_uuid not in self._config_data.networks:
+    if network_uuid not in self._ConfigData().networks:
       raise errors.ConfigurationError("Unknown network '%s'" % network_uuid)
 
-    del self._config_data.networks[network_uuid]
-    self._config_data.cluster.serial_no += 1
-    self._WriteConfig()
+    del self._ConfigData().networks[network_uuid]
+    self._ConfigData().cluster.serial_no += 1
 
   def _UnlockedGetGroupNetParams(self, net_uuid, node_uuid):
     """Get the netparams (mode, link) of a network.
@@ -2975,14 +3351,14 @@ class ConfigWriter(object):
 
     return netparams
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def GetGroupNetParams(self, net_uuid, node_uuid):
     """Locking wrapper of _UnlockedGetGroupNetParams()
 
     """
     return self._UnlockedGetGroupNetParams(net_uuid, node_uuid)
 
-  @locking.ssynchronized(_config_lock, shared=1)
+  @_ConfigSync(shared=1)
   def CheckIPInNodeGroup(self, ip, node_uuid):
     """Check IP uniqueness in nodegroup.
 
@@ -3009,3 +3385,87 @@ class ConfigWriter(object):
         return (net_info.name, nodegroup_info.networks[net_uuid])
 
     return (None, None)
+
+  @_ConfigSync(shared=1)
+  def GetCandidateCerts(self):
+    """Returns the candidate certificate map.
+
+    """
+    return self._ConfigData().cluster.candidate_certs
+
+  @_ConfigSync()
+  def AddNodeToCandidateCerts(self, node_uuid, cert_digest,
+                              info_fn=logging.info, warn_fn=logging.warn):
+    """Adds an entry to the candidate certificate map.
+
+    @type node_uuid: string
+    @param node_uuid: the node's UUID
+    @type cert_digest: string
+    @param cert_digest: the digest of the node's client SSL certificate
+    @type info_fn: function
+    @param info_fn: logging function for information messages
+    @type warn_fn: function
+    @param warn_fn: logging function for warning messages
+
+    """
+    cluster = self._ConfigData().cluster
+    if node_uuid in cluster.candidate_certs:
+      old_cert_digest = cluster.candidate_certs[node_uuid]
+      if old_cert_digest == cert_digest:
+        if info_fn is not None:
+          info_fn("Certificate digest for node %s already in config."
+                  "Not doing anything." % node_uuid)
+        return
+      else:
+        if warn_fn is not None:
+          warn_fn("Overriding differing certificate digest for node %s"
+                  % node_uuid)
+    cluster.candidate_certs[node_uuid] = cert_digest
+
+  @_ConfigSync()
+  def RemoveNodeFromCandidateCerts(self, node_uuid,
+                                   warn_fn=logging.warn):
+    """Removes the entry of the given node in the certificate map.
+
+    @type node_uuid: string
+    @param node_uuid: the node's UUID
+    @type warn_fn: function
+    @param warn_fn: logging function for warning messages
+
+    """
+    cluster = self._ConfigData().cluster
+    if node_uuid not in cluster.candidate_certs:
+      if warn_fn is not None:
+        warn_fn("Cannot remove certifcate for node %s, because it's not"
+                " in the candidate map." % node_uuid)
+      return
+    del cluster.candidate_certs[node_uuid]
+
+  def FlushConfig(self):
+    """Force the distribution of configuration to master candidates.
+
+    It is not necessary to hold a lock for this operation, it is handled
+    internally by WConfd.
+
+    """
+    if not self._offline:
+      self._wconfd.FlushConfig()
+
+
+class DetachedConfig(ConfigWriter):
+  def __init__(self, config_data):
+    super(DetachedConfig, self).__init__(self, offline=True)
+    self._SetConfigData(config_data)
+
+  @staticmethod
+  def _WriteCallError():
+    raise errors.ProgrammerError("DetachedConfig supports only read-only"
+                                 " operations")
+
+  def _OpenConfig(self, shared):
+    if not shared:
+      DetachedConfig._WriteCallError()
+
+  def _CloseConfig(self, save):
+    if save:
+      DetachedConfig._WriteCallError()

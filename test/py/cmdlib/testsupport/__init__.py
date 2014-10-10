@@ -36,13 +36,14 @@ from cmdlib.testsupport.cmdlib_testcase import CmdlibTestCase, \
   withLockedLU
 from cmdlib.testsupport.config_mock import ConfigMock
 from cmdlib.testsupport.iallocator_mock import patchIAllocator
+from cmdlib.testsupport.livelock_mock import LiveLockMock
 from cmdlib.testsupport.utils_mock import patchUtils
-from cmdlib.testsupport.lock_manager_mock import LockManagerMock
 from cmdlib.testsupport.netutils_mock import patchNetutils, HostnameMock
 from cmdlib.testsupport.processor_mock import ProcessorMock
 from cmdlib.testsupport.rpc_runner_mock import CreateRpcRunnerMock, \
   RpcResultsBuilder
 from cmdlib.testsupport.ssh_mock import patchSsh
+from cmdlib.testsupport.wconfd_mock import WConfdMock
 
 __all__ = ["CmdlibTestCase",
            "withLockedLU",
@@ -53,7 +54,8 @@ __all__ = ["CmdlibTestCase",
            "patchUtils",
            "patchNetutils",
            "patchSsh",
-           "LockManagerMock",
            "ProcessorMock",
            "RpcResultsBuilder",
+           "LiveLockMock",
+           "WConfdMock",
            ]

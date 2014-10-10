@@ -210,6 +210,11 @@ The option is described in the man page \f[B]htools\f[](1).
 .PP
 The file should contain text data, line-based, with single empty lines
 separating sections.
+In particular, an empty section is described by the empty string
+followed by the separating empty line, thus yielding two consecutive
+empty lines.
+So the number of empty lines does matter and cannot be changed
+arbitrarily.
 The lines themselves are column-based, with the pipe symbol (\f[C]|\f[])
 acting as separator.
 .PP
@@ -256,6 +261,9 @@ exclusive storage value (\f[C]Y\f[] if active, \f[C]N\f[] otherwise)
 node free spindles
 .IP \[bu] 2
 virtual CPUs used by the node OS
+.IP \[bu] 2
+CPU speed relative to that of a \f[C]standard\ node\f[] in the node
+group the node belongs to
 .PP
 The third section contains instance data, with the fields:
 .IP \[bu] 2

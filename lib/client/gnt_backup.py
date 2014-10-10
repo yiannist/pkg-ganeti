@@ -59,7 +59,7 @@ def PrintExportList(opts, args):
 
   qfilter = qlang.MakeSimpleFilter("node", opts.nodes)
 
-  cl = GetClient(query=True)
+  cl = GetClient()
 
   return GenericList(constants.QR_EXPORT, selected_fields, None, opts.units,
                      opts.separator, not opts.no_headers,
@@ -76,7 +76,7 @@ def ListExportFields(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
 
   return GenericListFields(constants.QR_EXPORT, args, opts.separator,
                            not opts.no_headers, cl=cl)
@@ -99,13 +99,18 @@ def ExportInstance(opts, args):
     raise errors.OpPrereqError("Target node must be specified",
                                errors.ECODE_INVAL)
 
-  op = opcodes.OpBackupExport(instance_name=args[0],
-                              target_node=opts.node,
-                              compress=opts.transport_compression,
-                              shutdown=opts.shutdown,
-                              shutdown_timeout=opts.shutdown_timeout,
-                              remove_instance=opts.remove_instance,
-                              ignore_remove_failures=ignore_remove_failures)
+  op = opcodes.OpBackupExport(
+    instance_name=args[0],
+    target_node=opts.node,
+    compress=opts.transport_compression,
+    shutdown=opts.shutdown,
+    shutdown_timeout=opts.shutdown_timeout,
+    remove_instance=opts.remove_instance,
+    ignore_remove_failures=ignore_remove_failures,
+    zero_free_space=opts.zero_free_space,
+    zeroing_timeout_fixed=opts.zeroing_timeout_fixed,
+    zeroing_timeout_per_mib=opts.zeroing_timeout_per_mib
+  )
 
   SubmitOrSend(op, opts)
   return 0
@@ -144,6 +149,8 @@ import_opts = [
   SRC_NODE_OPT,
   COMPRESS_OPT,
   IGNORE_IPOLICY_OPT,
+  HELPER_STARTUP_TIMEOUT_OPT,
+  HELPER_SHUTDOWN_TIMEOUT_OPT,
   ]
 
 
@@ -161,7 +168,8 @@ commands = {
     ExportInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SINGLE_NODE_OPT, TRANSPORT_COMPRESSION_OPT, NOSHUTDOWN_OPT,
      SHUTDOWN_TIMEOUT_OPT, REMOVE_INSTANCE_OPT, IGNORE_REMOVE_FAILURES_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT] + SUBMIT_OPTS,
+     DRY_RUN_OPT, PRIORITY_OPT, ZERO_FREE_SPACE_OPT, ZEROING_TIMEOUT_FIXED_OPT,
+     ZEROING_TIMEOUT_PER_MIB_OPT] + SUBMIT_OPTS,
     "-n <target_node> [opts...] <name>",
     "Exports an instance to an image"),
   "import": (

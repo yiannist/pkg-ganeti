@@ -56,6 +56,7 @@ from ganeti.utils.algo import *
 from ganeti.utils.filelock import *
 from ganeti.utils.hash import *
 from ganeti.utils.io import *
+from ganeti.utils.livelock import *
 from ganeti.utils.log import *
 from ganeti.utils.lvm import *
 from ganeti.utils.mlock import *
@@ -141,6 +142,12 @@ def ForceDictType(target, key_types, allowed_values=None):
         target[key] = int(target[key])
       except (ValueError, TypeError):
         msg = "'%s' (value %s) is not a valid integer" % (key, target[key])
+        raise errors.TypeEnforcementError(msg)
+    elif ktype == constants.VTYPE_FLOAT:
+      try:
+        target[key] = float(target[key])
+      except (ValueError, TypeError):
+        msg = "'%s' (value %s) is not a valid float" % (key, target[key])
         raise errors.TypeEnforcementError(msg)
 
 

@@ -155,7 +155,8 @@ class LUInstanceFailover(LogicalUnit):
       }
 
     if instance.disk_template in constants.DTS_INT_MIRROR:
-      env["OLD_SECONDARY"] = self.cfg.GetNodeName(instance.secondary_nodes[0])
+      secondary_nodes = self.cfg.GetInstanceSecondaryNodes(instance.uuid)
+      env["OLD_SECONDARY"] = self.cfg.GetNodeName(secondary_nodes[0])
       env["NEW_SECONDARY"] = self.cfg.GetNodeName(source_node_uuid)
     else:
       env["OLD_SECONDARY"] = env["NEW_SECONDARY"] = ""
@@ -169,7 +170,8 @@ class LUInstanceFailover(LogicalUnit):
 
     """
     instance = self._migrater.instance
-    nl = [self.cfg.GetMasterNode()] + list(instance.secondary_nodes)
+    secondary_nodes = self.cfg.GetInstanceSecondaryNodes(instance.uuid)
+    nl = [self.cfg.GetMasterNode()] + list(secondary_nodes)
     nl.append(self._migrater.target_node_uuid)
     return (nl, nl + [instance.primary_node])
 
@@ -220,7 +222,8 @@ class LUInstanceMigrate(LogicalUnit):
       })
 
     if instance.disk_template in constants.DTS_INT_MIRROR:
-      env["OLD_SECONDARY"] = self.cfg.GetNodeName(instance.secondary_nodes[0])
+      secondary_nodes = self.cfg.GetInstanceSecondaryNodes(instance.uuid)
+      env["OLD_SECONDARY"] = self.cfg.GetNodeName(secondary_nodes[0])
       env["NEW_SECONDARY"] = self.cfg.GetNodeName(source_node_uuid)
     else:
       env["OLD_SECONDARY"] = env["NEW_SECONDARY"] = ""
@@ -232,7 +235,8 @@ class LUInstanceMigrate(LogicalUnit):
 
     """
     instance = self._migrater.instance
-    snode_uuids = list(instance.secondary_nodes)
+    secondary_nodes = self.cfg.GetInstanceSecondaryNodes(instance.uuid)
+    snode_uuids = list(secondary_nodes)
     nl = [self.cfg.GetMasterNode(), instance.primary_node] + snode_uuids
     nl.append(self._migrater.target_node_uuid)
     return (nl, nl)
@@ -356,9 +360,8 @@ class TLMigrateInstance(Tasklet):
         ReleaseLocks(self.lu, locking.LEVEL_NODE_ALLOC)
 
     else:
-      assert not self.lu.glm.is_owned(locking.LEVEL_NODE_ALLOC)
-
-      secondary_node_uuids = self.instance.secondary_nodes
+      secondary_node_uuids = \
+        self.cfg.GetInstanceSecondaryNodes(self.instance.uuid)
       if not secondary_node_uuids:
         raise errors.ConfigurationError("No secondary node but using"
                                         " %s disk template" %
@@ -491,11 +494,11 @@ class TLMigrateInstance(Tasklet):
     """
     self.feedback_fn("* wait until resync is done")
     all_done = False
+    disks = self.cfg.GetInstanceDisks(self.instance.uuid)
     while not all_done:
       all_done = True
       result = self.rpc.call_drbd_wait_sync(self.all_node_uuids,
-                                            (self.instance.disks,
-                                             self.instance))
+                                            (disks, self.instance))
       min_percent = 100
       for node_uuid, nres in result.items():
         nres.Raise("Cannot resync disks on node %s" %
@@ -516,8 +519,9 @@ class TLMigrateInstance(Tasklet):
     self.feedback_fn("* switching node %s to secondary mode" %
                      self.cfg.GetNodeName(node_uuid))
 
+    disks = self.cfg.GetInstanceDisks(self.instance.uuid)
     result = self.rpc.call_blockdev_close(node_uuid, self.instance.name,
-                                          (self.instance.disks, self.instance))
+                                          (disks, self.instance))
     result.Raise("Cannot change disk to secondary on node %s" %
                  self.cfg.GetNodeName(node_uuid))
 
@@ -526,8 +530,9 @@ class TLMigrateInstance(Tasklet):
 
     """
     self.feedback_fn("* changing into standalone mode")
+    disks = self.cfg.GetInstanceDisks(self.instance.uuid)
     result = self.rpc.call_drbd_disconnect_net(
-               self.all_node_uuids, (self.instance.disks, self.instance))
+               self.all_node_uuids, (disks, self.instance))
     for node_uuid, nres in result.items():
       nres.Raise("Cannot disconnect disks node %s" %
                  self.cfg.GetNodeName(node_uuid))
@@ -541,8 +546,9 @@ class TLMigrateInstance(Tasklet):
     else:
       msg = "single-master"
     self.feedback_fn("* changing disks into %s mode" % msg)
+    disks = self.cfg.GetInstanceDisks(self.instance.uuid)
     result = self.rpc.call_drbd_attach_net(self.all_node_uuids,
-                                           (self.instance.disks, self.instance),
+                                           (disks, self.instance),
                                            self.instance.name, multimaster)
     for node_uuid, nres in result.items():
       nres.Raise("Cannot change disks config on node %s" %
@@ -594,8 +600,8 @@ class TLMigrateInstance(Tasklet):
       self.feedback_fn("* instance running on secondary node (%s),"
                        " updating config" %
                        self.cfg.GetNodeName(self.target_node_uuid))
-      self.instance.primary_node = self.target_node_uuid
-      self.cfg.Update(self.instance, self.feedback_fn)
+      self.cfg.SetInstancePrimaryNode(self.instance.uuid,
+                                      self.target_node_uuid)
       demoted_node_uuid = self.source_node_uuid
     else:
       self.feedback_fn("* instance confirmed to be running on its"
@@ -688,7 +694,7 @@ class TLMigrateInstance(Tasklet):
                          (src_version, dst_version))
 
     self.feedback_fn("* checking disk consistency between source and target")
-    for (idx, dev) in enumerate(self.instance.disks):
+    for (idx, dev) in enumerate(self.cfg.GetInstanceDisks(self.instance.uuid)):
       if not CheckDiskConsistency(self.lu, self.instance, dev,
                                   self.target_node_uuid,
                                   False):
@@ -801,10 +807,8 @@ class TLMigrateInstance(Tasklet):
       raise errors.OpExecError("Could not finalize instance migration: %s" %
                                msg)
 
-    self.instance.primary_node = self.target_node_uuid
-
-    # distribute new instance config to the other nodes
-    self.cfg.Update(self.instance, self.feedback_fn)
+    self.cfg.SetInstancePrimaryNode(self.instance.uuid, self.target_node_uuid)
+    self.instance = self.cfg.GetInstanceInfo(self.instance_uuid)
 
     result = self.rpc.call_instance_finalize_migration_dst(
                self.target_node_uuid, self.instance, migration_info, True)
@@ -825,7 +829,8 @@ class TLMigrateInstance(Tasklet):
     # If the instance's disk template is `rbd' or `ext' and there was a
     # successful migration, unmap the device from the source node.
     if self.instance.disk_template in (constants.DT_RBD, constants.DT_EXT):
-      disks = ExpandCheckDisks(self.instance, self.instance.disks)
+      inst_disks = self.cfg.GetInstanceDisks(self.instance.uuid)
+      disks = ExpandCheckDisks(inst_disks, inst_disks)
       self.feedback_fn("* unmapping instance's disks from %s" %
                        self.cfg.GetNodeName(self.source_node_uuid))
       for disk in disks:
@@ -856,7 +861,8 @@ class TLMigrateInstance(Tasklet):
 
     if self.instance.disks_active:
       self.feedback_fn("* checking disk consistency between source and target")
-      for (idx, dev) in enumerate(self.instance.disks):
+      inst_disks = self.cfg.GetInstanceDisks(self.instance.uuid)
+      for (idx, dev) in enumerate(inst_disks):
         # for drbd, these are drbd over lvm
         if not CheckDiskConsistency(self.lu, self.instance, dev,
                                     self.target_node_uuid, False):
@@ -898,9 +904,8 @@ class TLMigrateInstance(Tasklet):
     if not ShutdownInstanceDisks(self.lu, self.instance, ignore_primary=True):
       raise errors.OpExecError("Can't shut down the instance's disks")
 
-    self.instance.primary_node = self.target_node_uuid
-    # distribute new instance config to the other nodes
-    self.cfg.Update(self.instance, self.feedback_fn)
+    self.cfg.SetInstancePrimaryNode(self.instance.uuid, self.target_node_uuid)
+    self.instance = self.cfg.GetInstanceInfo(self.instance_uuid)
 
     # Only start the instance if it's marked as up
     if self.instance.admin_state == constants.ADMINST_UP:
@@ -937,7 +942,8 @@ class TLMigrateInstance(Tasklet):
 
     # FIXME: if we implement migrate-to-any in DRBD, this needs fixing
     if self.instance.disk_template in constants.DTS_INT_MIRROR:
-      self.target_node_uuid = self.instance.secondary_nodes[0]
+      secondary_nodes = self.cfg.GetInstanceSecondaryNodes(self.instance.uuid)
+      self.target_node_uuid = secondary_nodes[0]
       # Otherwise self.target_node has been populated either
       # directly, or through an iallocator.
 

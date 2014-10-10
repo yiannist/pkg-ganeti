@@ -133,7 +133,7 @@
 </dd>
 <dt>-t <em>datafile</em>, --text-data=<em>datafile</em></dt>
 <dd><p>Backend specification: the name of the file holding node and instance information (if not collecting via RAPI or LUXI). This or one of the other backends must be selected. The option is described in the man page <strong>htools</strong>(1).</p>
-<p>The file should contain text data, line-based, with single empty lines separating sections. The lines themselves are column-based, with the pipe symbol (<code>|</code>) acting as separator.</p>
+<p>The file should contain text data, line-based, with single empty lines separating sections. In particular, an empty section is described by the empty string followed by the separating empty line, thus yielding two consecutive empty lines. So the number of empty lines does matter and cannot be changed arbitrarily. The lines themselves are column-based, with the pipe symbol (<code>|</code>) acting as separator.</p>
 <p>The first section contains group data, with the following columns:</p>
 <ul>
 <li>group name</li>
@@ -158,6 +158,7 @@
 <li>exclusive storage value (<code>Y</code> if active, <code>N</code> otherwise)</li>
 <li>node free spindles</li>
 <li>virtual CPUs used by the node OS</li>
+<li>CPU speed relative to that of a <code>standard node</code> in the node group the node belongs to</li>
 </ul>
 <p>The third section contains instance data, with the fields:</p>
 <ul>

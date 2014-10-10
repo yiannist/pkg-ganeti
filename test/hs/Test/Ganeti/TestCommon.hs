@@ -53,6 +53,8 @@ module Test.Ganeti.TestCommon
   , genFQDN
   , genUUID
   , genMaybe
+  , genSublist
+  , genMap
   , genTags
   , genFields
   , genUniquesList
@@ -69,6 +71,8 @@ module Test.Ganeti.TestCommon
   , genLuxiTagName
   , netmask2NumHosts
   , testSerialisation
+  , testArraySerialisation
+  , testDeserialisationFail
   , resultProp
   , readTestData
   , genSample
@@ -101,6 +105,7 @@ import qualified Text.JSON as J
 import Numeric
 
 import qualified Ganeti.BasicTypes as BasicTypes
+import Ganeti.JSON (ArrayObject(..))
 import Ganeti.Types
 
 -- * Constants
@@ -232,6 +237,26 @@ genUUID = do
 -- | Combinator that generates a 'Maybe' using a sub-combinator.
 genMaybe :: Gen a -> Gen (Maybe a)
 genMaybe subgen = frequency [ (1, pure Nothing), (3, Just <$> subgen) ]
+
+-- | Generates a sublist of a given list, keeping the ordering.
+-- The generated elements are always a subset of the list.
+--
+-- In order to better support corner cases, the size of the sublist is
+-- chosen to have the uniform distribution.
+genSublist :: [a] -> Gen [a]
+genSublist xs = choose (0, l) >>= g xs l
+  where
+    l = length xs
+    g _      _ 0 = return []
+    g []     _ _ = return []
+    g ys     n k | k == n = return ys
+    g (y:ys) n k = frequency [ (k,     liftM (y :) (g ys (n - 1) (k - 1)))
+                             , (n - k, g ys (n - 1) k)
+                             ]
+
+-- | Generates a map given generators for keys and values.
+genMap :: (Ord k, Ord v) => Gen k -> Gen v -> Gen (M.Map k v)
+genMap kg vg = M.fromList <$> listOf ((,) <$> kg <*> vg)
 
 -- | Defines a tag type.
 newtype TagChar = TagChar { tagGetChar :: Char }
@@ -381,6 +406,23 @@ testSerialisation a =
   case J.readJSON (J.showJSON a) of
     J.Error msg -> failTest $ "Failed to deserialise: " ++ msg
     J.Ok a' -> a ==? a'
+
+-- | Checks for array serialisation idempotence.
+testArraySerialisation :: (Eq a, Show a, ArrayObject a) => a -> Property
+testArraySerialisation a =
+  case fromJSArray (toJSArray a) of
+    J.Error msg -> failTest $ "Failed to deserialise: " ++ msg
+    J.Ok a' -> a ==? a'
+
+-- | Checks if the deserializer doesn't accept forbidden values.
+-- The first argument is ignored, it just enforces the correct type.
+testDeserialisationFail :: (Eq a, Show a, J.JSON a)
+                        => a -> J.JSValue -> Property
+testDeserialisationFail a val =
+  case liftM (`asTypeOf` a) $ J.readJSON val of
+    J.Error _ -> passTest
+    J.Ok x    -> failTest $ "Parsed invalid value " ++ show val ++
+                            " to: " ++ show x
 
 -- | Result to PropertyM IO.
 resultProp :: (Show a) => BasicTypes.GenericResult a b -> PropertyM IO b

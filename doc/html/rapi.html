@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti remote API &mdash; Ganeti 2.11.6 documentation</title>
+    <title>Ganeti remote API &mdash; Ganeti 2.12.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.11.6',
+        VERSION:     '2.12.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.11.6 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.12.0 documentation" href="index.html" />
     <link rel="next" title="Security in Ganeti" href="security.html" />
     <link rel="prev" title="OVF converter" href="ovfconverter.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="ovfconverter.html" title="OVF converter"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.6 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -50,7 +50,7 @@
             
   <div class="section" id="ganeti-remote-api">
 <h1><a class="toc-backref" href="#id75">Ganeti remote API</a><a class="headerlink" href="#ganeti-remote-api" title="Permalink to this headline">¶</a></h1>
-<p>Documents Ganeti version 2.11</p>
+<p>Documents Ganeti version 2.12</p>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
@@ -757,18 +757,21 @@ a new-style result (see resource description)</dd>
 <span id="id5"></span><h4><a class="toc-backref" href="#id104"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#rapi-res-modify-put" title="Permalink to this headline">¶</a></h4>
 <p>Returns a job ID.</p>
 <p>Body parameters:</p>
-<p><tt class="docutils literal"><span class="pre">add_uids</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378a050&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378a050&gt;))))</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">add_uids</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;Integer</span> <span class="pre">&lt;function</span> <span class="pre">TInt</span> <span class="pre">at</span> <span class="pre">0x29c85f0&gt;&gt;,</span> <span class="pre">&lt;Integer</span> <span class="pre">&lt;function</span> <span class="pre">TInt</span> <span class="pre">at</span> <span class="pre">0x29c85f0&gt;&gt;))))</span></tt>)</p>
 <blockquote>
 <div>Extend UID pool, must be list of lists describing UID ranges (two items, start and end inclusive)</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">beparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything)</span></tt>)</p>
 <blockquote>
 <div>Cluster-wide backend parameter defaults</div></blockquote>
-<p><tt class="docutils literal"><span class="pre">blacklisted_os</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x3439230&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;))))</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">blacklisted_os</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;OneOf</span> <span class="pre">add,</span> <span class="pre">remove</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29d02a8&gt;&gt;,</span> <span class="pre">&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;))))</span></tt>)</p>
 <blockquote>
 <div>Modify list of blacklisted operating systems: each modification must have two items, the operation and the OS name; the operation can be add or remove</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">candidate_pool_size</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">GreaterThanZero</span></tt>)</p>
 <blockquote>
 <div>Master candidate pool size</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">compression_tools</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">NonEmptyString)</span></tt>)</p>
+<blockquote>
+<div>List of enabled compression tools</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">default_iallocator</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">String</span></tt>)</p>
 <blockquote>
 <div>Default iallocator for cluster</div></blockquote>
@@ -801,7 +804,7 @@ a new-style result (see resource description)</dd>
 <blockquote>
 <div>Whether to force the operation</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">gluster_storage_dir</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">String</span></tt>)</p>
-<p><tt class="docutils literal"><span class="pre">hidden_os</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x3439230&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;))))</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">hidden_os</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;OneOf</span> <span class="pre">add,</span> <span class="pre">remove</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29d02a8&gt;&gt;,</span> <span class="pre">&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;))))</span></tt>)</p>
 <blockquote>
 <div>Modify list of hidden operating systems: each modification must have two items, the operation and the OS name; the operation can be add or remove</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">hv_state</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything)</span></tt>)</p>
@@ -810,9 +813,16 @@ a new-style result (see resource description)</dd>
 <p><tt class="docutils literal"><span class="pre">hvparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">String</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything))</span></tt>)</p>
 <blockquote>
 <div>Cluster-wide hypervisor parameters, hypervisor-dependent</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">install_image</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">String</span></tt>)</p>
+<blockquote>
+<div>OS image for running OS scripts in a safe environment</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">instance_communication_network</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">String</span></tt>)</p>
 <p><tt class="docutils literal"><span class="pre">ipolicy</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything)</span></tt>)</p>
 <blockquote>
 <div>Cluster-wide ipolicy specs</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">mac_prefix</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">NonEmptyString</span></tt>)</p>
+<blockquote>
+<div>Network specific mac prefix (that overrides the cluster one)</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">maintain_node_health</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Boolean</span></tt>)</p>
 <blockquote>
 <div>Whether to automatically maintain node health</div></blockquote>
@@ -825,6 +835,9 @@ a new-style result (see resource description)</dd>
 <p><tt class="docutils literal"><span class="pre">max_running_jobs</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">GreaterThanZero</span></tt>)</p>
 <blockquote>
 <div>Maximal number of jobs to run simultaneously</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">max_tracked_jobs</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">GreaterThanZero</span></tt>)</p>
+<blockquote>
+<div>Maximal number of jobs tracked in the job queue</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">modify_etc_hosts</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Boolean</span></tt>)</p>
 <p><tt class="docutils literal"><span class="pre">ndparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything)</span></tt>)</p>
 <blockquote>
@@ -838,17 +851,20 @@ a new-style result (see resource description)</dd>
 <p><tt class="docutils literal"><span class="pre">osparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">String</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything))</span></tt>)</p>
 <blockquote>
 <div>Cluster-wide OS parameter defaults</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">osparams_private_cluster</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">String</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">(Private</span> <span class="pre">Anything)))</span></tt>)</p>
+<blockquote>
+<div>Cluster-wide private OS parameter defaults</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">prealloc_wipe_disks</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Boolean</span></tt>)</p>
 <blockquote>
 <div>Whether to wipe disks before allocating them to instances</div></blockquote>
-<p><tt class="docutils literal"><span class="pre">remove_uids</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378a050&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378a050&gt;))))</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">remove_uids</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;Integer</span> <span class="pre">&lt;function</span> <span class="pre">TInt</span> <span class="pre">at</span> <span class="pre">0x29c85f0&gt;&gt;,</span> <span class="pre">&lt;Integer</span> <span class="pre">&lt;function</span> <span class="pre">TInt</span> <span class="pre">at</span> <span class="pre">0x29c85f0&gt;&gt;))))</span></tt>)</p>
 <blockquote>
 <div>Shrink UID pool, must be list of lists describing UID ranges (two items, start and end inclusive) to be removed</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">reserved_lvs</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">NonEmptyString)</span></tt>)</p>
 <blockquote>
 <div>List of reserved LVs</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">shared_file_storage_dir</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">String</span></tt>)</p>
-<p><tt class="docutils literal"><span class="pre">uid_pool</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378a050&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378a050&gt;))))</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">uid_pool</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;Integer</span> <span class="pre">&lt;function</span> <span class="pre">TInt</span> <span class="pre">at</span> <span class="pre">0x29c85f0&gt;&gt;,</span> <span class="pre">&lt;Integer</span> <span class="pre">&lt;function</span> <span class="pre">TInt</span> <span class="pre">at</span> <span class="pre">0x29c85f0&gt;&gt;))))</span></tt>)</p>
 <blockquote>
 <div>Set UID pool, must be list of lists describing UID ranges (two items, start and end inclusive)</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">use_external_mip_script</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Boolean</span></tt>)</p>
@@ -857,8 +873,9 @@ a new-style result (see resource description)</dd>
 <p><tt class="docutils literal"><span class="pre">vg_name</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">String</span></tt>)</p>
 <blockquote>
 <div>Volume group name</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">zeroing_image</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">String</span></tt>)</p>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">None</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">containing</span> <span class="pre">none</span> <span class="pre">but</span> <span class="pre">the</span> <span class="pre">required</span> <span class="pre">key</span> <span class="pre">&quot;jobs&quot;</span> <span class="pre">(value</span> <span class="pre">List</span> <span class="pre">of</span> <span class="pre">((Length</span> <span class="pre">2)</span> <span class="pre">and</span> <span class="pre">(Item</span> <span class="pre">0</span> <span class="pre">is</span> <span class="pre">(Boolean</span> <span class="pre">[success]),</span> <span class="pre">item</span> <span class="pre">1</span> <span class="pre">is</span> <span class="pre">(String</span> <span class="pre">or</span> <span class="pre">JobId</span> <span class="pre">[Job</span> <span class="pre">ID</span> <span class="pre">if</span> <span class="pre">successful,</span> <span class="pre">error</span> <span class="pre">message</span> <span class="pre">otherwise])))</span> <span class="pre">[List</span> <span class="pre">of</span> <span class="pre">submitted</span> <span class="pre">jobs]))</span></tt></p>
 </div>
 </div>
 <div class="section" id="groups">
@@ -962,7 +979,7 @@ actually executed, only the pre-execution checks will be done.</p>
 <p>Earlier versions used a parameter named <tt class="docutils literal"><span class="pre">name</span></tt> which, while still
 supported, has been renamed to <tt class="docutils literal"><span class="pre">group_name</span></tt>.</p>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">None</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">containing</span> <span class="pre">none</span> <span class="pre">but</span> <span class="pre">the</span> <span class="pre">required</span> <span class="pre">key</span> <span class="pre">&quot;jobs&quot;</span> <span class="pre">(value</span> <span class="pre">List</span> <span class="pre">of</span> <span class="pre">((Length</span> <span class="pre">2)</span> <span class="pre">and</span> <span class="pre">(Item</span> <span class="pre">0</span> <span class="pre">is</span> <span class="pre">(Boolean</span> <span class="pre">[success]),</span> <span class="pre">item</span> <span class="pre">1</span> <span class="pre">is</span> <span class="pre">(String</span> <span class="pre">or</span> <span class="pre">JobId</span> <span class="pre">[Job</span> <span class="pre">ID</span> <span class="pre">if</span> <span class="pre">successful,</span> <span class="pre">error</span> <span class="pre">message</span> <span class="pre">otherwise])))</span> <span class="pre">[List</span> <span class="pre">of</span> <span class="pre">submitted</span> <span class="pre">jobs]))</span></tt></p>
 </div>
 </div>
 <div class="section" id="groups-group-name">
@@ -1046,7 +1063,7 @@ the node group list.</p>
 <blockquote>
 <div>Default node parameters for group</div></blockquote>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x37829b0&gt;)))</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;,</span> <span class="pre">&lt;Anything</span> <span class="pre">&lt;function</span> <span class="pre">TAny</span> <span class="pre">at</span> <span class="pre">0x29c8398&gt;&gt;)))</span></tt></p>
 </div>
 </div>
 <div class="section" id="groups-group-name-rename">
@@ -1622,7 +1639,7 @@ longer supported)</dd>
 <p><tt class="docutils literal"><span class="pre">beparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">{}</span></tt>, must be <tt class="docutils literal"><span class="pre">Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything</span></tt>)</p>
 <blockquote>
 <div>Backend parameters for instance</div></blockquote>
-<p><tt class="docutils literal"><span class="pre">compress</span></tt> (defaults to <tt class="docutils literal"><span class="pre">none</span></tt>, must be <tt class="docutils literal"><span class="pre">OneOf</span> <span class="pre">gzip,</span> <span class="pre">none</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">compress</span></tt> (defaults to <tt class="docutils literal"><span class="pre">none</span></tt>, must be <tt class="docutils literal"><span class="pre">String</span></tt>)</p>
 <blockquote>
 <div>Compression mode to use for moves during backups/imports</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">conflicts_check</span></tt> (defaults to <tt class="docutils literal"><span class="pre">True</span></tt>, must be <tt class="docutils literal"><span class="pre">Boolean</span></tt>)</p>
@@ -1646,6 +1663,12 @@ longer supported)</dd>
 <p><tt class="docutils literal"><span class="pre">force_variant</span></tt> (defaults to <tt class="docutils literal"><span class="pre">False</span></tt>, must be <tt class="docutils literal"><span class="pre">Boolean</span></tt>)</p>
 <blockquote>
 <div>Whether to force an unknown OS variant</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">helper_shutdown_timeout</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Integer</span></tt>)</p>
+<blockquote>
+<div>Shutdown timeout for the helper VM</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">helper_startup_timeout</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Integer</span></tt>)</p>
+<blockquote>
+<div>Startup timeout for the helper VM</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">hvparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">{}</span></tt>, must be <tt class="docutils literal"><span class="pre">Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything</span></tt>)</p>
 <blockquote>
 <div>Hypervisor parameters for instance, hypervisor-dependent</div></blockquote>
@@ -1661,6 +1684,9 @@ longer supported)</dd>
 <p><tt class="docutils literal"><span class="pre">ignore_ipolicy</span></tt> (defaults to <tt class="docutils literal"><span class="pre">False</span></tt>, must be <tt class="docutils literal"><span class="pre">Boolean</span></tt>)</p>
 <blockquote>
 <div>Whether to ignore ipolicy violations</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">instance_communication</span></tt> (defaults to <tt class="docutils literal"><span class="pre">False</span></tt>, must be <tt class="docutils literal"><span class="pre">Boolean</span></tt>)</p>
+<blockquote>
+<div>Enable or disable the communication mechanism for an instance</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">instance_name</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">String</span></tt>)</p>
 <blockquote>
 <div>A required instance name (for single-instance LUs)</div></blockquote>
@@ -1688,6 +1714,12 @@ longer supported)</dd>
 <p><tt class="docutils literal"><span class="pre">osparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">{}</span></tt>, must be <tt class="docutils literal"><span class="pre">Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything</span></tt>)</p>
 <blockquote>
 <div>OS parameters for instance</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">osparams_private</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">(Private</span> <span class="pre">Anything))</span></tt>)</p>
+<blockquote>
+<div>Private OS parameters for instance</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">osparams_secret</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">(Private</span> <span class="pre">Anything))</span></tt>)</p>
+<blockquote>
+<div>Secret OS parameters for instance</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">pnode</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">NonEmptyString</span></tt>)</p>
 <blockquote>
 <div>Primary node for an instance</div></blockquote>
@@ -1977,7 +2009,7 @@ clients should use the body parameters.</p>
 <p><tt class="docutils literal"><span class="pre">depends</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(((List</span> <span class="pre">of</span> <span class="pre">Anything)</span> <span class="pre">or</span> <span class="pre">Tuple)</span> <span class="pre">and</span> <span class="pre">(Length</span> <span class="pre">2)</span> <span class="pre">and</span> <span class="pre">(Item</span> <span class="pre">0</span> <span class="pre">is</span> <span class="pre">(JobId</span> <span class="pre">or</span> <span class="pre">RelativeJobId),</span> <span class="pre">item</span> <span class="pre">1</span> <span class="pre">is</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(OneOf</span> <span class="pre">canceled,</span> <span class="pre">success,</span> <span class="pre">error)))))</span></tt>)</p>
 <blockquote>
 <div>Job dependencies; if used through <tt class="docutils literal"><span class="pre">SubmitManyJobs</span></tt> relative (negative) job IDs can be used; see <a class="reference internal" href="design-chained-jobs.html"><em>design document</em></a> for details</div></blockquote>
-<p><tt class="docutils literal"><span class="pre">disks</span></tt> (defaults to <tt class="docutils literal"><span class="pre">[]</span></tt>, must be <tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(EqualOrGreaterThanZero</span> <span class="pre">and</span> <span class="pre">(&lt;function</span> <span class="pre">&lt;lambda&gt;</span> <span class="pre">at</span> <span class="pre">0x3437938&gt;))</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">disks</span></tt> (defaults to <tt class="docutils literal"><span class="pre">[]</span></tt>, must be <tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(EqualOrGreaterThanZero</span> <span class="pre">and</span> <span class="pre">(&lt;function</span> <span class="pre">&lt;lambda&gt;</span> <span class="pre">at</span> <span class="pre">0x29cbed8&gt;))</span></tt>)</p>
 <blockquote>
 <div>List of disk indices</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">early_release</span></tt> (defaults to <tt class="docutils literal"><span class="pre">False</span></tt>, must be <tt class="docutils literal"><span class="pre">Boolean</span></tt>)</p>
@@ -2031,7 +2063,7 @@ should no longer be used.</p>
 <p>Takes the bool parameter <tt class="docutils literal"><span class="pre">ignore_size</span></tt>. When set ignore the recorded
 size (useful for forcing activation when recorded size is wrong).</p>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;)))</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;,</span> <span class="pre">&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;,</span> <span class="pre">&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;)))</span></tt></p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-deactivate-disks">
@@ -2196,7 +2228,7 @@ size (useful for forcing activation when recorded size is wrong).</p>
 <span id="id40"></span><h4><a class="toc-backref" href="#id168"><tt class="docutils literal"><span class="pre">PUT</span></tt></a><a class="headerlink" href="#rapi-res-instances-instance-name-export-put" title="Permalink to this headline">¶</a></h4>
 <p>Returns a job ID.</p>
 <p>Body parameters:</p>
-<p><tt class="docutils literal"><span class="pre">compress</span></tt> (defaults to <tt class="docutils literal"><span class="pre">none</span></tt>, must be <tt class="docutils literal"><span class="pre">OneOf</span> <span class="pre">gzip,</span> <span class="pre">none</span></tt>)</p>
+<p><tt class="docutils literal"><span class="pre">compress</span></tt> (defaults to <tt class="docutils literal"><span class="pre">none</span></tt>, must be <tt class="docutils literal"><span class="pre">String</span></tt>)</p>
 <blockquote>
 <div>Compression mode to use for moves during backups/imports</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">depends</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(((List</span> <span class="pre">of</span> <span class="pre">Anything)</span> <span class="pre">or</span> <span class="pre">Tuple)</span> <span class="pre">and</span> <span class="pre">(Length</span> <span class="pre">2)</span> <span class="pre">and</span> <span class="pre">(Item</span> <span class="pre">0</span> <span class="pre">is</span> <span class="pre">(JobId</span> <span class="pre">or</span> <span class="pre">RelativeJobId),</span> <span class="pre">item</span> <span class="pre">1</span> <span class="pre">is</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">(OneOf</span> <span class="pre">canceled,</span> <span class="pre">success,</span> <span class="pre">error)))))</span></tt>)</p>
@@ -2232,8 +2264,17 @@ size (useful for forcing activation when recorded size is wrong).</p>
 <p><tt class="docutils literal"><span class="pre">x509_key_name</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(List</span> <span class="pre">of</span> <span class="pre">Anything)</span></tt>)</p>
 <blockquote>
 <div>Name of X509 key (remote export only)</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">zero_free_space</span></tt> (defaults to <tt class="docutils literal"><span class="pre">False</span></tt>, must be <tt class="docutils literal"><span class="pre">Boolean</span></tt>)</p>
+<blockquote>
+<div>Whether to zero the free space on the disks of the instance</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">zeroing_timeout_fixed</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Integer</span></tt>)</p>
+<blockquote>
+<div>The fixed part of time to wait before declaring the zeroing operation to have failed</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">zeroing_timeout_per_mib</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Float</span></tt>)</p>
+<blockquote>
+<div>The variable part of time to wait before declaring the zeroing operation to have failed, dependent on total size of disks</div></blockquote>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x3786b90&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x3511730&gt;))</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;Boolean</span> <span class="pre">&lt;function</span> <span class="pre">TBool</span> <span class="pre">at</span> <span class="pre">0x29c8578&gt;&gt;,</span> <span class="pre">&lt;List</span> <span class="pre">of</span> <span class="pre">Boolean</span> <span class="pre">&lt;List</span> <span class="pre">and</span> <span class="pre">(&lt;function</span> <span class="pre">&lt;lambda&gt;</span> <span class="pre">at</span> <span class="pre">0x29565f0&gt;)</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x2956668&gt;&gt;&gt;))</span></tt></p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-migrate">
@@ -2441,6 +2482,9 @@ size (useful for forcing activation when recorded size is wrong).</p>
 <p><tt class="docutils literal"><span class="pre">ignore_ipolicy</span></tt> (defaults to <tt class="docutils literal"><span class="pre">False</span></tt>, must be <tt class="docutils literal"><span class="pre">Boolean</span></tt>)</p>
 <blockquote>
 <div>Whether to ignore ipolicy violations</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">instance_communication</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">Boolean</span></tt>)</p>
+<blockquote>
+<div>Enable or disable the communication mechanism for an instance</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">instance_uuid</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">NonEmptyString</span></tt>)</p>
 <blockquote>
 <div>An instance UUID (for single-instance LUs)</div></blockquote>
@@ -2456,6 +2500,9 @@ size (useful for forcing activation when recorded size is wrong).</p>
 <p><tt class="docutils literal"><span class="pre">osparams</span></tt> (defaults to <tt class="docutils literal"><span class="pre">{}</span></tt>, must be <tt class="docutils literal"><span class="pre">Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">Anything</span></tt>)</p>
 <blockquote>
 <div>OS parameters for instance</div></blockquote>
+<p><tt class="docutils literal"><span class="pre">osparams_private</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">(Dictionary</span> <span class="pre">with</span> <span class="pre">keys</span> <span class="pre">of</span> <span class="pre">Anything</span> <span class="pre">and</span> <span class="pre">values</span> <span class="pre">of</span> <span class="pre">(Private</span> <span class="pre">Anything))</span></tt>)</p>
+<blockquote>
+<div>Private OS parameters for instance</div></blockquote>
 <p><tt class="docutils literal"><span class="pre">pnode</span></tt> (defaults to <tt class="docutils literal"><span class="pre">None</span></tt>, must be <tt class="docutils literal"><span class="pre">None</span> <span class="pre">or</span> <span class="pre">NonEmptyString</span></tt>)</p>
 <blockquote>
 <div>Primary node for an instance</div></blockquote>
@@ -2475,7 +2522,7 @@ size (useful for forcing activation when recorded size is wrong).</p>
 <blockquote>
 <div>Whether to wait for the disk to synchronize</div></blockquote>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x37829b0&gt;)))</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;,</span> <span class="pre">&lt;Anything</span> <span class="pre">&lt;function</span> <span class="pre">TAny</span> <span class="pre">at</span> <span class="pre">0x29c8398&gt;&gt;)))</span></tt></p>
 </div>
 </div>
 <div class="section" id="instances-instance-name-console">
@@ -3006,7 +3053,7 @@ modified via RAPI, only via the command line (<tt class="docutils literal"><span
 be a job id.</p>
 <p>It supports the bool <tt class="docutils literal"><span class="pre">force</span></tt> argument.</p>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x37829b0&gt;)))</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;,</span> <span class="pre">&lt;Anything</span> <span class="pre">&lt;function</span> <span class="pre">TAny</span> <span class="pre">at</span> <span class="pre">0x29c8398&gt;&gt;)))</span></tt></p>
 </div>
 </div>
 <div class="section" id="nodes-node-name-modify">
@@ -3075,7 +3122,7 @@ be a job id.</p>
 <blockquote>
 <div>Whether node can host instances</div></blockquote>
 <p>Job result:</p>
-<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x378f460&gt;,</span> <span class="pre">&lt;ganeti.ht._DescWrapper</span> <span class="pre">object</span> <span class="pre">at</span> <span class="pre">0x37829b0&gt;)))</span></tt></p>
+<p><tt class="docutils literal"><span class="pre">List</span> <span class="pre">of</span> <span class="pre">(Tuple</span> <span class="pre">of</span> <span class="pre">((&lt;NonEmptyString</span> <span class="pre">&lt;String</span> <span class="pre">and</span> <span class="pre">EvalToTrue</span> <span class="pre">&lt;function</span> <span class="pre">fn</span> <span class="pre">at</span> <span class="pre">0x29c8cf8&gt;&gt;&gt;,</span> <span class="pre">&lt;Anything</span> <span class="pre">&lt;function</span> <span class="pre">TAny</span> <span class="pre">at</span> <span class="pre">0x29c8398&gt;&gt;)))</span></tt></p>
 </div>
 </div>
 <div class="section" id="nodes-node-name-storage">
@@ -4027,7 +4074,7 @@ resource. See <a class="reference internal" href="#rapi-users"><em>Users and pas
         <li class="right" >
           <a href="ovfconverter.html" title="OVF converter"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.6 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

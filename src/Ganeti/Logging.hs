@@ -55,10 +55,19 @@ module Ganeti.Logging
   , SyslogUsage(..)
   , syslogUsageToRaw
   , syslogUsageFromRaw
+  , withErrorLogAt
+  , isDebugMode
   ) where
 
+import Control.Applicative ((<$>))
 import Control.Monad
+import Control.Monad.Error (Error(..), MonadError(..), catchError)
 import Control.Monad.Reader
+import qualified Control.Monad.RWS.Strict as RWSS
+import qualified Control.Monad.State.Strict as SS
+import Control.Monad.Trans.Identity
+import Control.Monad.Trans.Maybe
+import Data.Monoid
 import System.Log.Logger
 import System.Log.Handler.Simple
 import System.Log.Handler.Syslog
@@ -66,6 +75,7 @@ import System.Log.Handler (setFormatter, LogHandler)
 import System.Log.Formatter
 import System.IO
 
+import Ganeti.BasicTypes (ResultT(..))
 import Ganeti.THH
 import qualified Ganeti.ConstantUtils as ConstantUtils
 
@@ -111,7 +121,7 @@ setupLogging :: Maybe String    -- ^ Log file
 setupLogging logf program debug stderr_logging console syslog = do
   let level = if debug then DEBUG else INFO
       destf = if console then Just ConstantUtils.devConsole else logf
-      fmt = logFormatter program False False
+      fmt = logFormatter program True False
       file_logging = syslog /= SyslogOnly
 
   updateGlobalLogger rootLoggerName (setLevel level)
@@ -143,8 +153,23 @@ class Monad m => MonadLog m where
 instance MonadLog IO where
   logAt = logM rootLoggerName
 
+instance (MonadLog m) => MonadLog (IdentityT m) where
+  logAt p = lift . logAt p
+
+instance (MonadLog m) => MonadLog (MaybeT m) where
+  logAt p = lift . logAt p
+
 instance (MonadLog m) => MonadLog (ReaderT r m) where
-  logAt p x = lift $ logAt p x
+  logAt p = lift . logAt p
+
+instance (MonadLog m) => MonadLog (SS.StateT s m) where
+  logAt p = lift . logAt p
+
+instance (MonadLog m, Monoid w) => MonadLog (RWSS.RWST r w s m) where
+  logAt p = lift . logAt p
+
+instance (MonadLog m, Error e) => MonadLog (ResultT e m) where
+  logAt p = lift . logAt p
 
 -- | Log at debug level.
 logDebug :: (MonadLog m) => String -> m ()
@@ -177,3 +202,18 @@ logAlert = logAt ALERT
 -- | Log at emergency level.
 logEmergency :: (MonadLog m) => String -> m ()
 logEmergency = logAt EMERGENCY
+
+-- | Check if the logging is at DEBUG level.
+-- DEBUG logging is unacceptable for production.
+isDebugMode :: IO Bool
+isDebugMode = (Just DEBUG ==) . getLevel <$> getRootLogger
+
+-- * Logging in an error monad with rethrowing errors
+
+-- | If an error occurs within a given computation, it annotated
+-- with a given message and logged and the error is re-thrown.
+withErrorLogAt :: (MonadLog m, MonadError e m, Show e)
+               => Priority -> String -> m a -> m a
+withErrorLogAt prio msg = flip catchError $ \e -> do
+  logAt prio (msg ++ ": " ++ show e)
+  throwError e

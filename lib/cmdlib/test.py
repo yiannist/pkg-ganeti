@@ -34,6 +34,7 @@ import logging
 import shutil
 import socket
 import tempfile
+import time
 
 from ganeti import compat
 from ganeti import constants
@@ -44,6 +45,62 @@ from ganeti.masterd import iallocator
 from ganeti.cmdlib.base import NoHooksLU
 from ganeti.cmdlib.common import ExpandInstanceUuidAndName, GetWantedNodes, \
   GetWantedInstances
+
+
+class TestSocketWrapper(object):
+  """ Utility class that opens a domain socket and cleans up as needed.
+
+  """
+  def __init__(self):
+    """ Constructor cleaning up variables to be used.
+
+    """
+    self.tmpdir = None
+    self.sock = None
+
+  def Create(self, max_connections=1):
+    """ Creates a bound and ready socket, cleaning up in case of failure.
+
+    @type max_connections: int
+    @param max_connections: The number of max connections allowed for the
+                            socket.
+
+    @rtype: tuple of socket, string
+    @return: The socket object and the path to reach it with.
+
+    """
+    # Using a temporary directory as there's no easy way to create temporary
+    # sockets without writing a custom loop around tempfile.mktemp and
+    # socket.bind
+    self.tmpdir = tempfile.mkdtemp()
+    try:
+      tmpsock = utils.PathJoin(self.tmpdir, "sock")
+      logging.debug("Creating temporary socket at %s", tmpsock)
+      self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+      try:
+        self.sock.bind(tmpsock)
+        self.sock.listen(max_connections)
+      except:
+        self.sock.close()
+        raise
+    except:
+      shutil.rmtree(self.tmpdir)
+      raise
+
+    return self.sock, tmpsock
+
+  def Destroy(self):
+    """ Destroys the socket and performs all necessary cleanup.
+
+    """
+    if self.tmpdir is None or self.sock is None:
+      raise Exception("A socket must be created successfully before attempting "
+                      "its destruction")
+
+    try:
+      self.sock.close()
+    finally:
+      shutil.rmtree(self.tmpdir)
 
 
 class LUTestDelay(NoHooksLU):
@@ -63,46 +120,111 @@ class LUTestDelay(NoHooksLU):
     """
     self.needed_locks = {}
 
+    if self.op.duration <= 0:
+      raise errors.OpPrereqError("Duration must be greater than zero")
+
     if not self.op.no_locks and (self.op.on_nodes or self.op.on_master):
       self.needed_locks[locking.LEVEL_NODE] = []
 
+    self.op.on_node_uuids = []
     if self.op.on_nodes:
       # _GetWantedNodes can be used here, but is not always appropriate to use
       # this way in ExpandNames. Check LogicalUnit.ExpandNames docstring for
       # more information.
       (self.op.on_node_uuids, self.op.on_nodes) = \
         GetWantedNodes(self, self.op.on_nodes)
-      if not self.op.no_locks:
-        self.needed_locks[locking.LEVEL_NODE].extend(self.op.on_node_uuids)
 
-    if not self.op.no_locks and self.op.on_master:
-      # The node lock should be acquired for the master as well.
-      self.needed_locks[locking.LEVEL_NODE].append(self.cfg.GetMasterNode())
+    master_uuid = self.cfg.GetMasterNode()
+    if self.op.on_master and master_uuid not in self.op.on_node_uuids:
+      self.op.on_node_uuids.append(master_uuid)
 
-  def _TestDelay(self):
-    """Do the actual sleep.
+    self.needed_locks = {}
+    self.needed_locks[locking.LEVEL_NODE] = self.op.on_node_uuids
+
+  def _InterruptibleDelay(self):
+    """Delays but provides the mechanisms necessary to interrupt the delay as
+    needed.
 
     """
-    if self.op.on_master:
-      if not utils.TestDelay(self.op.duration)[0]:
-        raise errors.OpExecError("Error during master delay test")
+    socket_wrapper = TestSocketWrapper()
+    sock, path = socket_wrapper.Create()
+
+    self.Log(constants.ELOG_DELAY_TEST, (path,))
+
+    try:
+      sock.settimeout(self.op.duration)
+      start = time.time()
+      (conn, _) = sock.accept()
+    except socket.timeout, _:
+      # If we timed out, all is well
+      return False
+    finally:
+      # Destroys the original socket, but the new connection is still usable
+      socket_wrapper.Destroy()
+
+    try:
+      # Change to remaining time
+      time_to_go = self.op.duration - (time.time() - start)
+      self.Log(constants.ELOG_MESSAGE,
+               "Received connection, time to go is %d" % time_to_go)
+      if time_to_go < 0:
+        time_to_go = 0
+      # pylint: disable=E1101
+      # Instance of '_socketobject' has no ... member
+      conn.settimeout(time_to_go)
+      conn.recv(1)
+      # pylint: enable=E1101
+    except socket.timeout, _:
+      # A second timeout can occur if no data is sent
+      return False
+    finally:
+      conn.close()
+
+    self.Log(constants.ELOG_MESSAGE,
+             "Interrupted, time spent waiting: %d" % (time.time() - start))
+
+    # Reaching this point means we were interrupted
+    return True
+
+  def _UninterruptibleDelay(self):
+    """Delays without allowing interruptions.
+
+    """
     if self.op.on_node_uuids:
       result = self.rpc.call_test_delay(self.op.on_node_uuids, self.op.duration)
       for node_uuid, node_result in result.items():
         node_result.Raise("Failure during rpc call to node %s" %
                           self.cfg.GetNodeName(node_uuid))
+    else:
+      if not utils.TestDelay(self.op.duration)[0]:
+        raise errors.OpExecError("Error during master delay test")
+
+  def _TestDelay(self):
+    """Do the actual sleep.
+
+    @rtype: bool
+    @return: Whether the delay was interrupted
+
+    """
+    if self.op.interruptible:
+      return self._InterruptibleDelay()
+    else:
+      self._UninterruptibleDelay()
+      return False
 
   def Exec(self, feedback_fn):
     """Execute the test delay opcode, with the wanted repetitions.
 
     """
     if self.op.repeat == 0:
-      self._TestDelay()
+      i = self._TestDelay()
     else:
       top_value = self.op.repeat - 1
       for i in range(self.op.repeat):
         self.LogInfo("Test delay iteration %d/%d", i, top_value)
-        self._TestDelay()
+        # Break in case of interruption
+        if self._TestDelay():
+          break
 
 
 class LUTestJqueue(NoHooksLU):
@@ -126,33 +248,23 @@ class LUTestJqueue(NoHooksLU):
     @param errcls: Exception class to use for errors
 
     """
+
     # Using a temporary directory as there's no easy way to create temporary
     # sockets without writing a custom loop around tempfile.mktemp and
     # socket.bind
-    tmpdir = tempfile.mkdtemp()
+
+    socket_wrapper = TestSocketWrapper()
+    sock, path = socket_wrapper.Create()
+
+    cb(path)
+
     try:
-      tmpsock = utils.PathJoin(tmpdir, "sock")
-
-      logging.debug("Creating temporary socket at %s", tmpsock)
-      sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-      try:
-        sock.bind(tmpsock)
-        sock.listen(1)
-
-        # Send details to client
-        cb(tmpsock)
-
-        # Wait for client to connect before continuing
-        sock.settimeout(cls._CLIENT_CONNECT_TIMEOUT)
-        try:
-          (conn, _) = sock.accept()
-        except socket.error, err:
-          raise errcls("Client didn't connect in time (%s)" % err)
-      finally:
-        sock.close()
+      sock.settimeout(cls._CLIENT_CONNECT_TIMEOUT)
+      (conn, _) = sock.accept()
+    except socket.error, err:
+      raise errcls("Client didn't connect in time (%s)" % err)
     finally:
-      # Remove as soon as client is connected
-      shutil.rmtree(tmpdir)
+      socket_wrapper.Destroy()
 
     # Wait for client to close
     try:
@@ -273,7 +385,7 @@ class LUTestAllocator(NoHooksLU):
       (self.inst_uuid, self.op.name) = ExpandInstanceUuidAndName(self.cfg, None,
                                                                  self.op.name)
       self.relocate_from_node_uuids = \
-          list(self.cfg.GetInstanceInfo(self.inst_uuid).secondary_nodes)
+          list(self.cfg.GetInstanceSecondaryNodes(self.inst_uuid))
     elif self.op.mode in (constants.IALLOCATOR_MODE_CHG_GROUP,
                           constants.IALLOCATOR_MODE_NODE_EVAC):
       if not self.op.instances:

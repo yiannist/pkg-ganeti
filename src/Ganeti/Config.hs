@@ -36,15 +36,21 @@ module Ganeti.Config
     ( LinkIpMap
     , NdParamObject(..)
     , loadConfig
+    , saveConfig
     , getNodeInstances
     , getNodeRole
     , getNodeNdParams
     , getDefaultNicLink
     , getDefaultHypervisor
     , getInstancesIpByLink
+    , getMasterNodes
     , getMasterCandidates
+    , getMasterOrCandidates
+    , getMasterNetworkParameters
+    , getOnlineNodes
     , getNode
     , getInstance
+    , getDisk
     , getGroup
     , getGroupNdParams
     , getGroupIpolicy
@@ -55,19 +61,33 @@ module Ganeti.Config
     , getInstPrimaryNode
     , getInstMinorsForNode
     , getInstAllNodes
+    , getInstDisks
+    , getInstDisksFromObj
+    , getDrbdMinorsForInstance
     , getFilledInstHvParams
     , getFilledInstBeParams
     , getFilledInstOsParams
     , getNetwork
+    , MAC
+    , getAllMACs
+    , getAllDrbdSecrets
+    , NodeLVsMap
+    , getInstanceLVsByNode
+    , getAllLVs
     , buildLinkIpInstnameMap
     , instNodes
     ) where
 
-import Control.Monad (liftM)
+import Control.Applicative
+import Control.Monad
+import Control.Monad.State
+import qualified Data.Foldable as F
 import Data.List (foldl', nub)
+import Data.Monoid
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Text.JSON as J
+import System.IO
 
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
@@ -75,25 +95,32 @@ import Ganeti.Errors
 import Ganeti.JSON
 import Ganeti.Objects
 import Ganeti.Types
+import qualified Ganeti.Utils.MultiMap as MM
 
 -- | Type alias for the link and ip map.
 type LinkIpMap = M.Map String (M.Map String String)
 
--- | Type class denoting objects which have node parameters.
-class NdParamObject a where
-  getNdParamsOf :: ConfigData -> a -> Maybe FilledNDParams
+-- * Operations on the whole configuration
 
 -- | Reads the config file.
-readConfig :: FilePath -> IO String
-readConfig = readFile
+readConfig :: FilePath -> IO (Result String)
+readConfig = runResultT . liftIO . readFile
 
 -- | Parses the configuration file.
 parseConfig :: String -> Result ConfigData
 parseConfig = fromJResult "parsing configuration" . J.decodeStrict
 
+-- | Encodes the configuration file.
+encodeConfig :: ConfigData -> String
+encodeConfig = J.encodeStrict
+
 -- | Wrapper over 'readConfig' and 'parseConfig'.
 loadConfig :: FilePath -> IO (Result ConfigData)
-loadConfig = fmap parseConfig . readConfig
+loadConfig = fmap (>>= parseConfig) . readConfig
+
+-- | Wrapper over 'hPutStr' and 'encodeConfig'.
+saveConfig :: Handle -> ConfigData -> IO ()
+saveConfig fh = hPutStr fh . encodeConfig
 
 -- * Query functions
 
@@ -107,19 +134,22 @@ computeDiskNodes dsk =
 -- | Computes all disk-related nodes of an instance. For non-DRBD,
 -- this will be empty, for DRBD it will contain both the primary and
 -- the secondaries.
-instDiskNodes :: Instance -> S.Set String
-instDiskNodes = S.unions . map computeDiskNodes . instDisks
+instDiskNodes :: ConfigData -> Instance -> S.Set String
+instDiskNodes cfg inst =
+  case getInstDisksFromObj cfg inst of
+    Ok disks -> S.unions $ map computeDiskNodes disks
+    Bad _ -> S.empty
 
 -- | Computes all nodes of an instance.
-instNodes :: Instance -> S.Set String
-instNodes inst = instPrimaryNode inst `S.insert` instDiskNodes inst
+instNodes :: ConfigData -> Instance -> S.Set String
+instNodes cfg inst = instPrimaryNode inst `S.insert` instDiskNodes cfg inst
 
 -- | Computes the secondary nodes of an instance. Since this is valid
 -- only for DRBD, we call directly 'instDiskNodes', skipping over the
 -- extra primary insert.
-instSecondaryNodes :: Instance -> S.Set String
-instSecondaryNodes inst =
-  instPrimaryNode inst `S.delete` instDiskNodes inst
+instSecondaryNodes :: ConfigData -> Instance -> S.Set String
+instSecondaryNodes cfg inst =
+  instPrimaryNode inst `S.delete` instDiskNodes cfg inst
 
 -- | Get instances of a given node.
 -- The node is specified through its UUID.
@@ -127,7 +157,7 @@ getNodeInstances :: ConfigData -> String -> ([Instance], [Instance])
 getNodeInstances cfg nname =
     let all_inst = M.elems . fromContainer . configInstances $ cfg
         pri_inst = filter ((== nname) . instPrimaryNode) all_inst
-        sec_inst = filter ((nname `S.member`) . instSecondaryNodes) all_inst
+        sec_inst = filter ((nname `S.member`) . instSecondaryNodes cfg) all_inst
     in (pri_inst, sec_inst)
 
 -- | Computes the role of a node.
@@ -139,11 +169,37 @@ getNodeRole cfg node
   | nodeOffline node = NROffline
   | otherwise = NRRegular
 
--- | Get the list of master candidates.
+-- | Get the list of the master nodes (usually one).
+getMasterNodes :: ConfigData -> [Node]
+getMasterNodes cfg =
+  filter ((==) NRMaster . getNodeRole cfg) . F.toList . configNodes $ cfg
+
+-- | Get the list of master candidates, /not including/ the master itself.
 getMasterCandidates :: ConfigData -> [Node]
 getMasterCandidates cfg = 
-  filter ((==) NRCandidate . getNodeRole cfg)
-    (map snd . M.toList . fromContainer . configNodes $ cfg)
+  filter ((==) NRCandidate . getNodeRole cfg) . F.toList . configNodes $ cfg
+
+-- | Get the list of master candidates, /including/ the master.
+getMasterOrCandidates :: ConfigData -> [Node]
+getMasterOrCandidates cfg =
+  let isMC r = (r == NRCandidate) || (r == NRMaster)
+  in filter (isMC . getNodeRole cfg) . F.toList . configNodes $ cfg
+
+-- | Get the network parameters for the master IP address.
+getMasterNetworkParameters :: ConfigData -> MasterNetworkParameters
+getMasterNetworkParameters cfg =
+  let cluster = configCluster cfg
+  in MasterNetworkParameters
+      { masterNetworkParametersUuid = clusterMasterNode cluster
+      , masterNetworkParametersIp = clusterMasterIp cluster
+      , masterNetworkParametersNetmask = clusterMasterNetmask cluster
+      , masterNetworkParametersNetdev = clusterMasterNetdev cluster
+      , masterNetworkParametersIpFamily = clusterPrimaryIpFamily cluster
+      }
+
+-- | Get the list of online nodes.
+getOnlineNodes :: ConfigData -> [Node]
+getOnlineNodes = filter (not . nodeOffline) . F.toList . configNodes
 
 -- | Returns the default cluster link.
 getDefaultNicLink :: ConfigData -> String
@@ -203,6 +259,12 @@ getInstance cfg name =
                               (instName . (M.!) instances) instances
                 in getItem "Instance" name by_name
 
+-- | Looks up a disk by uuid.
+getDisk :: ConfigData -> String -> ErrorResult Disk
+getDisk cfg name =
+  let disks = fromContainer (configDisks cfg)
+  in getItem "Disk" name disks
+
 -- | Looks up a node group by name or uuid.
 getGroup :: ConfigData -> String -> ErrorResult NodeGroup
 getGroup cfg name =
@@ -225,7 +287,7 @@ getGroupIpolicy cfg ng =
   fillIPolicy (clusterIpolicy $ configCluster cfg) (groupIpolicy ng)
 
 -- | Computes a group\'s (merged) disk params.
-getGroupDiskParams :: ConfigData -> NodeGroup -> DiskParams
+getGroupDiskParams :: ConfigData -> NodeGroup -> GroupDiskParams
 getGroupDiskParams cfg ng =
   GenericContainer $
   fillDict (fromContainer . clusterDiskparams $ configCluster cfg)
@@ -243,18 +305,6 @@ getGroupInstances cfg gname =
   let gnodes = map nodeUuid (getGroupNodes cfg gname)
       ginsts = map (getNodeInstances cfg) gnodes in
   (concatMap fst ginsts, concatMap snd ginsts)
-
--- | Looks up a network. If looking up by uuid fails, we look up
--- by name.
-getNetwork :: ConfigData -> String -> ErrorResult Network
-getNetwork cfg name =
-  let networks = fromContainer (configNetworks cfg)
-  in case getItem "Network" name networks of
-       Ok net -> Ok net
-       Bad _ -> let by_name = M.mapKeys
-                              (fromNonEmpty . networkName . (M.!) networks)
-                              networks
-                in getItem "Network" name by_name
 
 -- | Retrieves the instance hypervisor params, missing values filled with
 -- cluster defaults.
@@ -284,7 +334,7 @@ getFilledInstBeParams cfg inst = do
   return $ fillBeParams parentParams (instBeparams inst)
 
 -- | Retrieves the instance os params, missing values filled with cluster
--- defaults.
+-- defaults. This does NOT include private and secret parameters.
 getFilledInstOsParams :: ConfigData -> Instance -> OsParams
 getFilledInstOsParams cfg inst =
   let osLookupName = takeWhile (/= '+') (instOs inst)
@@ -316,10 +366,43 @@ getDrbdDiskNodes cfg disk =
 -- the primary node has to be appended to the results.
 getInstAllNodes :: ConfigData -> String -> ErrorResult [Node]
 getInstAllNodes cfg name = do
-  inst <- getInstance cfg name
-  let diskNodes = concatMap (getDrbdDiskNodes cfg) $ instDisks inst
+  inst_disks <- getInstDisks cfg name
+  let diskNodes = concatMap (getDrbdDiskNodes cfg) inst_disks
   pNode <- getInstPrimaryNode cfg name
   return . nub $ pNode:diskNodes
+
+-- | Get disks for a given instance.
+-- The instance is specified by name or uuid.
+getInstDisks :: ConfigData -> String -> ErrorResult [Disk]
+getInstDisks cfg iname =
+  getInstance cfg iname >>= mapM (getDisk cfg) . instDisks
+
+-- | Get disks for a given instance object.
+getInstDisksFromObj :: ConfigData -> Instance -> ErrorResult [Disk]
+getInstDisksFromObj cfg =
+  getInstDisks cfg . instUuid
+
+-- | Collects a value for all DRBD disks
+collectFromDrbdDisks
+  :: (Monoid a)
+  => (String -> String -> Int -> Int -> Int -> DRBDSecret -> a)
+  -- ^ NodeA, NodeB, Port, MinorA, MinorB, Secret
+  -> Disk -> a
+collectFromDrbdDisks f = col
+  where
+    col Disk { diskLogicalId = (LIDDrbd8 nA nB port mA mB secret)
+             , diskChildren = ch
+             } = f nA nB port mA mB secret <> F.foldMap col ch
+    col d = F.foldMap col (diskChildren d)
+
+-- | Returns the DRBD secrets of a given 'Disk'
+getDrbdSecretsForDisk :: Disk -> [DRBDSecret]
+getDrbdSecretsForDisk = collectFromDrbdDisks (\_ _ _ _ _ secret -> [secret])
+
+-- | Returns the DRBD minors of a given 'Disk'
+getDrbdMinorsForDisk :: Disk -> [(Int, String)]
+getDrbdMinorsForDisk =
+  collectFromDrbdDisks (\nA nB _ mnA mnB _ -> [(mnA, nA), (mnB, nB)])
 
 -- | Filters DRBD minors for a given node.
 getDrbdMinorsForNode :: String -> Disk -> [(Int, String)]
@@ -333,6 +416,12 @@ getDrbdMinorsForNode node disk =
           _ -> []
   in this_minors ++ child_minors
 
+-- | Returns the DRBD minors of a given instance
+getDrbdMinorsForInstance :: ConfigData -> Instance
+                         -> ErrorResult [(Int, String)]
+getDrbdMinorsForInstance cfg =
+  liftM (concatMap getDrbdMinorsForDisk) . getInstDisksFromObj cfg
+
 -- | String for primary role.
 rolePrimary :: String
 rolePrimary = "primary"
@@ -343,21 +432,25 @@ roleSecondary = "secondary"
 
 -- | Gets the list of DRBD minors for an instance that are related to
 -- a given node.
-getInstMinorsForNode :: String -- ^ The UUID of a node.
+getInstMinorsForNode :: ConfigData
+                     -> String -- ^ The UUID of a node.
                      -> Instance
                      -> [(String, Int, String, String, String, String)]
-getInstMinorsForNode node inst =
+getInstMinorsForNode cfg node inst =
   let role = if node == instPrimaryNode inst
                then rolePrimary
                else roleSecondary
       iname = instName inst
+      inst_disks = case getInstDisksFromObj cfg inst of
+                     Ok disks -> disks
+                     Bad _ -> []
   -- FIXME: the disk/ build there is hack-ish; unify this in a
   -- separate place, or reuse the iv_name (but that is deprecated on
   -- the Python side)
   in concatMap (\(idx, dsk) ->
             [(node, minor, iname, "disk/" ++ show idx, role, peer)
                | (minor, peer) <- getDrbdMinorsForNode node dsk]) .
-     zip [(0::Int)..] . instDisks $ inst
+     zip [(0::Int)..] $ inst_disks
 
 -- | Builds link -> ip -> instname map.
 --
@@ -400,6 +493,67 @@ getNodeNdParams cfg node = do
   group <- getGroupOfNode cfg node
   let gparams = getGroupNdParams cfg group
   return $ fillNDParams gparams (nodeNdparams node)
+
+-- * Network
+
+-- | Looks up a network. If looking up by uuid fails, we look up
+-- by name.
+getNetwork :: ConfigData -> String -> ErrorResult Network
+getNetwork cfg name =
+  let networks = fromContainer (configNetworks cfg)
+  in case getItem "Network" name networks of
+       Ok net -> Ok net
+       Bad _ -> let by_name = M.mapKeys
+                              (fromNonEmpty . networkName . (M.!) networks)
+                              networks
+                in getItem "Network" name by_name
+
+-- ** MACs
+
+type MAC = String
+
+-- | Returns all MAC addresses used in the cluster.
+getAllMACs :: ConfigData -> [MAC]
+getAllMACs = F.foldMap (map nicMac . instNics) . configInstances
+
+-- ** DRBD secrets
+
+getAllDrbdSecrets :: ConfigData -> [DRBDSecret]
+getAllDrbdSecrets = F.foldMap getDrbdSecretsForDisk . configDisks
+
+-- ** LVs
+
+-- | A map from node UUIDs to
+--
+-- FIXME: After adding designated types for UUIDs,
+-- use them to replace 'String' here.
+type NodeLVsMap = MM.MultiMap String LogicalVolume
+
+getInstanceLVsByNode :: ConfigData -> Instance -> ErrorResult NodeLVsMap
+getInstanceLVsByNode cd inst =
+    (MM.fromList . lvsByNode (instPrimaryNode inst))
+    <$> getInstDisksFromObj cd inst
+  where
+    lvsByNode :: String -> [Disk] -> [(String, LogicalVolume)]
+    lvsByNode node = concatMap (lvsByNode1 node)
+    lvsByNode1 :: String -> Disk -> [(String, LogicalVolume)]
+    lvsByNode1 _    Disk { diskLogicalId = (LIDDrbd8 nA nB _ _ _ _)
+                         , diskChildren = ch
+                         } = lvsByNode nA ch ++ lvsByNode nB ch
+    lvsByNode1 node Disk { diskLogicalId = (LIDPlain lv) }
+                           = [(node, lv)]
+    lvsByNode1 node Disk { diskChildren = ch }
+                           = lvsByNode node ch
+
+getAllLVs :: ConfigData -> ErrorResult (S.Set LogicalVolume)
+getAllLVs cd = mconcat <$> mapM (liftM MM.values . getInstanceLVsByNode cd)
+                                (F.toList $ configInstances cd)
+
+-- * ND params
+
+-- | Type class denoting objects which have node parameters.
+class NdParamObject a where
+  getNdParamsOf :: ConfigData -> a -> Maybe FilledNDParams
 
 instance NdParamObject Node where
   getNdParamsOf = getNodeNdParams

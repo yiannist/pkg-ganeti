@@ -56,7 +56,7 @@ class TestLUTestDelay(CmdlibTestCase):
   def testInvalidDuration(self):
     op = opcodes.OpTestDelay(duration=-1)
 
-    self.ExecOpCodeExpectOpExecError(op)
+    self.ExecOpCodeExpectOpPrereqError(op)
 
   def testOnNodeUuid(self):
     node_uuids = [self.master_uuid]
@@ -102,7 +102,8 @@ class TestLUTestDelay(CmdlibTestCase):
     node1 = self.cfg.AddNewNode()
     node2 = self.cfg.AddNewNode()
     op = opcodes.OpTestDelay(duration=DELAY_DURATION,
-                             on_nodes=[node1.name, node2.name])
+                             on_nodes=[node1.name, node2.name],
+                             on_master=False)
 
     self.rpc.call_test_delay.return_value = \
       self.RpcResultsBuilder() \

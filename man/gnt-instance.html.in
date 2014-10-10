@@ -85,7 +85,7 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <h1 id="commands"><a href="#TOC">COMMANDS</a></h1>
 <h2 id="creationremovalquerying"><a href="#TOC">Creation/removal/querying</a></h2>
 <h3 id="add"><a href="#TOC">ADD</a></h3>
-<p><strong>add</strong><br />{-t|--disk-template {diskless | file | plain | drbd | rbd}}<br />{--disk=<em>N</em>: {size=<em>VAL</em>[,spindles=<em>VAL</em>] | adopt=<em>LV</em>}[,options...]<br /> | {size=<em>VAL</em>,provider=<em>PROVIDER</em>}[,param=<em>value</em>... ][,options...]<br /> | {-s|--os-size} <em>SIZE</em>}<br />[--no-ip-check] [--no-name-check] [--no-conflicts-check]<br />[--no-start] [--no-install]<br />[--net=<em>N</em> [:options...] | --no-nics]<br />[{-B|--backend-parameters} <em>BEPARAMS</em>]<br />[{-H|--hypervisor-parameters} <em>HYPERVISOR</em> [: option=<em>value</em>... ]]<br />[{-O|--os-parameters} <em>param</em>=<em>value</em>... ]<br />[--file-storage-dir <em>dir_path</em>] [--file-driver {loop | blktap | blktap2}]<br />{{-n|--node} <em>node[:secondary-node]</em> | {-I|--iallocator} <em>name</em>}<br />{{-o|--os-type} <em>os-type</em>}<br />[--submit] [--print-job-id]<br />[--ignore-ipolicy]<br />[--no-wait-for-sync]<br />{<em>instance</em>}</p>
+<p><strong>add</strong><br />{-t|--disk-template {diskless | file | plain | drbd | rbd}}<br />{--disk=<em>N</em>: {size=<em>VAL</em>[,spindles=<em>VAL</em>] | adopt=<em>LV</em>}[,options...]<br /> | {size=<em>VAL</em>,provider=<em>PROVIDER</em>}[,param=<em>value</em>... ][,options...]<br /> | {-s|--os-size} <em>SIZE</em>}<br />[--no-ip-check] [--no-name-check] [--no-conflicts-check]<br />[--no-start] [--no-install]<br />[--net=<em>N</em> [:options...] | --no-nics]<br />[{-B|--backend-parameters} <em>BEPARAMS</em>]<br />[{-H|--hypervisor-parameters} <em>HYPERVISOR</em> [: option=<em>value</em>... ]]<br />[{-O|--os-parameters} <em>param</em>=<em>value</em>... ]<br />[--os-parameters-private <em>param</em>=<em>value</em>... ]<br />[--os-parameters-secret <em>param</em>=<em>value</em>... ]<br />[--file-storage-dir <em>dir_path</em>] [--file-driver {loop | blktap | blktap2}]<br />{{-n|--node} <em>node[:secondary-node]</em> | {-I|--iallocator} <em>name</em>}<br />{{-o|--os-type} <em>os-type</em>}<br />[--submit] [--print-job-id]<br />[--ignore-ipolicy]<br />[--no-wait-for-sync]<br />[{-c|--communication=yes|no}]<br />{<em>instance</em>}</p>
 <p>Creates a new instance on the specified host. The <em>instance</em> argument must be in DNS, but depending on the bridge/routing setup, need not be in the same network as the nodes in the cluster.</p>
 <p>The <code>disk</code> option specifies the parameters for the disks of the instance. The numbering of disks starts at zero, and at least one disk needs to be passed. For each disk, either the size or the adoption source needs to be given. The size is interpreted (when no unit is given) in mebibytes. You can also use one of the suffixes <em>m</em>, <em>g</em> or <em>t</em> to specify the exact the units used; these suffixes map to mebibytes, gibibytes and tebibytes. Each disk can also take these parameters (all optional):</p>
 <dl>
@@ -392,6 +392,10 @@ code > span.er { color: #ff0000; font-weight: bold; }
 <dd><p>Valid for the KVM hypervisor.</p>
 <p>The disk cache mode. It can be either default to not pass any cache option to KVM, or one of the KVM cache modes: none (for direct I/O), writethrough (to use the host cache but report completion to the guest only when the host has committed the changes to disk) or writeback (to use the host cache and report completion as soon as the data is in the host cache). Note that there are special considerations for the cache mode depending on version of KVM used and disk type (always raw file under Ganeti), please refer to the KVM documentation for more details.</p>
 </dd>
+<dt>disk_aio</dt>
+<dd><p>Valid for the KVM hypervisor.</p>
+<p>This is an optional parameter that specifies the aio mode for the disks. KVM default is to use the 'threads' mode, so if not explicitly specified, the native mode will not be used. Possible values are: threads or native.</p>
+</dd>
 <dt>security_model</dt>
 <dd><p>Valid for the KVM hypervisor.</p>
 <p>The security model for kvm. Currently one of <em>none</em>, <em>user</em> or <em>pool</em>. Under <em>none</em>, the default, nothing is done and instances are run as the Ganeti daemon user (normally root).</p>
@@ -513,6 +517,10 @@ gnt-instance modify -H <span class="ot">cpu_mask=</span>all my-inst</code></pre>
 <dd><p>Valid for the KVM hypervisor.</p>
 <p>Use in case an instance must be booted with an exact type of machine version (due to e.g. outdated drivers). In case it's not set the default version supported by your version of kvm is used.</p>
 </dd>
+<dt>migration_caps</dt>
+<dd><p>Valid for the KVM hypervisor.</p>
+<p>Enable specific migration capabilities by providing a &quot;:&quot; separated list of supported capabilites. QEMU version 1.7.0 defines x-rdma-pin-all, auto-converge, zero-blocks, and xbzrle. Please note that while a combination of xbzrle and auto-converge might speed up the migration process significantly, the first may cause BSOD on Windows8r2 instances running on drbd.</p>
+</dd>
 <dt>kvm_path</dt>
 <dd><p>Valid for the KVM hypervisor.</p>
 <p>Path to the userspace KVM (or qemu) program.</p>
@@ -523,9 +531,23 @@ gnt-instance modify -H <span class="ot">cpu_mask=</span>all my-inst</code></pre>
 <p>If set to false, it effectively disables offloading on the virio-net interfaces, which prevents host kernel tainting and log flooding, when dealing with broken or malicious virtio-net drivers.</p>
 <p>It is set to <code>true</code> by default.</p>
 </dd>
+<dt>virtio_net_queues</dt>
+<dd><p>Valid for the KVM hypervisor.</p>
+<p>Set a number of queues (file descriptors) for tap device to parallelize packets sending or receiving. Tap devices will be created with MULTI_QUEUE (IFF_MULTI_QUEUE) support. This only works with KVM paravirtual nics (virtio-net) and the maximum number of queues is limited to <code>8</code>. Tehnically this is an extension of <code>vnet_hdr</code> which must be enabled for multiqueue support.</p>
+<p>If set to <code>1</code> queue, it effectively disables multiqueue support on the tap and virio-net devices.</p>
+<p>For instances it is necessary to manually set number of queues (on Linux using: <code>ethtool -L ethX combined $queues</code>).</p>
+<p>It is set to <code>1</code> by default.</p>
+</dd>
 </dl>
 <p>The <code>-O (--os-parameters)</code> option allows customisation of the OS parameters. The actual parameter names and values depend on the OS being used, but the syntax is the same key=value. For example, setting a hypothetical <code>dhcp</code> parameter to yes can be achieved by:</p>
 <pre><code>gnt-instance add -O dhcp=yes ...</code></pre>
+<p>You can also specify OS parameters that should not be logged but reused at the next reinstall with <code>--os-parameters-private</code> and OS parameters that should not be logged or saved to configuration with <code>--os-parameters-secret</code>. Bear in mind that:</p>
+<blockquote>
+<ul>
+<li>Launching the daemons in debug mode will cause debug logging to happen, which leaks private and secret parameters to the log files. Do not use the debug mode in production. Deamons will emit a warning on startup if they are in debug mode.</li>
+<li>You will have to pass again all <code>--os-parameters-secret</code> parameters should you want to reinstall this instance.</li>
+</ul>
+</blockquote>
 <p>The <code>-I (--iallocator)</code> option specifies the instance allocator plugin to use (<code>.</code> means the default allocator). If you pass in this option the allocator will select nodes for this instance automatically, so you don't need to pass them with the <code>-n</code> option. For more information please refer to the instance allocator documentation.</p>
 <p>The <code>-t (--disk-template)</code> options specifies the disk layout type for the instance. If no disk template is specified, the default disk template is used. The default disk template is the first in the list of enabled disk templates, which can be adjusted cluster-wide with <code>gnt-cluster modify</code>. The available choices for disk templates are:</p>
 <dl>
@@ -570,6 +592,7 @@ gnt-instance modify -H <span class="ot">cpu_mask=</span>all my-inst</code></pre>
 </dd>
 </dl>
 <p>If <code>--ignore-ipolicy</code> is given any instance policy violations occuring during this operation are ignored.</p>
+<p>The <code>-c</code> and <code>--communication</code> specify whether to enable/disable instance communication, which is a communication mechanism between the instance and the host.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <p>Example:</p>
 <pre><code># gnt-instance add -t file --disk 0:size=30g -B maxmem=512 -o debian-etch \
@@ -994,6 +1017,9 @@ Submitted jobs 37, 38</code></pre>
 <dt><code>hv/device_model</code></dt>
 <dd><p>The &quot;device_model&quot; hypervisor parameter</p>
 </dd>
+<dt><code>hv/disk_aio</code></dt>
+<dd><p>The &quot;disk_aio&quot; hypervisor parameter</p>
+</dd>
 <dt><code>hv/disk_cache</code></dt>
 <dd><p>The &quot;disk_cache&quot; hypervisor parameter</p>
 </dd>
@@ -1032,6 +1058,9 @@ Submitted jobs 37, 38</code></pre>
 </dd>
 <dt><code>hv/mem_path</code></dt>
 <dd><p>The &quot;mem_path&quot; hypervisor parameter</p>
+</dd>
+<dt><code>hv/migration_caps</code></dt>
+<dd><p>The &quot;migration_caps&quot; hypervisor parameter</p>
 </dd>
 <dt><code>hv/migration_downtime</code></dt>
 <dd><p>The &quot;migration_downtime&quot; hypervisor parameter</p>
@@ -1131,6 +1160,9 @@ Submitted jobs 37, 38</code></pre>
 </dd>
 <dt><code>hv/viridian</code></dt>
 <dd><p>The &quot;viridian&quot; hypervisor parameter</p>
+</dd>
+<dt><code>hv/virtio_net_queues</code></dt>
+<dd><p>The &quot;virtio_net_queues&quot; hypervisor parameter</p>
 </dd>
 <dt><code>hv/vnc_bind_address</code></dt>
 <dd><p>The &quot;vnc_bind_address&quot; hypervisor parameter</p>
@@ -1522,7 +1554,7 @@ Submitted jobs 37, 38</code></pre>
 <p>Use the <code>--all</code> to get info about all instances, rather than explicitly passing the ones you're interested in.</p>
 <p>The <code>--roman</code> option can be used to cause envy among people who like ancient cultures, but are stuck with non-latin-friendly cluster virtualization technologies.</p>
 <h3 id="modify"><a href="#TOC">MODIFY</a></h3>
-<p><strong>modify</strong><br />[{-H|--hypervisor-parameters} <em>HYPERVISOR_PARAMETERS</em>]<br />[{-B|--backend-parameters} <em>BACKEND_PARAMETERS</em>]<br />[{-m|--runtime-memory} <em>SIZE</em>]<br />[--net add[:options...] |<br /> --net [<em>N</em>:]add[,options...] |<br /> --net [<em>ID</em>:]remove |<br /> --net <em>ID</em>:modify[,options...]]<br />[--disk add:size=<em>SIZE</em>[,options...] |<br /> --disk <em>N</em>:add,size=<em>SIZE</em>[,options...] |<br /> --disk <em>N</em>:add,size=<em>SIZE</em>,provider=<em>PROVIDER</em>[,options...][,param=<em>value</em>... ] |<br /> --disk <em>ID</em>:modify[,options...]<br /> --disk [<em>ID</em>:]remove]<br />[{-t|--disk-template} plain | {-t|--disk-template} drbd -n <em>new_secondary</em>] [--no-wait-for-sync]<br />[--new-primary=<em>node</em>]<br />[--os-type=<em>OS</em> [--force-variant]]<br />[{-O|--os-parameters} <em>param</em>=<em>value</em>... ]<br />[--offline | --online]<br />[--submit] [--print-job-id]<br />[--ignore-ipolicy]<br />[--hotplug]<br />[--hotplug-if-possible]<br />{<em>instance</em>}</p>
+<p><strong>modify</strong><br />[{-H|--hypervisor-parameters} <em>HYPERVISOR_PARAMETERS</em>]<br />[{-B|--backend-parameters} <em>BACKEND_PARAMETERS</em>]<br />[{-m|--runtime-memory} <em>SIZE</em>]<br />[--net add[:options...] |<br /> --net [<em>N</em>:]add[,options...] |<br /> --net [<em>ID</em>:]remove |<br /> --net <em>ID</em>:modify[,options...]]<br />[--disk add:size=<em>SIZE</em>[,options...] |<br /> --disk <em>N</em>:add,size=<em>SIZE</em>[,options...] |<br /> --disk <em>N</em>:add,size=<em>SIZE</em>,provider=<em>PROVIDER</em>[,options...][,param=<em>value</em>... ] |<br /> --disk <em>ID</em>:modify[,options...]<br /> --disk [<em>ID</em>:]remove]<br />[{-t|--disk-template} plain | {-t|--disk-template} drbd -n <em>new_secondary</em>] [--no-wait-for-sync]<br />[--new-primary=<em>node</em>]<br />[--os-type=<em>OS</em> [--force-variant]]<br />[{-O|--os-parameters} <em>param</em>=<em>value</em>... ]<br />[--os-parameters-private <em>param</em>=<em>value</em>... ]<br />[--offline | --online]<br />[--submit] [--print-job-id]<br />[--ignore-ipolicy]<br />[--hotplug]<br />[--hotplug-if-possible]<br />{<em>instance</em>}</p>
 <p>Modifies the memory size, number of vcpus, ip address, MAC address and/or NIC parameters for an instance. It can also add and remove disks and NICs to/from the instance. Note that you need to give at least one of the arguments, otherwise the command complains.</p>
 <p>The <code>-H (--hypervisor-parameters)</code>, <code>-B (--backend-parameters)</code> and <code>-O (--os-parameters)</code> options specifies hypervisor, backend and OS parameter options in the form of name=value[,...]. For details which options can be specified, see the <strong>add</strong> command.</p>
 <p>The <code>-t (--disk-template)</code> option will change the disk template of the instance. Currently only conversions between the plain and drbd disk templates are supported, and the instance must be stopped before attempting the conversion. When changing from the plain to the drbd disk template, a new secondary node must be specified via the <code>-n</code> option. The option <code>--no-wait-for-sync</code> can be used when converting to the <code>drbd</code> template in order to make the instance available for startup before DRBD has finished resyncing.</p>
@@ -1546,7 +1578,7 @@ Submitted jobs 37, 38</code></pre>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <p>Most of the changes take effect at the next restart. If the instance is running, there is no effect on the instance.</p>
 <h3 id="reinstall"><a href="#TOC">REINSTALL</a></h3>
-<p><strong>reinstall</strong> [{-o|--os-type} <em>os-type</em>] [--select-os] [-f <em>force</em>]<br />[--force-multiple]<br />[--instance | --node | --primary | --secondary | --all]<br />[{-O|--os-parameters} <em>OS_PARAMETERS</em>] [--submit] [--print-job-id]<br />{<em>instance</em>...}</p>
+<p><strong>reinstall</strong> [{-o|--os-type} <em>os-type</em>] [--select-os] [-f <em>force</em>]<br />[--force-multiple]<br />[--instance | --node | --primary | --secondary | --all]<br />[{-O|--os-parameters} <em>OS_PARAMETERS</em>]<br />[--os-parameters-private} <em>OS_PARAMETERS</em>]<br />[--os-parameters-secret} <em>OS_PARAMETERS</em>]<br />[--submit] [--print-job-id]<br />{<em>instance</em>...}</p>
 <p>Reinstalls the operating system on the given instance(s). The instance(s) must be stopped when running this command. If the <code>-o (--os-type)</code> is specified, the operating system is changed.</p>
 <p>The <code>--select-os</code> option switches to an interactive OS reinstall. The user is prompted to select the OS template from the list of available OS templates. OS parameters can be overridden using <code>-O (--os-parameters)</code> (more documentation for this option under the <strong>add</strong> command).</p>
 <p>Since this is a potentially dangerous command, the user will be required to confirm this action, unless the <code>-f</code> flag is passed. When multiple instances are selected (either by passing multiple arguments or by using the <code>--node</code>, <code>--primary</code>, <code>--secondary</code> or <code>--all</code> options), the user must pass the <code>--force-multiple</code> options to skip the interactive confirmation.</p>
@@ -1745,7 +1777,7 @@ Migrating instance instance1.example.com
 <p><strong>move</strong> [-f] [--ignore-consistency]<br />[-n <em>node</em>] [--compress=<em>compression-mode</em>] [--shutdown-timeout=<em>N</em>]<br />[--submit] [--print-job-id] [--ignore-ipolicy]<br />{<em>instance</em>}</p>
 <p>Move will move the instance to an arbitrary node in the cluster. This works only for instances having a plain or file disk template.</p>
 <p>Note that since this operation is done via data copy, it will take a long time for big disks (similar to replace-disks for a drbd instance).</p>
-<p>The <code>--compress</code> option is used to specify which compression mode is used during the move. Valid values are 'none' (the default) and 'gzip'.</p>
+<p>The <code>--compress</code> option is used to specify which compression mode is used during the move. Valid values are 'none' (the default) and any values specified in the 'compression_tools' cluster parameter.</p>
 <p>The <code>--shutdown-timeout</code> is used to specify how much time to wait before forcing the shutdown (e.g. <code>xm destroy</code> in XEN, killing the kvm process for KVM, etc.). By default two minutes are given to each instance to stop.</p>
 <p>The <code>--ignore-consistency</code> option will make Ganeti ignore any errors in trying to shutdown the instance on its node; useful if the hypervisor is broken and you want to recover the data.</p>
 <p>If <code>--ignore-ipolicy</code> is given any instance policy violations occuring during this operation are ignored.</p>

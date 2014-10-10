@@ -40,6 +40,7 @@ module Ganeti.Query.Common
   , rsMaybeNoData
   , rsMaybeUnavail
   , rsErrorNoData
+  , rsErrorMaybeUnavail
   , rsUnknown
   , missingRuntime
   , rpcErrorToStatus
@@ -84,6 +85,7 @@ vTypeToQFT VTypeMaybeString = QFTOther
 vTypeToQFT VTypeBool        = QFTBool
 vTypeToQFT VTypeSize        = QFTUnit
 vTypeToQFT VTypeInt         = QFTNumber
+vTypeToQFT VTypeFloat       = QFTNumberFloat
 
 -- * Result helpers
 
@@ -123,6 +125,16 @@ rsErrorNoData res = case res of
 rsMaybeUnavail :: (JSON a) => Maybe a -> ResultEntry
 rsMaybeUnavail = maybe rsUnavail rsNormal
 
+-- | Helper to declare a result from 'ErrorResult Maybe'. This version
+-- should be used if an error signals there was no data and at the same
+-- time when we have optional fields that may not be setted (i.e. we
+-- want to return a 'RSUnavail' in case of 'Nothing').
+rsErrorMaybeUnavail :: (JSON a) => ErrorResult (Maybe a) -> ResultEntry
+rsErrorMaybeUnavail res =
+  case res of
+    Ok  x -> rsMaybeUnavail x
+    Bad _ -> rsNoData
+
 -- | Helper for unknown field result.
 rsUnknown :: ResultEntry
 rsUnknown = ResultEntry RSUnknown Nothing
@@ -144,9 +156,9 @@ rpcErrorToStatus _ = RSNoData
 timeStampFields :: (TimeStampObject a) => FieldList a b
 timeStampFields =
   [ (FieldDefinition "ctime" "CTime" QFTTimestamp "Creation timestamp",
-     FieldSimple (rsNormal . cTimeOf), QffNormal)
+     FieldSimple (rsNormal . TimeAsDoubleJSON . cTimeOf), QffNormal)
   , (FieldDefinition "mtime" "MTime" QFTTimestamp "Modification timestamp",
-     FieldSimple (rsNormal . mTimeOf), QffNormal)
+     FieldSimple (rsNormal . TimeAsDoubleJSON . mTimeOf), QffNormal)
   ]
 
 -- | The list of UUID fields.

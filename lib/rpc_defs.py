@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -153,15 +153,6 @@ def _NodeInfoPreProc(node, args):
     return args
 
 
-def _OsGetPostProc(result):
-  """Post-processor for L{rpc.node.RpcRunner.call_os_get}.
-
-  """
-  if not result.fail_msg and isinstance(result.payload, dict):
-    result.payload = objects.OS.FromDict(result.payload)
-  return result
-
-
 def _ImpExpStatusPostProc(result):
   """Post-processor for import/export status.
 
@@ -297,10 +288,12 @@ _INSTANCE_CALLS = [
     ("reason", None, "The reason for the startup"),
     ], None, None, "Starts an instance"),
   ("instance_os_add", SINGLE, None, constants.RPC_TMO_1DAY, [
-    ("instance_osp", ED_INST_DICT_OSP_DP, None),
-    ("reinstall", None, None),
-    ("debug", None, None),
-    ], None, None, "Starts an instance"),
+    ("instance_osp", ED_INST_DICT_OSP_DP, "Tuple: (target instance,"
+                                          " temporary OS parameters"
+                                          " overriding configuration)"),
+    ("reinstall", None, "Whether the instance is being reinstalled"),
+    ("debug", None, "Debug level for the OS install script to use"),
+    ], None, None, "Installs an operative system onto an instance"),
   ("hotplug_device", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("instance", ED_INST_DICT, "Instance object"),
     ("action", None, "Hotplug Action"),
@@ -312,6 +305,9 @@ _INSTANCE_CALLS = [
   ("hotplug_supported", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("instance", ED_INST_DICT, "Instance object"),
     ], None, None, "Check if hotplug is supported"),
+  ("instance_metadata_modify", SINGLE, None, constants.RPC_TMO_URGENT, [
+    ("instance", None, "Instance object"),
+    ], None, None, "Modify instance metadata"),
   ]
 
 _IMPEXP_CALLS = [
@@ -374,6 +370,12 @@ _BLOCKDEV_CALLS = [
     ("info", None, None),
     ("exclusive_storage", None, None),
     ], None, None, "Request creation of a given block device"),
+  ("blockdev_image", SINGLE, None, constants.RPC_TMO_SLOW, [
+    ("bdev", ED_SINGLE_DISK_DICT_DP, None),
+    ("image", None, None),
+    ("size", None, None),
+    ], None, None,
+    "Request to dump an image with given size onto a block device"),
   ("blockdev_wipe", SINGLE, None, constants.RPC_TMO_SLOW, [
     ("bdev", ED_SINGLE_DISK_DICT_DP, None),
     ("offset", None, None),
@@ -471,10 +473,12 @@ _OS_CALLS = [
     ("name", None, None),
     ("checks", None, None),
     ("params", None, None),
+    ("force_variant", None, None),
     ], None, None, "Run a validation routine for a given OS"),
-  ("os_get", SINGLE, None, constants.RPC_TMO_FAST, [
-    ("name", None, None),
-    ], None, _OsGetPostProc, "Returns an OS definition"),
+  ("os_export", SINGLE, None, constants.RPC_TMO_FAST, [
+    ("instance", ED_INST_DICT, None),
+    ("override_env", None, None),
+    ], None, None, "Export an OS for a given instance"),
   ]
 
 _EXTSTORAGE_CALLS = [
@@ -573,6 +577,9 @@ _MISC_CALLS = [
   ("set_watcher_pause", MULTI, None, constants.RPC_TMO_URGENT, [
     ("until", None, None),
     ], None, None, "Set watcher pause end"),
+  ("get_file_info", SINGLE, None, constants.RPC_TMO_FAST, [
+    ("file_path", None, None),
+    ], None, None, "Checks if a file exists and reports on it"),
   ]
 
 CALLS = {
@@ -640,7 +647,16 @@ CALLS = {
   "RpcClientConfig": _Prepare([
     ("upload_file", MULTI, None, constants.RPC_TMO_NORMAL, [
       ("file_name", ED_FILE_DETAILS, None),
-      ], None, None, "Upload a file"),
+      ], None, None, "Upload files"),
+    ("upload_file_single", MULTI, None, constants.RPC_TMO_NORMAL, [
+      ("file_name", None, "The name of the file"),
+      ("content", ED_COMPRESS, "The data to be uploaded"),
+      ("mode", None, "The mode of the file or None"),
+      ("uid", None, "The owner of the file"),
+      ("gid", None, "The group of the file"),
+      ("atime", None, "The file's last access time"),
+      ("mtime", None, "The file's last modification time"),
+      ], None, None, "Upload files"),
     ("write_ssconf_files", MULTI, None, constants.RPC_TMO_NORMAL, [
       ("values", None, None),
       ], None, None, "Write ssconf files"),

@@ -45,6 +45,7 @@ import weakref
 import threading
 import itertools
 import operator
+import os
 
 try:
   # pylint: disable=E0611
@@ -75,7 +76,7 @@ from ganeti import pathutils
 from ganeti import vcluster
 
 
-JOBQUEUE_THREADS = 25
+JOBQUEUE_THREADS = 1
 
 # member lock names to be passed to @ssynchronized decorator
 _LOCK = "_lock"
@@ -87,12 +88,6 @@ _GetIdAttr = operator.attrgetter("id")
 
 class CancelJob(Exception):
   """Special exception to cancel a job.
-
-  """
-
-
-class QueueShutdown(Exception):
-  """Special exception to abort a job when the job queue is shutting down.
 
   """
 
@@ -113,25 +108,6 @@ def _CallJqUpdate(runner, names, file_name, content):
   """
   virt_file_name = vcluster.MakeVirtualPath(file_name)
   return runner.call_jobqueue_update(names, virt_file_name, content)
-
-
-class _SimpleJobQuery:
-  """Wrapper for job queries.
-
-  Instance keeps list of fields cached, useful e.g. in L{_JobChangesChecker}.
-
-  """
-  def __init__(self, fields):
-    """Initializes this class.
-
-    """
-    self._query = query.Query(query.JOB_FIELDS, fields)
-
-  def __call__(self, job):
-    """Executes a job query using cached field list.
-
-    """
-    return self._query.OldStyleQuery([(job.id, job)], sort_by_name=False)[0]
 
 
 class _QueuedOpCode(object):
@@ -231,7 +207,9 @@ class _QueuedJob(object):
   # pylint: disable=W0212
   __slots__ = ["queue", "id", "ops", "log_serial", "ops_iter", "cur_opctx",
                "received_timestamp", "start_timestamp", "end_timestamp",
-               "__weakref__", "processor_lock", "writable", "archived"]
+               "processor_lock", "writable", "archived",
+               "livelock", "process_id",
+               "__weakref__"]
 
   def AddReasons(self, pickup=False):
     """Extend the reason trail
@@ -280,6 +258,8 @@ class _QueuedJob(object):
     self.start_timestamp = None
     self.end_timestamp = None
     self.archived = False
+    self.livelock = None
+    self.process_id = None
 
     self._InitInMemory(self, writable)
 
@@ -330,6 +310,10 @@ class _QueuedJob(object):
     obj.start_timestamp = state.get("start_timestamp", None)
     obj.end_timestamp = state.get("end_timestamp", None)
     obj.archived = archived
+    obj.livelock = state.get("livelock", None)
+    obj.process_id = state.get("process_id", None)
+    if obj.process_id is not None:
+      obj.process_id = int(obj.process_id)
 
     obj.ops = []
     obj.log_serial = 0
@@ -356,6 +340,8 @@ class _QueuedJob(object):
       "start_timestamp": self.start_timestamp,
       "end_timestamp": self.end_timestamp,
       "received_timestamp": self.received_timestamp,
+      "livelock": self.livelock,
+      "process_id": self.process_id,
       }
 
   def CalcStatus(self):
@@ -450,19 +436,6 @@ class _QueuedJob(object):
       entries.extend(filter(lambda entry: entry[0] > serial, op.log))
 
     return entries
-
-  def GetInfo(self, fields):
-    """Returns information about a job.
-
-    @type fields: list
-    @param fields: names of fields to return
-    @rtype: list
-    @return: list with one element for each field
-    @raise errors.OpExecError: when an invalid field
-        has been passed
-
-    """
-    return _SimpleJobQuery(fields)(self)
 
   def MarkUnfinishedOps(self, status, result):
     """Mark unfinished opcodes with a given status and result.
@@ -559,6 +532,24 @@ class _QueuedJob(object):
       else:
         return (False, "Job %s had no pending opcodes" % self.id)
 
+  def SetPid(self, pid):
+    """Sets the job's process ID
+
+    @type pid: int
+    @param pid: the process ID
+
+    """
+    status = self.CalcStatus()
+
+    if status in (constants.JOB_STATUS_QUEUED,
+                  constants.JOB_STATUS_WAITING):
+      if self.process_id is not None:
+        logging.warning("Replacing the process id %s of job %s with %s",
+                        self.process_id, self.id, pid)
+      self.process_id = pid
+    else:
+      logging.warning("Can set pid only for queued/waiting jobs")
+
 
 class _OpExecCallbacks(mcpu.OpExecCbBase):
 
@@ -591,11 +582,6 @@ class _OpExecCallbacks(mcpu.OpExecCbBase):
     if self._op.status == constants.OP_STATUS_CANCELING:
       logging.debug("Canceling opcode")
       raise CancelJob()
-
-    # See if queue is shutting down
-    if not self._queue.AcceptingJobsUnlocked():
-      logging.debug("Queue is shutting down")
-      raise QueueShutdown()
 
   @locking.ssynchronized(_QUEUE, shared=1)
   def NotifyStart(self):
@@ -668,210 +654,6 @@ class _OpExecCallbacks(mcpu.OpExecCbBase):
     """
     # Locking is done in job queue
     return self._queue.SubmitManyJobs(jobs)
-
-
-class _JobChangesChecker(object):
-  def __init__(self, fields, prev_job_info, prev_log_serial):
-    """Initializes this class.
-
-    @type fields: list of strings
-    @param fields: Fields requested by LUXI client
-    @type prev_job_info: string
-    @param prev_job_info: previous job info, as passed by the LUXI client
-    @type prev_log_serial: string
-    @param prev_log_serial: previous job serial, as passed by the LUXI client
-
-    """
-    self._squery = _SimpleJobQuery(fields)
-    self._prev_job_info = prev_job_info
-    self._prev_log_serial = prev_log_serial
-
-  def __call__(self, job):
-    """Checks whether job has changed.
-
-    @type job: L{_QueuedJob}
-    @param job: Job object
-
-    """
-    assert not job.writable, "Expected read-only job"
-
-    status = job.CalcStatus()
-    job_info = self._squery(job)
-    log_entries = job.GetLogEntries(self._prev_log_serial)
-
-    # Serializing and deserializing data can cause type changes (e.g. from
-    # tuple to list) or precision loss. We're doing it here so that we get
-    # the same modifications as the data received from the client. Without
-    # this, the comparison afterwards might fail without the data being
-    # significantly different.
-    # TODO: we just deserialized from disk, investigate how to make sure that
-    # the job info and log entries are compatible to avoid this further step.
-    # TODO: Doing something like in testutils.py:UnifyValueType might be more
-    # efficient, though floats will be tricky
-    job_info = serializer.LoadJson(serializer.DumpJson(job_info))
-    log_entries = serializer.LoadJson(serializer.DumpJson(log_entries))
-
-    # Don't even try to wait if the job is no longer running, there will be
-    # no changes.
-    if (status not in (constants.JOB_STATUS_QUEUED,
-                       constants.JOB_STATUS_RUNNING,
-                       constants.JOB_STATUS_WAITING) or
-        job_info != self._prev_job_info or
-        (log_entries and self._prev_log_serial != log_entries[0][0])):
-      logging.debug("Job %s changed", job.id)
-      return (job_info, log_entries)
-
-    return None
-
-
-class _JobFileChangesWaiter(object):
-  def __init__(self, filename, _inotify_wm_cls=pyinotify.WatchManager):
-    """Initializes this class.
-
-    @type filename: string
-    @param filename: Path to job file
-    @raises errors.InotifyError: if the notifier cannot be setup
-
-    """
-    self._wm = _inotify_wm_cls()
-    self._inotify_handler = \
-      asyncnotifier.SingleFileEventHandler(self._wm, self._OnInotify, filename)
-    self._notifier = \
-      pyinotify.Notifier(self._wm, default_proc_fun=self._inotify_handler)
-    try:
-      self._inotify_handler.enable()
-    except Exception:
-      # pyinotify doesn't close file descriptors automatically
-      self._notifier.stop()
-      raise
-
-  def _OnInotify(self, notifier_enabled):
-    """Callback for inotify.
-
-    """
-    if not notifier_enabled:
-      self._inotify_handler.enable()
-
-  def Wait(self, timeout):
-    """Waits for the job file to change.
-
-    @type timeout: float
-    @param timeout: Timeout in seconds
-    @return: Whether there have been events
-
-    """
-    assert timeout >= 0
-    have_events = self._notifier.check_events(timeout * 1000)
-    if have_events:
-      self._notifier.read_events()
-    self._notifier.process_events()
-    return have_events
-
-  def Close(self):
-    """Closes underlying notifier and its file descriptor.
-
-    """
-    self._notifier.stop()
-
-
-class _JobChangesWaiter(object):
-  def __init__(self, filename, _waiter_cls=_JobFileChangesWaiter):
-    """Initializes this class.
-
-    @type filename: string
-    @param filename: Path to job file
-
-    """
-    self._filewaiter = None
-    self._filename = filename
-    self._waiter_cls = _waiter_cls
-
-  def Wait(self, timeout):
-    """Waits for a job to change.
-
-    @type timeout: float
-    @param timeout: Timeout in seconds
-    @return: Whether there have been events
-
-    """
-    if self._filewaiter:
-      return self._filewaiter.Wait(timeout)
-
-    # Lazy setup: Avoid inotify setup cost when job file has already changed.
-    # If this point is reached, return immediately and let caller check the job
-    # file again in case there were changes since the last check. This avoids a
-    # race condition.
-    self._filewaiter = self._waiter_cls(self._filename)
-
-    return True
-
-  def Close(self):
-    """Closes underlying waiter.
-
-    """
-    if self._filewaiter:
-      self._filewaiter.Close()
-
-
-class _WaitForJobChangesHelper(object):
-  """Helper class using inotify to wait for changes in a job file.
-
-  This class takes a previous job status and serial, and alerts the client when
-  the current job status has changed.
-
-  """
-  @staticmethod
-  def _CheckForChanges(counter, job_load_fn, check_fn):
-    if counter.next() > 0:
-      # If this isn't the first check the job is given some more time to change
-      # again. This gives better performance for jobs generating many
-      # changes/messages.
-      time.sleep(0.1)
-
-    job = job_load_fn()
-    if not job:
-      raise errors.JobLost()
-
-    result = check_fn(job)
-    if result is None:
-      raise utils.RetryAgain()
-
-    return result
-
-  def __call__(self, filename, job_load_fn,
-               fields, prev_job_info, prev_log_serial, timeout,
-               _waiter_cls=_JobChangesWaiter):
-    """Waits for changes on a job.
-
-    @type filename: string
-    @param filename: File on which to wait for changes
-    @type job_load_fn: callable
-    @param job_load_fn: Function to load job
-    @type fields: list of strings
-    @param fields: Which fields to check for changes
-    @type prev_job_info: list or None
-    @param prev_job_info: Last job information returned
-    @type prev_log_serial: int
-    @param prev_log_serial: Last job message serial number
-    @type timeout: float
-    @param timeout: maximum time to wait in seconds
-
-    """
-    counter = itertools.count()
-    try:
-      check_fn = _JobChangesChecker(fields, prev_job_info, prev_log_serial)
-      waiter = _waiter_cls(filename)
-      try:
-        return utils.Retry(compat.partial(self._CheckForChanges,
-                                          counter, job_load_fn, check_fn),
-                           utils.RETRY_REMAINING_TIME, timeout,
-                           wait_fn=waiter.Wait)
-      finally:
-        waiter.Close()
-    except errors.JobLost:
-      return None
-    except utils.RetryTimeout:
-      return constants.JOB_NOTCHANGED
 
 
 def _EncodeOpError(err):
@@ -1148,24 +930,12 @@ class _JobProcessor(object):
       if op.status == constants.OP_STATUS_CANCELING:
         return (constants.OP_STATUS_CANCELING, None)
 
-      # Queue is shutting down, return to queued
-      if not self.queue.AcceptingJobsUnlocked():
-        return (constants.OP_STATUS_QUEUED, None)
-
       # Stay in waitlock while trying to re-acquire lock
       return (constants.OP_STATUS_WAITING, None)
     except CancelJob:
       logging.exception("%s: Canceling job", opctx.log_prefix)
       assert op.status == constants.OP_STATUS_CANCELING
       return (constants.OP_STATUS_CANCELING, None)
-
-    except QueueShutdown:
-      logging.exception("%s: Queue is shutting down", opctx.log_prefix)
-
-      assert op.status == constants.OP_STATUS_WAITING
-
-      # Job hadn't been started yet, so it should return to the queue
-      return (constants.OP_STATUS_QUEUED, None)
 
     except Exception, err: # pylint: disable=W0703
       logging.exception("%s: Caught exception in %s",
@@ -1320,19 +1090,14 @@ class _JobProcessor(object):
           finalize = False
 
         elif op.status == constants.OP_STATUS_ERROR:
-          # Ensure failed opcode has an exception as its result
-          assert errors.GetEncodedError(job.ops[opctx.index].result)
-
+          # If we get here, we cannot afford to check for any consistency
+          # any more, we just want to clean up.
+          # TODO: Actually, it wouldn't be a bad idea to start a timer
+          # here to kill the whole process.
           to_encode = errors.OpExecError("Preceding opcode failed")
           job.MarkUnfinishedOps(constants.OP_STATUS_ERROR,
                                 _EncodeOpError(to_encode))
           finalize = True
-
-          # Consistency check
-          assert compat.all(i.status == constants.OP_STATUS_ERROR and
-                            errors.GetEncodedError(i.result)
-                            for i in job.ops[opctx.index:])
-
         elif op.status == constants.OP_STATUS_CANCELING:
           job.MarkUnfinishedOps(constants.OP_STATUS_CANCELED,
                                 "Job canceled by request")
@@ -1614,61 +1379,11 @@ class _JobDependencyManager:
       self._enqueue_fn(jobs)
 
 
-def _RequireOpenQueue(fn):
-  """Decorator for "public" functions.
-
-  This function should be used for all 'public' functions. That is,
-  functions usually called from other classes. Note that this should
-  be applied only to methods (not plain functions), since it expects
-  that the decorated function is called with a first argument that has
-  a '_queue_filelock' argument.
-
-  @warning: Use this decorator only after locking.ssynchronized
-
-  Example::
-    @locking.ssynchronized(_LOCK)
-    @_RequireOpenQueue
-    def Example(self):
-      pass
-
-  """
-  def wrapper(self, *args, **kwargs):
-    # pylint: disable=W0212
-    assert self._queue_filelock is not None, "Queue should be open"
-    return fn(self, *args, **kwargs)
-  return wrapper
-
-
-def _RequireNonDrainedQueue(fn):
-  """Decorator checking for a non-drained queue.
-
-  To be used with functions submitting new jobs.
-
-  """
-  def wrapper(self, *args, **kwargs):
-    """Wrapper function.
-
-    @raise errors.JobQueueDrainError: if the job queue is marked for draining
-
-    """
-    # Ok when sharing the big job queue lock, as the drain file is created when
-    # the lock is exclusive.
-    # Needs access to protected member, pylint: disable=W0212
-    if self._drained:
-      raise errors.JobQueueDrainError("Job queue is drained, refusing job")
-
-    if not self._accepting_jobs:
-      raise errors.JobQueueError("Job queue is shutting down, refusing job")
-
-    return fn(self, *args, **kwargs)
-  return wrapper
-
-
 class JobQueue(object):
   """Queue used to manage the jobs.
 
   """
-  def __init__(self, context):
+  def __init__(self, context, cfg):
     """Constructor for JobQueue.
 
     The constructor will initialize the job queue object and then
@@ -1695,13 +1410,6 @@ class JobQueue(object):
     self.acquire = self._lock.acquire
     self.release = self._lock.release
 
-    # Accept jobs by default
-    self._accepting_jobs = True
-
-    # Initialize the queue, and acquire the filelock.
-    # This ensures no other process is working on the job queue.
-    self._queue_filelock = jstore.InitAndVerifyQueue(must_lock=True)
-
     # Read serial file
     self._last_serial = jstore.ReadSerial()
     assert self._last_serial is not None, ("Serial file was modified between"
@@ -1709,7 +1417,7 @@ class JobQueue(object):
 
     # Get initial list of nodes
     self._nodes = dict((n.name, n.primary_ip)
-                       for n in self.context.cfg.GetAllNodesInfo().values()
+                       for n in cfg.GetAllNodesInfo().values()
                        if n.master_candidate)
 
     # Remove master node
@@ -1720,12 +1428,10 @@ class JobQueue(object):
     self._queue_size = None
     self._UpdateQueueSizeUnlocked()
     assert ht.TInt(self._queue_size)
-    self._drained = jstore.CheckDrainFlag()
 
     # Job dependencies
     self.depmgr = _JobDependencyManager(self._GetJobStatusForDependencies,
                                         self._EnqueueJobs)
-    self.context.glm.AddToLockMonitor(self.depmgr)
 
     # Setup worker pool
     self._wpool = _JobQueueWorkerPool(self)
@@ -1746,6 +1452,7 @@ class JobQueue(object):
 
     status = job.CalcStatus()
     if status == constants.JOB_STATUS_QUEUED:
+      job.SetPid(os.getpid())
       self._EnqueueJobsUnlocked([job])
       logging.info("Restarting job %s", job.id)
 
@@ -1756,6 +1463,7 @@ class JobQueue(object):
 
       if status == constants.JOB_STATUS_WAITING:
         job.MarkUnfinishedOps(constants.OP_STATUS_QUEUED, None)
+        job.SetPid(os.getpid())
         self._EnqueueJobsUnlocked([job])
         logging.info("Restarting job %s", job.id)
       else:
@@ -1777,7 +1485,6 @@ class JobQueue(object):
     return rpc.JobQueueRunner(self.context, address_list)
 
   @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
   def AddNode(self, node):
     """Register a new node with the queue.
 
@@ -1821,10 +1528,6 @@ class JobQueue(object):
         logging.error("Failed to upload file %s to node %s: %s",
                       file_name, node_name, msg)
 
-    # Set queue drained flag
-    result = \
-      self._GetRpc(addrs).call_jobqueue_set_drain_flag([node_name],
-                                                       self._drained)
     msg = result[node_name].fail_msg
     if msg:
       logging.error("Failed to set queue drained flag on node %s: %s",
@@ -1833,7 +1536,6 @@ class JobQueue(object):
     self._nodes[node_name] = node.primary_ip
 
   @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
   def RemoveNode(self, node_name):
     """Callback called when removing nodes from the cluster.
 
@@ -2117,46 +1819,6 @@ class JobQueue(object):
     """
     self._queue_size = len(self._GetJobIDsUnlocked(sort=False))
 
-  @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
-  def SetDrainFlag(self, drain_flag):
-    """Sets the drain flag for the queue.
-
-    @type drain_flag: boolean
-    @param drain_flag: Whether to set or unset the drain flag
-
-    """
-    # Change flag locally
-    jstore.SetDrainFlag(drain_flag)
-
-    self._drained = drain_flag
-
-    # ... and on all nodes
-    (names, addrs) = self._GetNodeIp()
-    result = \
-      self._GetRpc(addrs).call_jobqueue_set_drain_flag(names, drain_flag)
-    self._CheckRpcResult(result, self._nodes,
-                         "Setting queue drain flag to %s" % drain_flag)
-
-    return True
-
-  @classmethod
-  def SubmitJob(cls, ops):
-    """Create and store a new job.
-
-    """
-    return luxi.Client(address=pathutils.QUERY_SOCKET).SubmitJob(ops)
-
-  @classmethod
-  def SubmitJobToDrainedQueue(cls, ops):
-    """Forcefully create and store a new job.
-
-    Do so, even if the job queue is drained.
-
-    """
-    return luxi.Client(address=pathutils.QUERY_SOCKET)\
-        .SubmitJobToDrainedQueue(ops)
-
   @classmethod
   def SubmitManyJobs(cls, jobs):
     """Create and store multiple jobs.
@@ -2245,7 +1907,6 @@ class JobQueue(object):
 
     raise errors.JobLost("Job %s not found" % job_id)
 
-  @_RequireOpenQueue
   def UpdateJobUnlocked(self, job, replicate=True):
     """Update a job's on disk storage.
 
@@ -2270,40 +1931,24 @@ class JobQueue(object):
     logging.debug("Writing job %s to %s", job.id, filename)
     self._UpdateJobQueueFile(filename, data, replicate)
 
-  def WaitForJobChanges(self, job_id, fields, prev_job_info, prev_log_serial,
-                        timeout):
-    """Waits for changes in a job.
+  def HasJobBeenFinalized(self, job_id):
+    """Checks if a job has been finalized.
 
     @type job_id: int
     @param job_id: Job identifier
-    @type fields: list of strings
-    @param fields: Which fields to check for changes
-    @type prev_job_info: list or None
-    @param prev_job_info: Last job information returned
-    @type prev_log_serial: int
-    @param prev_log_serial: Last job message serial number
-    @type timeout: float
-    @param timeout: maximum time to wait in seconds
-    @rtype: tuple (job info, log entries)
-    @return: a tuple of the job information as required via
-        the fields parameter, and the log entries as a list
-
-        if the job has not changed and the timeout has expired,
-        we instead return a special value,
-        L{constants.JOB_NOTCHANGED}, which should be interpreted
-        as such by the clients
+    @rtype: boolean
+    @return: True if the job has been finalized,
+        False if the timeout has been reached,
+        None if the job doesn't exist
 
     """
-    load_fn = compat.partial(self.SafeLoadJobFromDisk, job_id, True,
-                             writable=False)
-
-    helper = _WaitForJobChangesHelper()
-
-    return helper(self._GetJobPath(job_id), load_fn,
-                  fields, prev_job_info, prev_log_serial, timeout)
+    job = self.SafeLoadJobFromDisk(job_id, True, writable=False)
+    if job is not None:
+      return job.CalcStatus() in constants.JOBS_FINALIZED
+    else:
+      return None
 
   @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
   def CancelJob(self, job_id):
     """Cancels a job.
 
@@ -2318,7 +1963,6 @@ class JobQueue(object):
     return self._ModifyJobUnlocked(job_id, lambda job: job.Cancel())
 
   @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
   def ChangeJobPriority(self, job_id, priority):
     """Changes a job's priority.
 
@@ -2375,7 +2019,6 @@ class JobQueue(object):
 
     return (success, msg)
 
-  @_RequireOpenQueue
   def _ArchiveJobsUnlocked(self, jobs):
     """Archives jobs.
 
@@ -2413,84 +2056,6 @@ class JobQueue(object):
     # archived jobs to fix this.
     self._UpdateQueueSizeUnlocked()
     return len(archive_jobs)
-
-  @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
-  def ArchiveJob(self, job_id):
-    """Archives a job.
-
-    This is just a wrapper over L{_ArchiveJobsUnlocked}.
-
-    @type job_id: int
-    @param job_id: Job ID of job to be archived.
-    @rtype: bool
-    @return: Whether job was archived
-
-    """
-    logging.info("Archiving job %s", job_id)
-
-    job = self._LoadJobUnlocked(job_id)
-    if not job:
-      logging.debug("Job %s not found", job_id)
-      return False
-
-    return self._ArchiveJobsUnlocked([job]) == 1
-
-  @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
-  def AutoArchiveJobs(self, age, timeout):
-    """Archives all jobs based on age.
-
-    The method will archive all jobs which are older than the age
-    parameter. For jobs that don't have an end timestamp, the start
-    timestamp will be considered. The special '-1' age will cause
-    archival of all jobs (that are not running or queued).
-
-    @type age: int
-    @param age: the minimum age in seconds
-
-    """
-    logging.info("Archiving jobs with age more than %s seconds", age)
-
-    now = time.time()
-    end_time = now + timeout
-    archived_count = 0
-    last_touched = 0
-
-    all_job_ids = self._GetJobIDsUnlocked()
-    pending = []
-    for idx, job_id in enumerate(all_job_ids):
-      last_touched = idx + 1
-
-      # Not optimal because jobs could be pending
-      # TODO: Measure average duration for job archival and take number of
-      # pending jobs into account.
-      if time.time() > end_time:
-        break
-
-      # Returns None if the job failed to load
-      job = self._LoadJobUnlocked(job_id)
-      if job:
-        if job.end_timestamp is None:
-          if job.start_timestamp is None:
-            job_age = job.received_timestamp
-          else:
-            job_age = job.start_timestamp
-        else:
-          job_age = job.end_timestamp
-
-        if age == -1 or now - job_age[0] > age:
-          pending.append(job)
-
-          # Archive 10 jobs at a time
-          if len(pending) >= 10:
-            archived_count += self._ArchiveJobsUnlocked(pending)
-            pending = []
-
-    if pending:
-      archived_count += self._ArchiveJobsUnlocked(pending)
-
-    return (archived_count, len(all_job_ids) - last_touched)
 
   def _Query(self, fields, qfilter):
     qobj = query.Query(query.JOB_FIELDS, fields, qfilter=qfilter,
@@ -2556,40 +2121,17 @@ class JobQueue(object):
   def PrepareShutdown(self):
     """Prepare to stop the job queue.
 
-    Disables execution of jobs in the workerpool and returns whether there are
-    any jobs currently running. If the latter is the case, the job queue is not
-    yet ready for shutdown. Once this function returns C{True} L{Shutdown} can
-    be called without interfering with any job. Queued and unfinished jobs will
-    be resumed next time.
-
-    Once this function has been called no new job submissions will be accepted
-    (see L{_RequireNonDrainedQueue}).
+    Returns whether there are any jobs currently running. If the latter is the
+    case, the job queue is not yet ready for shutdown. Once this function
+    returns C{True} L{Shutdown} can be called without interfering with any job.
 
     @rtype: bool
     @return: Whether there are any running jobs
 
     """
-    if self._accepting_jobs:
-      self._accepting_jobs = False
-
-      # Tell worker pool to stop processing pending tasks
-      self._wpool.SetActive(False)
-
     return self._wpool.HasRunningTasks()
 
-  def AcceptingJobsUnlocked(self):
-    """Returns whether jobs are accepted.
-
-    Once L{PrepareShutdown} has been called, no new jobs are accepted and the
-    queue is shutting down.
-
-    @rtype: bool
-
-    """
-    return self._accepting_jobs
-
   @locking.ssynchronized(_LOCK)
-  @_RequireOpenQueue
   def Shutdown(self):
     """Stops the job queue.
 
@@ -2597,6 +2139,3 @@ class JobQueue(object):
 
     """
     self._wpool.TerminateWorkers()
-
-    self._queue_filelock.Close()
-    self._queue_filelock = None

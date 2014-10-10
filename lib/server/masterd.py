@@ -38,41 +38,26 @@ inheritance from parent classes requires it.
 # pylint: disable=C0103
 # C0103: Invalid name ganeti-masterd
 
-import grp
 import os
-import pwd
 import sys
 import socket
 import time
 import tempfile
 import logging
 
-from optparse import OptionParser
 
 from ganeti import config
 from ganeti import constants
 from ganeti import daemon
-from ganeti import mcpu
-from ganeti import opcodes
 from ganeti import jqueue
-from ganeti import locking
 from ganeti import luxi
 import ganeti.rpc.errors as rpcerr
 from ganeti import utils
 from ganeti import errors
-from ganeti import ssconf
 from ganeti import workerpool
 import ganeti.rpc.node as rpc
 import ganeti.rpc.client as rpccl
-from ganeti import bootstrap
-from ganeti import netutils
-from ganeti import objects
-from ganeti import query
-from ganeti import runtime
-from ganeti import pathutils
 from ganeti import ht
-
-from ganeti.utils import version
 
 
 CLIENT_REQUEST_WORKERS = 16
@@ -247,7 +232,7 @@ class MasterServer(daemon.AsyncStreamServer):
     # maximum number to avoid breaking for lack of file descriptors or memory.
     MasterClientHandler(self, connected_socket, client_address, self.family)
 
-  def setup_queue(self):
+  def setup_context(self):
     self.context = GanetiContext()
     self.request_workers = workerpool.WorkerPool("ClientReq",
                                                  CLIENT_REQUEST_WORKERS,
@@ -276,12 +261,27 @@ class MasterServer(daemon.AsyncStreamServer):
         self.request_workers.TerminateWorkers()
       if self.context:
         self.context.jobqueue.Shutdown()
+        self.context.livelock.close()
 
 
 class ClientOps(object):
   """Class holding high-level client operations."""
   def __init__(self, server):
     self.server = server
+
+  @staticmethod
+  def _PickupJob(args, queue):
+    logging.info("Picking up new job from queue")
+    (job_id, ) = args
+    queue.PickupJob(job_id)
+    return job_id
+
+  @staticmethod
+  def _ChangeJobPriority(args, queue):
+    (job_id, priority) = args
+    logging.info("Received request to change priority for job %s to %s",
+                 job_id, priority)
+    return queue.ChangeJobPriority(job_id, priority)
 
   def handle_request(self, method, args): # pylint: disable=R0911
     context = self.server.context
@@ -296,154 +296,16 @@ class ClientOps(object):
       logging.info("Received invalid request '%s'", method)
       raise ValueError("Invalid operation '%s'" % method)
 
-    # TODO: Rewrite to not exit in each 'if/elif' branch
-
-    if method == luxi.REQ_SUBMIT_JOB:
-      logging.info("Receiving new job")
-      (job_def, ) = args
-      ops = [opcodes.OpCode.LoadOpCode(state) for state in job_def]
-      job_id = queue.SubmitJob(ops)
-      _LogNewJob(True, job_id, ops)
-      return job_id
-
-    elif method == luxi.REQ_PICKUP_JOB:
-      logging.info("Picking up new job from queue")
-      (job_id, ) = args
-      queue.PickupJob(job_id)
-
-    elif method == luxi.REQ_SUBMIT_JOB_TO_DRAINED_QUEUE:
-      logging.info("Forcefully receiving new job")
-      (job_def, ) = args
-      ops = [opcodes.OpCode.LoadOpCode(state) for state in job_def]
-      job_id = queue.SubmitJobToDrainedQueue(ops)
-      _LogNewJob(True, job_id, ops)
-      return job_id
-
-    elif method == luxi.REQ_SUBMIT_MANY_JOBS:
-      logging.info("Receiving multiple jobs")
-      (job_defs, ) = args
-      jobs = []
-      for ops in job_defs:
-        jobs.append([opcodes.OpCode.LoadOpCode(state) for state in ops])
-      job_ids = queue.SubmitManyJobs(jobs)
-      for ((status, job_id), ops) in zip(job_ids, jobs):
-        _LogNewJob(status, job_id, ops)
-      return job_ids
-
-    elif method == luxi.REQ_CANCEL_JOB:
-      (job_id, ) = args
-      logging.info("Received job cancel request for %s", job_id)
-      return queue.CancelJob(job_id)
-
+    job_id = None
+    if method == luxi.REQ_PICKUP_JOB:
+      job_id = self._PickupJob(args, queue)
     elif method == luxi.REQ_CHANGE_JOB_PRIORITY:
-      (job_id, priority) = args
-      logging.info("Received request to change priority for job %s to %s",
-                   job_id, priority)
-      return queue.ChangeJobPriority(job_id, priority)
-
-    elif method == luxi.REQ_ARCHIVE_JOB:
-      (job_id, ) = args
-      logging.info("Received job archive request for %s", job_id)
-      return queue.ArchiveJob(job_id)
-
-    elif method == luxi.REQ_AUTO_ARCHIVE_JOBS:
-      (age, timeout) = args
-      logging.info("Received job autoarchive request for age %s, timeout %s",
-                   age, timeout)
-      return queue.AutoArchiveJobs(age, timeout)
-
-    elif method == luxi.REQ_WAIT_FOR_JOB_CHANGE:
-      (job_id, fields, prev_job_info, prev_log_serial, timeout) = args
-      logging.info("Received job poll request for %s", job_id)
-      return queue.WaitForJobChanges(job_id, fields, prev_job_info,
-                                     prev_log_serial, timeout)
-
-    elif method == luxi.REQ_QUERY:
-      (what, fields, qfilter) = args
-
-      if what in constants.QR_VIA_OP:
-        result = self._Query(opcodes.OpQuery(what=what, fields=fields,
-                                             qfilter=qfilter))
-      elif what == constants.QR_LOCK:
-        if qfilter is not None:
-          raise errors.OpPrereqError("Lock queries can't be filtered",
-                                     errors.ECODE_INVAL)
-        return context.glm.QueryLocks(fields)
-      elif what == constants.QR_JOB:
-        return queue.QueryJobs(fields, qfilter)
-      elif what in constants.QR_VIA_LUXI:
-        luxi_client = runtime.GetClient(query=True)
-        result = luxi_client.Query(what, fields, qfilter).ToDict()
-      else:
-        raise errors.OpPrereqError("Resource type '%s' unknown" % what,
-                                   errors.ECODE_INVAL)
-
-      return result
-
-    elif method == luxi.REQ_QUERY_FIELDS:
-      (what, fields) = args
-      req = objects.QueryFieldsRequest(what=what, fields=fields)
-
-      try:
-        fielddefs = query.ALL_FIELDS[req.what]
-      except KeyError:
-        raise errors.OpPrereqError("Resource type '%s' unknown" % req.what,
-                                   errors.ECODE_INVAL)
-
-      return query.QueryFields(fielddefs, req.fields)
-
-    elif method == luxi.REQ_QUERY_JOBS:
-      (job_ids, fields) = args
-      if isinstance(job_ids, (tuple, list)) and job_ids:
-        msg = utils.CommaJoin(job_ids)
-      else:
-        msg = str(job_ids)
-      logging.info("Received job query request for %s", msg)
-      return queue.OldStyleQueryJobs(job_ids, fields)
-
-    elif method == luxi.REQ_QUERY_CONFIG_VALUES:
-      (fields, ) = args
-      logging.info("Received config values query request for %s", fields)
-      op = opcodes.OpClusterConfigQuery(output_fields=fields)
-      return self._Query(op)
-
-    elif method == luxi.REQ_QUERY_CLUSTER_INFO:
-      logging.info("Received cluster info query request")
-      op = opcodes.OpClusterQuery()
-      return self._Query(op)
-
-    elif method == luxi.REQ_QUERY_TAGS:
-      (kind, name) = args
-      logging.info("Received tags query request")
-      op = opcodes.OpTagsGet(kind=kind, name=name, use_locking=False)
-      return self._Query(op)
-
-    elif method == luxi.REQ_SET_DRAIN_FLAG:
-      (drain_flag, ) = args
-      logging.info("Received queue drain flag change request to %s",
-                   drain_flag)
-      return queue.SetDrainFlag(drain_flag)
-
-    elif method == luxi.REQ_SET_WATCHER_PAUSE:
-      (until, ) = args
-
-      return _SetWatcherPause(context, until)
-
+      job_id = self._ChangeJobPriority(args, queue)
     else:
-      logging.critical("Request '%s' in luxi.REQ_ALL, but not known", method)
-      raise errors.ProgrammerError("Operation '%s' in luxi.REQ_ALL,"
-                                   " but not implemented" % method)
+      logging.info("Request '%s' not supported by masterd", method)
+      raise ValueError("Unsupported operation '%s'" % method)
 
-  def _Query(self, op):
-    """Runs the specified opcode and returns the result.
-
-    """
-    # Queries don't have a job id
-    proc = mcpu.Processor(self.server.context, None, enable_locks=False)
-
-    # TODO: Executing an opcode using locks will acquire them in blocking mode.
-    # Consider using a timeout for retries.
-    return proc.ExecOpCode(op, None)
+    return job_id
 
 
 class GanetiContext(object):
@@ -456,7 +318,7 @@ class GanetiContext(object):
   # we do want to ensure a singleton here
   _instance = None
 
-  def __init__(self):
+  def __init__(self, livelock=None):
     """Constructs a new GanetiContext object.
 
     There should be only a GanetiContext object at any time, so this
@@ -465,23 +327,16 @@ class GanetiContext(object):
     """
     assert self.__class__._instance is None, "double GanetiContext instance"
 
-    # Create global configuration object
-    self.cfg = config.ConfigWriter()
-
-    # Locking manager
-    self.glm = locking.GanetiLockManager(
-      self.cfg.GetNodeList(),
-      self.cfg.GetNodeGroupList(),
-      [inst.name for inst in self.cfg.GetAllInstancesInfo().values()],
-      self.cfg.GetNetworkList())
-
-    self.cfg.SetContext(self)
-
-    # RPC runner
-    self.rpc = rpc.RpcRunner(self.cfg, self.glm.AddToLockMonitor)
+    # Create a livelock file
+    if livelock is None:
+      self.livelock = utils.livelock.LiveLock("masterd")
+    else:
+      self.livelock = livelock
 
     # Job queue
-    self.jobqueue = jqueue.JobQueue(self)
+    cfg = self.GetConfig(None)
+    logging.debug("Creating the job queue")
+    self.jobqueue = jqueue.JobQueue(self, cfg)
 
     # setting this also locks the class against attribute modifications
     self.__class__._instance = self
@@ -493,19 +348,26 @@ class GanetiContext(object):
     assert self.__class__._instance is None, "Attempt to modify Ganeti Context"
     object.__setattr__(self, name, value)
 
-  def AddNode(self, node, ec_id):
-    """Adds a node to the configuration and lock manager.
+  def GetWConfdContext(self, ec_id):
+    return config.GetWConfdContext(ec_id, self.livelock)
+
+  def GetConfig(self, ec_id):
+    return config.GetConfig(ec_id, self.livelock)
+
+  # pylint: disable=R0201
+  # method could be a function, but keep interface backwards compatible
+  def GetRpc(self, cfg):
+    return rpc.RpcRunner(cfg, lambda _: None)
+
+  def AddNode(self, cfg, node, ec_id):
+    """Adds a node to the configuration.
 
     """
     # Add it to the configuration
-    self.cfg.AddNode(node, ec_id)
+    cfg.AddNode(node, ec_id)
 
     # If preseeding fails it'll not be added
     self.jobqueue.AddNode(node)
-
-    # Add the new node to the Ganeti Lock Manager
-    self.glm.add(locking.LEVEL_NODE, node.uuid)
-    self.glm.add(locking.LEVEL_NODE_RES, node.uuid)
 
   def ReaddNode(self, node):
     """Updates a node that's already in the configuration
@@ -514,22 +376,18 @@ class GanetiContext(object):
     # Synchronize the queue again
     self.jobqueue.AddNode(node)
 
-  def RemoveNode(self, node):
+  def RemoveNode(self, cfg, node):
     """Removes a node from the configuration and lock manager.
 
     """
     # Remove node from configuration
-    self.cfg.RemoveNode(node.uuid)
+    cfg.RemoveNode(node.uuid)
 
     # Notify job queue
     self.jobqueue.RemoveNode(node.name)
 
-    # Remove the node from the Ganeti Lock Manager
-    self.glm.remove(locking.LEVEL_NODE, node.uuid)
-    self.glm.remove(locking.LEVEL_NODE_RES, node.uuid)
 
-
-def _SetWatcherPause(context, until):
+def _SetWatcherPause(context, ec_id, until):
   """Creates or removes the watcher pause file.
 
   @type context: L{GanetiContext}
@@ -538,7 +396,7 @@ def _SetWatcherPause(context, until):
   @param until: Unix timestamp saying until when the watcher shouldn't run
 
   """
-  node_names = context.cfg.GetNodeList()
+  node_names = context.GetConfig(ec_id).GetNodeList()
 
   if until is None:
     logging.info("Received request to no longer pause watcher")
@@ -561,203 +419,3 @@ def _SetWatcherPause(context, until):
                              " on the following node(s): %s" % errmsg)
 
   return until
-
-
-@rpc.RunWithRPC
-def CheckAgreement():
-  """Check the agreement on who is the master.
-
-  The function uses a very simple algorithm: we must get more positive
-  than negative answers. Since in most of the cases we are the master,
-  we'll use our own config file for getting the node list. In the
-  future we could collect the current node list from our (possibly
-  obsolete) known nodes.
-
-  In order to account for cold-start of all nodes, we retry for up to
-  a minute until we get a real answer as the top-voted one. If the
-  nodes are more out-of-sync, for now manual startup of the master
-  should be attempted.
-
-  Note that for a even number of nodes cluster, we need at least half
-  of the nodes (beside ourselves) to vote for us. This creates a
-  problem on two-node clusters, since in this case we require the
-  other node to be up too to confirm our status.
-
-  """
-  myself = netutils.Hostname.GetSysName()
-  #temp instantiation of a config writer, used only to get the node list
-  cfg = config.ConfigWriter()
-  node_names = cfg.GetNodeNames(cfg.GetNodeList())
-  del cfg
-  retries = 6
-  while retries > 0:
-    votes = bootstrap.GatherMasterVotes(node_names)
-    if not votes:
-      # empty node list, this is a one node cluster
-      return True
-    if votes[0][0] is None:
-      retries -= 1
-      time.sleep(10)
-      continue
-    break
-  if retries == 0:
-    logging.critical("Cluster inconsistent, most of the nodes didn't answer"
-                     " after multiple retries. Aborting startup")
-    logging.critical("Use the --no-voting option if you understand what"
-                     " effects it has on the cluster state")
-    return False
-  # here a real node is at the top of the list
-  all_votes = sum(item[1] for item in votes)
-  top_node, top_votes = votes[0]
-
-  result = False
-  if top_node != myself:
-    logging.critical("It seems we are not the master (top-voted node"
-                     " is %s with %d out of %d votes)", top_node, top_votes,
-                     all_votes)
-  elif top_votes < all_votes - top_votes:
-    logging.critical("It seems we are not the master (%d votes for,"
-                     " %d votes against)", top_votes, all_votes - top_votes)
-  else:
-    result = True
-
-  return result
-
-
-@rpc.RunWithRPC
-def ActivateMasterIP():
-  # activate ip
-  cfg = config.ConfigWriter()
-  master_params = cfg.GetMasterNetworkParameters()
-  ems = cfg.GetUseExternalMipScript()
-  runner = rpc.BootstrapRunner()
-  # we use the node name, as the configuration is only available here yet
-  result = runner.call_node_activate_master_ip(
-             cfg.GetNodeName(master_params.uuid), master_params, ems)
-
-  msg = result.fail_msg
-  if msg:
-    logging.error("Can't activate master IP address: %s", msg)
-
-
-def CheckMasterd(options, args):
-  """Initial checks whether to run or exit with a failure.
-
-  """
-  if args: # masterd doesn't take any arguments
-    print >> sys.stderr, ("Usage: %s [-f] [-d]" % sys.argv[0])
-    sys.exit(constants.EXIT_FAILURE)
-
-  ssconf.CheckMaster(options.debug)
-
-  try:
-    options.uid = pwd.getpwnam(constants.MASTERD_USER).pw_uid
-    options.gid = grp.getgrnam(constants.DAEMONS_GROUP).gr_gid
-  except KeyError:
-    print >> sys.stderr, ("User or group not existing on system: %s:%s" %
-                          (constants.MASTERD_USER, constants.DAEMONS_GROUP))
-    sys.exit(constants.EXIT_FAILURE)
-
-  # Determine static runtime architecture information
-  runtime.InitArchInfo()
-
-  # Check the configuration is sane before anything else
-  try:
-    config.ConfigWriter()
-  except errors.ConfigVersionMismatch, err:
-    v1 = "%s.%s.%s" % version.SplitVersion(err.args[0])
-    v2 = "%s.%s.%s" % version.SplitVersion(err.args[1])
-    print >> sys.stderr,  \
-        ("Configuration version mismatch. The current Ganeti software"
-         " expects version %s, but the on-disk configuration file has"
-         " version %s. This is likely the result of upgrading the"
-         " software without running the upgrade procedure. Please contact"
-         " your cluster administrator or complete the upgrade using the"
-         " cfgupgrade utility, after reading the upgrade notes." %
-         (v1, v2))
-    sys.exit(constants.EXIT_FAILURE)
-  except errors.ConfigurationError, err:
-    print >> sys.stderr, \
-        ("Configuration error while opening the configuration file: %s\n"
-         "This might be caused by an incomplete software upgrade or"
-         " by a corrupted configuration file. Until the problem is fixed"
-         " the master daemon cannot start." % str(err))
-    sys.exit(constants.EXIT_FAILURE)
-
-  # If CheckMaster didn't fail we believe we are the master, but we have to
-  # confirm with the other nodes.
-  if options.no_voting:
-    if not options.yes_do_it:
-      sys.stdout.write("The 'no voting' option has been selected.\n")
-      sys.stdout.write("This is dangerous, please confirm by"
-                       " typing uppercase 'yes': ")
-      sys.stdout.flush()
-
-      confirmation = sys.stdin.readline().strip()
-      if confirmation != "YES":
-        print >> sys.stderr, "Aborting."
-        sys.exit(constants.EXIT_FAILURE)
-
-  else:
-    # CheckAgreement uses RPC and threads, hence it needs to be run in
-    # a separate process before we call utils.Daemonize in the current
-    # process.
-    if not utils.RunInSeparateProcess(CheckAgreement):
-      sys.exit(constants.EXIT_FAILURE)
-
-  # ActivateMasterIP also uses RPC/threads, so we run it again via a
-  # separate process.
-
-  # TODO: decide whether failure to activate the master IP is a fatal error
-  utils.RunInSeparateProcess(ActivateMasterIP)
-
-
-def PrepMasterd(options, _):
-  """Prep master daemon function, executed with the PID file held.
-
-  """
-  # This is safe to do as the pid file guarantees against
-  # concurrent execution.
-  utils.RemoveFile(pathutils.MASTER_SOCKET)
-
-  mainloop = daemon.Mainloop()
-  master = MasterServer(pathutils.MASTER_SOCKET, options.uid, options.gid)
-  return (mainloop, master)
-
-
-def ExecMasterd(options, args, prep_data): # pylint: disable=W0613
-  """Main master daemon function, executed with the PID file held.
-
-  """
-  (mainloop, master) = prep_data
-  try:
-    rpc.Init()
-    try:
-      master.setup_queue()
-      try:
-        mainloop.Run(shutdown_wait_fn=master.WaitForShutdown)
-      finally:
-        master.server_cleanup()
-    finally:
-      rpc.Shutdown()
-  finally:
-    utils.RemoveFile(pathutils.MASTER_SOCKET)
-
-  logging.info("Clean master daemon shutdown")
-
-
-def Main():
-  """Main function"""
-  parser = OptionParser(description="Ganeti master daemon",
-                        usage="%prog [-f] [-d]",
-                        version="%%prog (ganeti) %s" %
-                        constants.RELEASE_VERSION)
-  parser.add_option("--no-voting", dest="no_voting",
-                    help="Do not check that the nodes agree on this node"
-                    " being the master and start the daemon unconditionally",
-                    default=False, action="store_true")
-  parser.add_option("--yes-do-it", dest="yes_do_it",
-                    help="Override interactive check for --no-voting",
-                    default=False, action="store_true")
-  daemon.GenericMain(constants.MASTERD, parser, CheckMasterd, PrepMasterd,
-                     ExecMasterd, multithreaded=True)

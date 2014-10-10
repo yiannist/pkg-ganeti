@@ -273,12 +273,14 @@ class IAReqRelocate(IARequestBase):
       raise errors.OpPrereqError("Can't relocate non-mirrored instances",
                                  errors.ECODE_INVAL)
 
+    secondary_nodes = cfg.GetInstanceSecondaryNodes(instance.uuid)
     if (instance.disk_template in constants.DTS_INT_MIRROR and
-        len(instance.secondary_nodes) != 1):
+        len(secondary_nodes) != 1):
       raise errors.OpPrereqError("Instance has not exactly one secondary node",
                                  errors.ECODE_STATE)
 
-    disk_sizes = [{constants.IDISK_SIZE: disk.size} for disk in instance.disks]
+    inst_disks = cfg.GetInstanceDisks(instance.uuid)
+    disk_sizes = [{constants.IDISK_SIZE: disk.size} for disk in inst_disks]
     disk_space = gmi.ComputeDiskSize(instance.disk_template, disk_sizes)
 
     return {
@@ -446,18 +448,20 @@ class IAllocator(object):
     @param disk_template: the disk templates of the instances to be allocated
 
     """
-    cluster_info = self.cfg.GetClusterInfo()
+    cfg = self.cfg.GetDetachedConfig()
+    cluster_info = cfg.GetClusterInfo()
     # cluster data
     data = {
       "version": constants.IALLOCATOR_VERSION,
-      "cluster_name": self.cfg.GetClusterName(),
+      "cluster_name": cluster_info.cluster_name,
       "cluster_tags": list(cluster_info.GetTags()),
       "enabled_hypervisors": list(cluster_info.enabled_hypervisors),
       "ipolicy": cluster_info.ipolicy,
       }
-    ninfo = self.cfg.GetAllNodesInfo()
-    iinfo = self.cfg.GetAllInstancesInfo().values()
-    i_list = [(inst, cluster_info.FillBE(inst)) for inst in iinfo]
+    ginfo = cfg.GetAllNodeGroupsInfo()
+    ninfo = cfg.GetAllNodesInfo()
+    iinfo = cfg.GetAllInstancesInfo()
+    i_list = [(inst, cluster_info.FillBE(inst)) for inst in iinfo.values()]
 
     # node data
     node_list = [n.uuid for n in ninfo.values() if n.vm_capable]
@@ -466,7 +470,7 @@ class IAllocator(object):
       hypervisor_name = self.req.hypervisor
       node_whitelist = self.req.node_whitelist
     elif isinstance(self.req, IAReqRelocate):
-      hypervisor_name = self.cfg.GetInstanceInfo(self.req.inst_uuid).hypervisor
+      hypervisor_name = iinfo[self.req.inst_uuid].hypervisor
       node_whitelist = None
     else:
       hypervisor_name = cluster_info.primary_hypervisor
@@ -483,25 +487,23 @@ class IAllocator(object):
                                        cluster_info.enabled_hypervisors,
                                        cluster_info.hvparams)
 
-    data["nodegroups"] = self._ComputeNodeGroupData(self.cfg)
+    data["nodegroups"] = self._ComputeNodeGroupData(cluster_info, ginfo)
 
-    config_ndata = self._ComputeBasicNodeData(self.cfg, ninfo, node_whitelist)
+    config_ndata = self._ComputeBasicNodeData(cfg, ninfo, node_whitelist)
     data["nodes"] = self._ComputeDynamicNodeData(
         ninfo, node_data, node_iinfo, i_list, config_ndata, disk_template)
     assert len(data["nodes"]) == len(ninfo), \
         "Incomplete node data computed"
 
-    data["instances"] = self._ComputeInstanceData(self.cfg, cluster_info,
-                                                  i_list)
+    data["instances"] = self._ComputeInstanceData(cfg, cluster_info, i_list)
 
     self.in_data = data
 
   @staticmethod
-  def _ComputeNodeGroupData(cfg):
+  def _ComputeNodeGroupData(cluster, ginfo):
     """Compute node groups data.
 
     """
-    cluster = cfg.GetClusterInfo()
     ng = dict((guuid, {
       "name": gdata.name,
       "alloc_policy": gdata.alloc_policy,
@@ -509,7 +511,7 @@ class IAllocator(object):
       "ipolicy": gmi.CalculateGroupIPolicy(cluster, gdata),
       "tags": list(gdata.GetTags()),
       })
-      for guuid, gdata in cfg.GetAllNodeGroupsInfo().items())
+      for guuid, gdata in ginfo.items())
 
     return ng
 
@@ -749,6 +751,7 @@ class IAllocator(object):
         if filled_params[constants.NIC_MODE] == constants.NIC_MODE_BRIDGED:
           nic_dict["bridge"] = filled_params[constants.NIC_LINK]
         nic_data.append(nic_dict)
+      inst_disks = cfg.GetInstanceDisks(iinfo.uuid)
       pir = {
         "tags": list(iinfo.GetTags()),
         "admin_state": iinfo.admin_state,
@@ -757,12 +760,13 @@ class IAllocator(object):
         "spindle_use": beinfo[constants.BE_SPINDLE_USE],
         "os": iinfo.os,
         "nodes": [cfg.GetNodeName(iinfo.primary_node)] +
-                 cfg.GetNodeNames(iinfo.secondary_nodes),
+                 cfg.GetNodeNames(
+                   cfg.GetInstanceSecondaryNodes(iinfo.uuid)),
         "nics": nic_data,
         "disks": [{constants.IDISK_SIZE: dsk.size,
                    constants.IDISK_MODE: dsk.mode,
                    constants.IDISK_SPINDLES: dsk.spindles}
-                  for dsk in iinfo.disks],
+                  for dsk in inst_disks],
         "disk_template": iinfo.disk_template,
         "disks_active": iinfo.disks_active,
         "hypervisor": iinfo.hypervisor,

@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2013 Google Inc.
+# Copyright (C) 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,39 +28,44 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-"""Support for mocking the lock manager"""
+"""Module for the WConfd protocol
+
+"""
+
+import logging
+import random
+import time
+
+import ganeti.rpc.client as cl
+import ganeti.rpc.stub.wconfd as stub
+from ganeti.rpc.transport import Transport
+from ganeti.rpc import errors
 
 
-from ganeti import locking
+class Client(cl.AbstractStubClient, stub.ClientRpcStub):
+  """High-level WConfD client implementation.
 
-
-class LockManagerMock(locking.GanetiLockManager):
-  """Mocked lock manager for tests.
+  This uses a backing Transport-like class on top of which it
+  implements data serialization/deserialization.
 
   """
-  def __init__(self):
-    # reset singleton instance, there is a separate lock manager for every test
-    # pylint: disable=W0212
-    self.__class__._instance = None
+  def __init__(self, timeouts=None, transport=Transport):
+    """Constructor for the Client class.
 
-    super(LockManagerMock, self).__init__([], [], [], [])
+    Arguments are the same as for L{AbstractClient}.
 
-  def AddLocksFromConfig(self, cfg):
-    """Create locks for all entities in the given configuration.
-
-    @type cfg: ganeti.config.ConfigWriter
     """
-    try:
-      self.acquire(locking.LEVEL_CLUSTER, locking.BGL)
+    cl.AbstractStubClient.__init__(self, timeouts, transport)
+    stub.ClientRpcStub.__init__(self)
 
-      for node_uuid in cfg.GetNodeList():
-        self.add(locking.LEVEL_NODE, node_uuid)
-        self.add(locking.LEVEL_NODE_RES, node_uuid)
-      for group_uuid in cfg.GetNodeGroupList():
-        self.add(locking.LEVEL_NODEGROUP, group_uuid)
-      for inst in cfg.GetAllInstancesInfo().values():
-        self.add(locking.LEVEL_INSTANCE, inst.name)
-      for net_uuid in cfg.GetNetworkList():
-        self.add(locking.LEVEL_NETWORK, net_uuid)
-    finally:
-      self.release(locking.LEVEL_CLUSTER, locking.BGL)
+    retries = 10
+    for try_no in range(0, retries):
+      try:
+        self._InitTransport()
+        return
+      except errors.TimeoutError:
+        logging.debug("Timout trying to connect to WConfD")
+        if try_no == retries -1:
+          raise
+        logging.debug("Will retry")
+        time.sleep(10 * random.random())

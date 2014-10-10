@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Code style guide &mdash; Ganeti 2.11.6 documentation</title>
+    <title>Code style guide &mdash; Ganeti 2.12.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.11.6',
+        VERSION:     '2.12.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.11.6 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.12.0 documentation" href="index.html" />
     <link rel="next" title="Glossary" href="glossary.html" />
     <link rel="prev" title="Developer notes" href="devnotes.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.6 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -275,16 +275,17 @@ summary.</p>
 <p>Imports should be grouped into the following groups and inside each group they
 should be sorted alphabetically:</p>
 <ol class="arabic simple">
-<li>standard library imports</li>
-<li>third-party imports</li>
-<li>local imports</li>
+<li>import of non-Ganeti libaries</li>
+<li>import of Ganeti libraries</li>
 </ol>
 <p>It is allowed to use qualified imports with short names for:</p>
 <ul class="simple">
 <li>standard library (e.g. <tt class="docutils literal"><span class="pre">import</span> <span class="pre">qualified</span> <span class="pre">Data.Map</span> <span class="pre">as</span> <span class="pre">M</span></tt>)</li>
-<li>local imports (e.g. <tt class="docutils literal"><span class="pre">import</span> <span class="pre">qualified</span> <span class="pre">Ganeti.Constants</span> <span class="pre">as</span> <span class="pre">C</span></tt>), although
-this form should be kept to a minimum</li>
+<li>local imports (e.g. <tt class="docutils literal"><span class="pre">import</span> <span class="pre">qualified</span> <span class="pre">Ganeti.Constants</span> <span class="pre">as</span> <span class="pre">C</span></tt>)</li>
 </ul>
+<p>Whenever possible, prefer explicit imports, either in form of
+qualified imports, or by naming the imported functions
+(e.g., <tt class="docutils literal"><span class="pre">import</span> <span class="pre">Control.Arrow</span> <span class="pre">((&amp;&amp;&amp;))</span></tt>, <tt class="docutils literal"><span class="pre">import</span> <span class="pre">Data.Foldable(fold,</span> <span class="pre">toList)</span></tt>)</p>
 </div>
 <div class="section" id="id1">
 <h3>Indentation<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h3>
@@ -701,7 +702,7 @@ something.</p>
         <li class="right" >
           <a href="devnotes.html" title="Developer notes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.6 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

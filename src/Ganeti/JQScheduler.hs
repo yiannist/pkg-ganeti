@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell, RankNTypes #-}
 {-| Implementation of a reader for the job queue.
 
 -}
@@ -34,6 +35,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 module Ganeti.JQScheduler
   ( JQStatus
+  , jqLivelock
+  , jqForkLock
   , emptyJQStatus
   , initJQScheduler
   , enqueueNewJobs
@@ -41,31 +44,48 @@ module Ganeti.JQScheduler
   , setJobPriority
   ) where
 
+import Control.Applicative (liftA2)
 import Control.Arrow
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Function (on)
+import Data.Functor ((<$))
+import Data.IORef
 import Data.List
 import Data.Maybe
-import Data.IORef
+import qualified Data.Set as S
 import System.INotify
 
 import Ganeti.BasicTypes
 import Ganeti.Constants as C
+import Ganeti.Errors
 import Ganeti.JQueue as JQ
+import Ganeti.Lens hiding (chosen)
 import Ganeti.Logging
 import Ganeti.Objects
 import Ganeti.Path
 import Ganeti.Types
 import Ganeti.Utils
+import Ganeti.Utils.Livelock
+import Ganeti.Utils.MVarLock
 
 data JobWithStat = JobWithStat { jINotify :: Maybe INotify
                                , jStat :: FStat
                                , jJob :: QueuedJob
                                }
-data Queue = Queue { qEnqueued :: [JobWithStat], qRunning :: [JobWithStat] }
+
+$(makeCustomLenses' ''JobWithStat ['jJob])
+
+data Queue = Queue { qEnqueued :: [JobWithStat]
+                   , qRunning :: [JobWithStat]
+                   , qManipulated :: [JobWithStat] -- ^ running jobs that are
+                                                   -- being manipulated by
+                                                   -- some thread
+                   }
+
+$(makeCustomLenses ''Queue)
 
 {-| Representation of the job queue
 
@@ -80,21 +100,26 @@ both, in particular when scheduling jobs to be handed over for execution.
 data JQStatus = JQStatus
   { jqJobs :: IORef Queue
   , jqConfig :: IORef (Result ConfigData)
+  , jqLivelock :: Livelock
+  , jqForkLock :: Lock
   }
 
 
 emptyJQStatus :: IORef (Result ConfigData) -> IO JQStatus
 emptyJQStatus config = do
-  jqJ <- newIORef Queue { qEnqueued = [], qRunning = []}
-  return JQStatus { jqJobs = jqJ, jqConfig = config }
+  jqJ <- newIORef Queue { qEnqueued = [], qRunning = [], qManipulated = [] }
+  (_, livelock) <- mkLivelockFile C.luxiLivelockPrefix
+  forkLock <- newLock
+  return JQStatus { jqJobs = jqJ, jqConfig = config, jqLivelock = livelock
+                  , jqForkLock = forkLock }
 
 -- | Apply a function on the running jobs.
 onRunningJobs :: ([JobWithStat] -> [JobWithStat]) -> Queue -> Queue
-onRunningJobs f queue = queue {qRunning=f $ qRunning queue}
+onRunningJobs = over qRunningL
 
 -- | Apply a function on the queued jobs.
 onQueuedJobs :: ([JobWithStat] -> [JobWithStat]) -> Queue -> Queue
-onQueuedJobs f queue = queue {qEnqueued=f $ qEnqueued queue}
+onQueuedJobs = over qEnqueuedL
 
 -- | Obtain a JobWithStat from a QueuedJob.
 unreadJob :: QueuedJob -> JobWithStat
@@ -104,13 +129,28 @@ unreadJob job = JobWithStat {jJob=job, jStat=nullFStat, jINotify=Nothing}
 watchInterval :: Int
 watchInterval = C.luxidJobqueuePollInterval * 1000000 
 
+-- | Read a cluster parameter from the configuration, using a default if the
+-- configuration is not available.
+getConfigValue :: (Cluster -> a) -> a -> JQStatus -> IO a
+getConfigValue param defaultvalue =
+  liftM (genericResult (const defaultvalue) (param . configCluster))
+  . readIORef . jqConfig
+
 -- | Get the maximual number of jobs to be run simultaneously from the
 -- configuration. If the configuration is not available, be conservative
 -- and use the smallest possible value, i.e., 1.
 getMaxRunningJobs :: JQStatus -> IO Int
-getMaxRunningJobs =
-  liftM (genericResult (const 1) (clusterMaxRunningJobs . configCluster))
-  . readIORef . jqConfig
+getMaxRunningJobs = getConfigValue clusterMaxRunningJobs 1
+
+-- | Get the maximual number of jobs to be tracked simultaneously from the
+-- configuration. If the configuration is not available, be conservative
+-- and use the smallest possible value, i.e., 1.
+getMaxTrackedJobs :: JQStatus -> IO Int
+getMaxTrackedJobs = getConfigValue clusterMaxTrackedJobs 1
+
+-- | Get the number of jobs currently running.
+getRQL :: JQStatus -> IO Int
+getRQL = liftM (length . qRunning) . readIORef . jqJobs
 
 -- | Wrapper function to atomically update the jobs in the queue status.
 modifyJobs :: JQStatus -> (Queue -> Queue) -> IO ()
@@ -139,8 +179,8 @@ readJobStatus jWS@(JobWithStat {jStat=fstat, jJob=job})  = do
           logWarning $ "Failed to read job " ++ jids ++ ": " ++ s
           return Nothing
         Ok (job', _) -> do
-          logDebug
-            $ "Read job " ++ jids ++ ", staus is " ++ show (calcJobStatus job')
+          logDebug $ "Read job " ++ jids ++ ", status is "
+                     ++ show (calcJobStatus job')
           return . Just $ jWS {jStat=fstat', jJob=job'}
                           -- jINotify unchanged
 
@@ -163,6 +203,45 @@ updateJob state jb = do
     logDebug "Scheduler noticed a job to have finished."
     cleanupFinishedJobs state
     scheduleSomeJobs state
+
+-- | Move a job from one part of the queue to another.
+-- Return the job that was moved, or 'Nothing' if it wasn't found in
+-- the queue.
+moveJob :: Lens' Queue [JobWithStat] -- ^ from queue
+        -> Lens' Queue [JobWithStat] -- ^ to queue
+        -> JobId
+        -> Queue
+        -> (Queue, Maybe JobWithStat)
+moveJob fromQ toQ jid queue =
+    -- traverse over the @(,) [JobWithStats]@ functor to extract the job
+    case traverseOf fromQ (partition ((== jid) . qjId . jJob)) queue of
+      (job : _, queue') -> (over toQ (++ [job]) queue', Just job)
+      _                 -> (queue, Nothing)
+
+-- | Atomically move a job from one part of the queue to another.
+-- Return the job that was moved, or 'Nothing' if it wasn't found in
+-- the queue.
+moveJobAtomic :: Lens' Queue [JobWithStat] -- ^ from queue
+              -> Lens' Queue [JobWithStat] -- ^ to queue
+              -> JobId
+              -> JQStatus
+              -> IO (Maybe JobWithStat)
+moveJobAtomic fromQ toQ jid qstat =
+  atomicModifyIORef (jqJobs qstat) (moveJob fromQ toQ jid)
+
+-- | Manipulate a running job by atomically moving it from 'qRunning'
+-- into 'qManipulated', running a given IO action and then atomically
+-- returning it back.
+--
+-- Returns the result of the IO action, or 'Nothing', if the job wasn't found
+-- in the queue.
+manipulateRunningJob :: JQStatus -> JobId -> IO a -> IO (Maybe a)
+manipulateRunningJob qstat jid k = do
+  jobOpt <- moveJobAtomic qRunningL qManipulatedL jid qstat
+  case jobOpt of
+    Nothing -> return Nothing
+    Just _  -> (Just `liftM` k)
+               `finally` moveJobAtomic qManipulatedL qRunningL jid qstat
 
 -- | Sort out the finished jobs from the monitored part of the queue.
 -- This is the pure part, splitting the queue into a remaining queue
@@ -190,7 +269,7 @@ jobWatcher state jWS e = do
   let jid = qjId $ jJob jWS
       jids = show $ fromJobId jid
   logInfo $ "Scheduler notified of change of job " ++ jids
-  logDebug $ "Scheulder notify event for " ++ jids ++ ": " ++ show e
+  logDebug $ "Scheduler notify event for " ++ jids ++ ": " ++ show e
   let inotify = jINotify jWS
   when (e == Ignored  && isJust inotify) $ do
     qdir <- queueDir
@@ -203,33 +282,82 @@ jobWatcher state jWS e = do
 -- | Attach the job watcher to a running job.
 attachWatcher :: JQStatus -> JobWithStat -> IO ()
 attachWatcher state jWS = when (isNothing $ jINotify jWS) $ do
-  inotify <- initINotify
-  qdir <- queueDir
-  let fpath = liveJobFile qdir . qjId $ jJob jWS
-      jWS' = jWS { jINotify=Just inotify }
-  logDebug $ "Attaching queue watcher for " ++ fpath
-  _ <- addWatch inotify [Modify, Delete] fpath $ jobWatcher state jWS'
-  modifyJobs state . onRunningJobs $ updateJobStatus jWS'
+  max_watch <- getMaxTrackedJobs state
+  rql <- getRQL state
+  if rql < max_watch
+   then do
+     inotify <- initINotify
+     qdir <- queueDir
+     let fpath = liveJobFile qdir . qjId $ jJob jWS
+         jWS' = jWS { jINotify=Just inotify }
+     logDebug $ "Attaching queue watcher for " ++ fpath
+     _ <- addWatch inotify [Modify, Delete] fpath $ jobWatcher state jWS'
+     modifyJobs state . onRunningJobs $ updateJobStatus jWS'
+   else logDebug $ "Not attaching watcher for job "
+                   ++ (show . fromJobId . qjId $ jJob jWS)
+                   ++ ", run queue length is " ++ show rql
+
+-- | For a queued job, determine whether it is eligible to run, i.e.,
+-- if no jobs it depends on are either enqueued or running.
+jobEligible :: Queue -> JobWithStat -> Bool
+jobEligible queue jWS =
+  let jdeps = getJobDependencies $ jJob jWS
+      blocks = flip elem jdeps . qjId . jJob
+  in not . any blocks . liftA2 (++) qRunning qEnqueued $ queue
 
 -- | Decide on which jobs to schedule next for execution. This is the
 -- pure function doing the scheduling.
 selectJobsToRun :: Int -> Queue -> (Queue, [JobWithStat])
 selectJobsToRun count queue =
-  let n = count - length (qRunning queue)
-      (chosen, remain) = splitAt n (qEnqueued queue)
+  let n = count - length (qRunning queue) - length (qManipulated queue)
+      chosen = take n . filter (jobEligible queue) $ qEnqueued queue
+      remain = deleteFirstsBy ((==) `on` (qjId . jJob)) (qEnqueued queue) chosen
   in (queue {qEnqueued=remain, qRunning=qRunning queue ++ chosen}, chosen)
+
+-- | Logs errors of failed jobs and returns the set of job IDs.
+logFailedJobs :: (MonadLog m)
+              => [(JobWithStat, GanetiException)] -> m (S.Set JobId)
+logFailedJobs [] = return S.empty
+logFailedJobs jobs = do
+  let jids = S.fromList . map (qjId . jJob . fst) $ jobs
+      jidsString = commaJoin . map (show . fromJobId) . S.toList $ jids
+  logWarning $ "Starting jobs " ++ jidsString ++ " failed: "
+               ++ show (map snd jobs)
+  return jids
 
 -- | Requeue jobs that were previously selected for execution
 -- but couldn't be started.
-requeueJobs :: JQStatus -> [JobWithStat] -> IOError -> IO ()
-requeueJobs qstate jobs err = do
-  let jids = map (qjId . jJob) jobs
-      jidsString = commaJoin $ map (show . fromJobId) jids
-      rmJobs = filter ((`notElem` jids) . qjId . jJob)
-  logWarning $ "Starting jobs failed: " ++ show err
-  logWarning $ "Rescheduling jobs: " ++ jidsString
-  modifyJobs qstate (onRunningJobs rmJobs)
-  modifyJobs qstate (onQueuedJobs $ (++) jobs)
+requeueJobs :: JQStatus -> [(JobWithStat, GanetiException)] -> IO ()
+requeueJobs qstate jobs = do
+  jids <- logFailedJobs jobs
+  let rmJobs = filter ((`S.notMember` jids) . qjId . jJob)
+  logWarning "Rescheduling jobs"
+  modifyJobs qstate $ onQueuedJobs (map fst jobs ++)
+                      . onRunningJobs rmJobs
+
+-- | Fail jobs that were previously selected for execution
+-- but couldn't be started.
+failJobs :: ConfigData -> JQStatus -> [(JobWithStat, GanetiException)]
+         -> IO ()
+failJobs cfg qstate jobs = do
+  qdir <- queueDir
+  now <- currentTimestamp
+  jids <- logFailedJobs jobs
+  let sjobs = intercalate "." . map (show . fromJobId) $ S.toList jids
+  let rmJobs = filter ((`S.notMember` jids) . qjId . jJob)
+  logWarning $ "Failing jobs " ++ sjobs
+  modifyJobs qstate $ onRunningJobs rmJobs
+  let trySaveJob :: JobWithStat -> ResultT String IO ()
+      trySaveJob = (() <$) . writeAndReplicateJob cfg qdir . jJob
+      reason jid msg =
+        ( "gnt:daemon:luxid:startjobs"
+        , "job " ++ show (fromJobId jid) ++ " failed to start: " ++ msg
+        , reasonTrailTimestamp now )
+      failJob err job = failQueuedJob (reason (qjId job) (show err)) now job
+      failAndSaveJobWithStat (jws, err) =
+        trySaveJob . over jJobL (failJob err) $ jws
+  mapM_ (runResultT . failAndSaveJobWithStat) jobs
+  logDebug $ "Failed jobs " ++ sjobs
 
 -- | Schedule jobs to be run. This is the IO wrapper around the
 -- pure `selectJobsToRun`.
@@ -241,8 +369,18 @@ scheduleSomeJobs qstate = do
   unless (null chosen) . logInfo . (++) "Starting jobs: " . commaJoin
     $ map (show . fromJobId . qjId) jobs
   mapM_ (attachWatcher qstate) chosen
-  result <- try $ JQ.startJobs jobs
-  either (requeueJobs qstate chosen) return result
+  cfgR <- readIORef (jqConfig qstate)
+  case cfgR of
+    Bad err -> do
+      let msg = "Configuration unavailable: " ++ err
+      logError msg
+      requeueJobs qstate . map (\x -> (x, strMsg msg)) $ chosen
+    Ok cfg -> do
+      result <- JQ.startJobs cfg (jqLivelock qstate) (jqForkLock qstate) jobs
+      let badWith (x, Bad y) = Just (x, y)
+          badWith _          = Nothing
+      let failed = mapMaybe badWith $ zip chosen result
+      unless (null failed) $ failJobs cfg qstate failed
 
 -- | Format the job queue status in a compact, human readable way.
 showQueue :: Queue -> String
@@ -251,17 +389,49 @@ showQueue (Queue {qEnqueued=waiting, qRunning=running}) =
   in "Waiting jobs: " ++ showids waiting 
        ++ "; running jobs: " ++ showids running
 
+-- | Check if a job died, and clean up if so.
+checkForDeath :: JQStatus -> JobWithStat -> IO ()
+checkForDeath state jobWS = do
+  let job = jJob jobWS
+      jid = qjId job
+      sjid = show $ fromJobId jid
+      livelock = qjLivelock job
+  logDebug $ "Livelock of job " ++ sjid ++ " is " ++ show livelock
+  died <- maybe (return False) isDead
+          . mfilter (/= jqLivelock state)
+          $ livelock
+  when died $ do
+    logInfo $ "Detected death of job " ++ sjid
+    -- if we manage to remove the job from the queue, we own the job file
+    -- and can manipulate it.
+    void . manipulateRunningJob state jid . runResultT $ do
+      jobWS' <- mkResultT $ readJobFromDisk jid :: ResultG JobWithStat
+      unless (jobFinalized . jJob $ jobWS') . void $ do
+        -- If the job isn't finalized, but dead, add a corresponding
+        -- failed status.
+        now <- liftIO currentTimestamp
+        qDir <- liftIO queueDir
+        let reason = ( "gnt:daemon:luxid:deathdetection"
+                     , "detected death of job " ++ sjid
+                     , reasonTrailTimestamp now )
+            failedJob = failQueuedJob reason now $ jJob jobWS'
+        cfg <- mkResultT . readIORef $ jqConfig state
+        writeAndReplicateJob cfg qDir failedJob
+
 -- | Time-based watcher for updating the job queue.
 onTimeWatcher :: JQStatus -> IO ()
 onTimeWatcher qstate = forever $ do
   threadDelay watchInterval
   logDebug "Job queue watcher timer fired"
   jobs <- readIORef (jqJobs qstate)
-  mapM_ (updateJob qstate) $ qRunning jobs
-  cleanupFinishedJobs qstate
+  mapM_ (checkForDeath qstate) $ qRunning jobs
   jobs' <- readIORef (jqJobs qstate)
-  logInfo $ showQueue jobs'
+  mapM_ (updateJob qstate) $ qRunning jobs'
+  cleanupFinishedJobs qstate
+  jobs'' <- readIORef (jqJobs qstate)
+  logInfo $ showQueue jobs''
   scheduleSomeJobs qstate
+  logDebug "Job queue watcher cycle finished"
 
 -- | Read a single, non-archived, job, specified by its id, from disk.
 readJobFromDisk :: JobId -> IO (Result JobWithStat)
@@ -280,7 +450,7 @@ readJobsFromDisk = do
   logInfo "Loading job queue"
   qdir <- queueDir
   eitherJids <- JQ.getJobIDs [qdir]
-  let jids = either (const []) JQ.sortJobIDs eitherJids
+  let jids = genericResult (const []) JQ.sortJobIDs eitherJids
       jidsstring = commaJoin $ map (show . fromJobId) jids
   logInfo $ "Non-archived jobs on disk: " ++ jidsstring
   jobs <- mapM readJobFromDisk jids

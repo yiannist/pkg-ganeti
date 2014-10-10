@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2013 Google Inc.
+# Copyright (C) 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,8 @@ A transport can send to and receive messages from some endpoint.
 
 import collections
 import errno
+import io
+import logging
 import socket
 import time
 
@@ -53,7 +55,7 @@ class Transport:
 
   This is used on the client side.
 
-  This could be replace by any other class that provides the same
+  This could be replaced by any other class that provides the same
   semantics to the Client. This means:
     - can send messages and receive messages
     - safe for multithreading
@@ -115,7 +117,7 @@ class Transport:
     except socket.error, err:
       error_code = err.args[0]
       if error_code in (errno.ENOENT, errno.ECONNREFUSED):
-        raise errors.NoMasterError(address)
+        raise utils.RetryAgain()
       elif error_code in (errno.EPERM, errno.EACCES):
         raise errors.PermissionError(address)
       elif error_code == errno.EAGAIN:
@@ -186,8 +188,120 @@ class Transport:
     self.Send(msg)
     return self.Recv()
 
+  @staticmethod
+  def RetryOnNetworkError(fn, on_error, retries=5, wait_on_error=5):
+    """Calls a given function, retrying if it fails on a network IO
+    exception.
+
+    This allows to re-establish a broken connection and retry an IO operation.
+
+    The function receives one an integer argument stating the current retry
+    number, 0 being the first call, 1 being the retry.
+
+    If any exception occurs, on_error is invoked first with the exception given
+    as an argument. Then, if the exception is a network exception, the function
+    call is retried once more.
+
+    """
+    for try_no in range(0, retries):
+      try:
+        return fn(try_no)
+      except socket.error, ex:
+        on_error(ex)
+        # we retry on a network error, unless it's the last try
+        if try_no == retries - 1:
+          raise
+        logging.error("Network error: %s, retring (retry attempt number %d)",
+                      ex, try_no + 1)
+        time.sleep(wait_on_error)
+      except Exception, ex:
+        on_error(ex)
+        raise
+    assert False # we should never get here
+
   def Close(self):
     """Close the socket"""
     if self.socket is not None:
       self.socket.close()
       self.socket = None
+
+
+class FdTransport:
+  """Low-level transport class that works on arbitrary file descriptors.
+
+  Unlike L{Transport}, this doesn't use timeouts.
+  """
+
+  def __init__(self, fds, timeouts=None): # pylint: disable=W0613
+    """Constructor for the Client class.
+
+    @type fds: pair of file descriptors
+    @param fds: the file descriptor for reading (the first in the pair)
+        and the file descriptor for writing (the second)
+    @type timeouts: int
+    @param timeouts: unused
+
+    """
+    self._rstream = io.open(fds[0], 'rb', 0)
+    self._wstream = io.open(fds[1], 'wb', 0)
+
+    self._buffer = ""
+    self._msgs = collections.deque()
+
+  def _CheckSocket(self):
+    """Make sure we are connected.
+
+    """
+    if self._rstream is None or self._wstream is None:
+      raise errors.ProtocolError("Connection is closed")
+
+  def Send(self, msg):
+    """Send a message.
+
+    This just sends a message and doesn't wait for the response.
+
+    """
+    if constants.LUXI_EOM in msg:
+      raise errors.ProtocolError("Message terminator found in payload")
+
+    self._CheckSocket()
+    self._wstream.write(msg + constants.LUXI_EOM)
+    self._wstream.flush()
+
+  def Recv(self):
+    """Try to receive a message from the read part of the socket.
+
+    In case we already have messages queued, we just return from the
+    queue.
+
+    """
+    self._CheckSocket()
+    while not self._msgs:
+      data = self._rstream.read(4096)
+      if not data:
+        raise errors.ConnectionClosedError("Connection closed while reading")
+      new_msgs = (self._buffer + data).split(constants.LUXI_EOM)
+      self._buffer = new_msgs.pop()
+      self._msgs.extend(new_msgs)
+    return self._msgs.popleft()
+
+  def Call(self, msg):
+    """Send a message and wait for the response.
+
+    This is just a wrapper over Send and Recv.
+
+    """
+    self.Send(msg)
+    return self.Recv()
+
+  def Close(self):
+    """Close the socket"""
+    if self._rstream is not None:
+      self._rstream.close()
+      self._rstream = None
+    if self._wstream is not None:
+      self._wstream.close()
+      self._wstream = None
+
+  def close(self):
+    self.Close()

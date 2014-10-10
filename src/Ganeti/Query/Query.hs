@@ -65,13 +65,16 @@ module Ganeti.Query.Query
     , uuidField
     ) where
 
+import Control.Arrow ((&&&))
 import Control.DeepSeq
-import Control.Monad (filterM, foldM, liftM)
+import Control.Monad (filterM, foldM, liftM, unless)
+import Control.Monad.IO.Class
 import Control.Monad.Trans (lift)
 import qualified Data.Foldable as Foldable
-import Data.List (intercalate, nub)
+import Data.List (intercalate, nub, find)
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Text.JSON as J
 
 import Ganeti.BasicTypes
@@ -79,8 +82,9 @@ import Ganeti.Config
 import Ganeti.Errors
 import Ganeti.JQueue
 import Ganeti.JSON
+import Ganeti.Locking.Allocation (OwnerState, LockRequest(..), OwnerState(..))
+import Ganeti.Locking.Locks (GanetiLocks, ClientId, lockName)
 import Ganeti.Logging
-import qualified Ganeti.Luxi as L
 import Ganeti.Objects
 import Ganeti.Query.Common
 import qualified Ganeti.Query.Export as Export
@@ -94,8 +98,10 @@ import qualified Ganeti.Query.Network as Network
 import qualified Ganeti.Query.Node as Node
 import Ganeti.Query.Types
 import Ganeti.Path
+import Ganeti.THH.HsRPC (runRpcClient)
 import Ganeti.Types
 import Ganeti.Utils
+import Ganeti.WConfd.Client (getWConfdClient, listLocksWaitingStatus)
 
 -- | Collector type
 data CollectorType a b
@@ -211,17 +217,17 @@ genericQuery :: FieldMap a b       -- ^ Maps field names to field definitions
 genericQuery fieldsMap collector nameFn configFn getFn cfg
              live fields qfilter wanted =
   runResultT $ do
-  cfilter <- resultT $ compileFilter fieldsMap qfilter
+  cfilter <- toError $ compileFilter fieldsMap qfilter
   let selected = getSelectedFields fieldsMap fields
       (fdefs, fgetters, _) = unzip3 selected
       live' = live && needsLiveData fgetters
-  objects <- resultT $ case wanted of
+  objects <- toError $ case wanted of
              [] -> Ok . niceSortKey nameFn .
-                   Map.elems . fromContainer $ configFn cfg
+                   Foldable.toList $ configFn cfg
              _  -> mapM (getFn cfg) wanted
   -- Run the first pass of the filter, without a runtime context; this will
   -- limit the objects that we'll contact for exports
-  fobjects <- resultT $ filterM (\n -> evaluateFilter cfg Nothing n cfilter)
+  fobjects <- toError $ filterM (\n -> evaluateFilter cfg Nothing n cfilter)
                         objects
   -- Gather the runtime data
   runtimes <- case collector of
@@ -233,6 +239,29 @@ genericQuery fieldsMap collector nameFn configFn getFn cfg
               runtimes
   return QueryResult { qresFields = fdefs, qresData = fdata }
 
+-- | Dummy recollection of the data for a lock from the prefected
+-- data for all locks.
+recollectLocksData :: ( [(GanetiLocks, [(ClientId, OwnerState)])]
+                      , [(Integer, ClientId, [LockRequest GanetiLocks])]
+                      )
+                   -> Bool -> ConfigData -> [String]
+                   -> IO [(String, Locks.RuntimeData)]
+recollectLocksData (allLocks, pending) _ _  =
+  let getPending lock = pending >>= \(_, cid, req) ->
+        let req' = filter ((==) lock . lockName . lockAffected) req
+        in case () of
+          _ | any ((==) (Just OwnExclusive) . lockRequestType) req'
+              -> [(cid, OwnExclusive)]
+          _ | any ((==) (Just OwnShared) . lockRequestType) req'
+              -> [(cid, OwnShared)]
+          _ -> []
+      lookuplock lock =  (,) lock
+                          . maybe ([], getPending lock)
+                                  (\(_, c) ->  (c, getPending lock))
+                          . find ((==) lock . lockName . fst)
+                          $ allLocks
+  in return . map lookuplock
+
 -- | Main query execution function.
 query :: ConfigData   -- ^ The current configuration
       -> Bool         -- ^ Whether to collect live data
@@ -240,22 +269,26 @@ query :: ConfigData   -- ^ The current configuration
       -> IO (ErrorResult QueryResult) -- ^ Result
 query cfg live (Query (ItemTypeLuxi QRJob) fields qfilter) =
   queryJobs cfg live fields qfilter
-query _ live (Query (ItemTypeLuxi QRLock) fields qfilter) =
-  if not live
-    then return . Bad $ GenericError "Locks can only be queried live"
-    else do
-      socketpath <- defaultMasterSocket
-      logDebug $ "Forwarding live query on locks for " ++ show fields
-                   ++ ", " ++ show qfilter ++ " to " ++ socketpath
-      cl <- L.getLuxiClient socketpath
-      answer <- L.callMethod (L.Query (ItemTypeLuxi QRLock) fields qfilter) cl
-      return
-        . genericResult Bad
-            (either (Bad . GenericError
-                       . (++) "Got unparsable answer from masterd: ")
-               Ok
-             . J.resultToEither . J.readJSON)
-        $ answer
+query cfg live (Query (ItemTypeLuxi QRLock) fields qfilter) = runResultT $ do
+  unless live (failError "Locks can only be queried live")
+  cl <- liftIO $ do
+     socketpath <- defaultWConfdSocket
+     getWConfdClient socketpath
+  livedata <- runRpcClient listLocksWaitingStatus cl
+  logDebug $ "Live state of all locks is " ++ show livedata
+  let allLocks = Set.toList . Set.unions
+                 $ (Set.fromList . map fst $ fst livedata)
+                   : map (\(_, _, req) -> Set.fromList $ map lockAffected req)
+                      (snd livedata)
+  answer <- liftIO $ genericQuery
+             Locks.fieldsMap
+             (CollectorSimple $ recollectLocksData livedata)
+             id
+             (const . GenericContainer . Map.fromList
+              . map ((id &&& id) . lockName) $ allLocks)
+             (const Ok)
+             cfg live fields qfilter []
+  toError answer
 
 query cfg live qry = queryInner cfg live qry $ getRequestedNames qry
 
@@ -303,27 +336,21 @@ queryJobs :: ConfigData                   -- ^ The current configuration
           -> [FilterField]                -- ^ Item
           -> Filter FilterField           -- ^ Filter
           -> IO (ErrorResult QueryResult) -- ^ Result
-queryJobs cfg live fields qfilter =
-  runResultT $ do
+queryJobs cfg live fields qfilter = runResultT $ do
   rootdir <- lift queueDir
-  let wanted_names = getRequestedJobIDs qfilter
-      want_arch = Query.Job.wantArchived fields
+  wanted_names <- toErrorStr $ getRequestedJobIDs qfilter
   rjids <- case wanted_names of
-             Bad msg -> resultT . Bad $ GenericError msg
-             Ok [] -> if live
-                        -- we can check the filesystem for actual jobs
-                        then do
-                          maybeJobIDs <-
-                            lift (determineJobDirectories rootdir want_arch
-                              >>= getJobIDs)
-                          case maybeJobIDs of
-                            Left e -> (resultT . Bad) . BlockDeviceError $
-                              "Unable to fetch the job list: " ++ show e
-                            Right jobIDs -> resultT . Ok $ sortJobIDs jobIDs
-                        -- else we shouldn't look at the filesystem...
-                        else return []
-             Ok v -> resultT $ Ok v
-  cfilter <- resultT $ compileFilter Query.Job.fieldsMap qfilter
+       [] | live -> do -- we can check the filesystem for actual jobs
+              let want_arch = Query.Job.wantArchived fields
+              jobIDs <-
+                withErrorT (BlockDeviceError .
+                            (++) "Unable to fetch the job list: " . show) $
+                  liftIO (determineJobDirectories rootdir want_arch)
+                  >>= ResultT . getJobIDs
+              return $ sortJobIDs jobIDs
+              -- else we shouldn't look at the filesystem...
+       v -> return v
+  cfilter <- toError $ compileFilter Query.Job.fieldsMap qfilter
   let selected = getSelectedFields Query.Job.fieldsMap fields
       (fdefs, fgetters, _) = unzip3 selected
       (_, filtergetters, _) = unzip3 . getSelectedFields Query.Job.fieldsMap
@@ -332,7 +359,7 @@ queryJobs cfg live fields qfilter =
       disabled_data = Bad "live data disabled"
   -- runs first pass of the filter, without a runtime context; this
   -- will limit the jobs that we'll load from disk
-  jids <- resultT $
+  jids <- toError $
           filterM (\jid -> evaluateFilter cfg Nothing jid cfilter) rjids
   -- here we run the runtime data gathering, filtering and evaluation,
   -- all in the same step, so that we don't keep jobs in memory longer
@@ -345,7 +372,7 @@ queryJobs cfg live fields qfilter =
               job <- lift $ if live'
                               then loadJobFromDisk qdir True jid
                               else return disabled_data
-              pass <- resultT $ evaluateFilter cfg (Just job) jid cfilter
+              pass <- toError $ evaluateFilter cfg (Just job) jid cfilter
               let nlst = if pass
                            then let row = map (execGetter cfg job jid) fgetters
                                 in rnf row `seq` row:lst

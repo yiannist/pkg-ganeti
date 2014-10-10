@@ -34,7 +34,6 @@
 
 import logging
 
-from ganeti import pathutils
 import ganeti.rpc.transport as t
 
 from ganeti import constants
@@ -129,7 +128,8 @@ def FormatRequest(method, args, version=None):
     request[KEY_VERSION] = version
 
   # Serialize the request
-  return serializer.DumpJson(request)
+  return serializer.DumpJson(request,
+                             private_encoder=serializer.EncodeWithPrivateFields)
 
 
 def CallRPCMethod(transport_cb, method, args, version=None):
@@ -165,8 +165,7 @@ class AbstractClient(object):
 
   """
 
-  def __init__(self, address=None, timeouts=None,
-               transport=t.Transport):
+  def __init__(self, timeouts=None, transport=t.Transport):
     """Constructor for the Client class.
 
     Arguments:
@@ -179,22 +178,24 @@ class AbstractClient(object):
     class are used.
 
     """
-    if address is None:
-      address = pathutils.MASTER_SOCKET
-    self.address = address
     self.timeouts = timeouts
     self.transport_class = transport
     self.transport = None
-    self._InitTransport()
     # The version used in RPC communication, by default unused:
     self.version = None
+
+  def _GetAddress(self):
+    """Returns the socket address
+
+    """
+    raise NotImplementedError
 
   def _InitTransport(self):
     """(Re)initialize the transport if needed.
 
     """
     if self.transport is None:
-      self.transport = self.transport_class(self.address,
+      self.transport = self.transport_class(self._GetAddress(),
                                             timeouts=self.timeouts)
 
   def _CloseTransport(self):
@@ -212,12 +213,13 @@ class AbstractClient(object):
 
   def _SendMethodCall(self, data):
     # Send request and wait for response
-    try:
+    def send(try_no):
+      if try_no:
+        logging.debug("RPC peer disconnected, retrying")
       self._InitTransport()
       return self.transport.Call(data)
-    except Exception:
-      self._CloseTransport()
-      raise
+    return t.Transport.RetryOnNetworkError(send,
+                                           lambda _: self._CloseTransport())
 
   def Close(self):
     """Close the underlying connection.
@@ -240,3 +242,27 @@ class AbstractClient(object):
                                    " expected list, got %s" % type(args))
     return CallRPCMethod(self._SendMethodCall, method, args,
                          version=self.version)
+
+
+class AbstractStubClient(AbstractClient):
+  """An abstract Client that connects a generated stub client to a L{Transport}.
+
+  Subclasses should inherit from this class (first) as well and a designated
+  stub (second).
+  """
+
+  def __init__(self, timeouts=None, transport=t.Transport):
+    """Constructor for the class.
+
+    Arguments are the same as for L{AbstractClient}. Checks that SOCKET_PATH
+    attribute is defined (in the stub class).
+    """
+
+    super(AbstractStubClient, self).__init__(timeouts=timeouts,
+                                             transport=transport)
+
+  def _GenericInvoke(self, method, *args):
+    return self.CallMethod(method, args)
+
+  def _GetAddress(self):
+    return self._GetSocketPath() # pylint: disable=E1101

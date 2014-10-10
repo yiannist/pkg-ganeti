@@ -36,10 +36,28 @@ the reasons they are or are not valid.
 .PP
 This command will list detailed information about each OS available in
 the cluster, including its validity status, the supported API versions,
-the supported parameters (if any) and their documentations, etc.
+the supported parameters and variants (if any), and their documentation,
+etc.
+.PP
+Note that this command besides the information about the given OS(es),
+shows detailed information about the given available/supported OS
+variant(s), in terms of the modified per-OS hypervisor parameters and
+the modified per-OS parameters passed to the OS install scripts.
+.PP
+For the list of the available OSes use \f[B]list\f[].
+Also, see \f[B]modify\f[] for a description of how to modify the
+parameters for a specific operating system.
 .SS MODIFY
 .PP
 \f[B]modify\f[] [--submit] [--print-job-id]
+.PD 0
+.P
+.PD
+[ [ -O | --os-parameters ] =\f[I]option\f[]=\f[I]value\f[]]
+.PD 0
+.P
+.PD
+[ --os-parameters-private=\f[I]option\f[]=\f[I]value\f[]]
 .PD 0
 .P
 .PD
@@ -60,8 +78,16 @@ hypervisor parameters), you can run modify \f[C]-H\f[] with the same
 syntax as in \f[B]gnt-cluster init\f[] to override default hypervisor
 parameters of the cluster for specified \f[I]OS\f[] argument.
 .PP
+To modify the parameters passed to the OS install scripts, use the
+\f[B]--os-parameters\f[] option.
+If the value of the parameter should not be saved to logs, use
+\f[B]--os-parameters-private\f[] \f[I]and\f[] make sure that no Ganeti
+daemon or program is running in debug mode.
+\f[B]ganeti-luxid\f[] in particular will issue a warning at startup time
+if ran in debug mode.
+.PP
 To modify the hidden and blacklisted states of an OS, pass the options
-\f[C]--hidden\f[]\f[I]yes|no\f[], or respectively
+\f[C]--hidden\f[] \f[I]yes|no\f[], or respectively
 \f[C]--blacklisted\ ...\f[].
 The \[aq]hidden\[aq] state means that an OS won\[aq]t be listed by
 default in the OS list, but is available for installation.

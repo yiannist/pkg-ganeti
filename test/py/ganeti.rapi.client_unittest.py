@@ -146,6 +146,18 @@ class TestConstants(unittest.TestCase):
     self.assertEqual(client._NODE_EVAC_RES1, rlib2._NODE_EVAC_RES1)
     self.assertEqual(client.NODE_EVAC_RES1, rlib2._NODE_EVAC_RES1)
 
+    # Error codes
+    self.assertEqual(client.ECODE_RESOLVER, errors.ECODE_RESOLVER)
+    self.assertEqual(client.ECODE_NORES, errors.ECODE_NORES)
+    self.assertEqual(client.ECODE_TEMP_NORES, errors.ECODE_TEMP_NORES)
+    self.assertEqual(client.ECODE_INVAL, errors.ECODE_INVAL)
+    self.assertEqual(client.ECODE_STATE, errors.ECODE_STATE)
+    self.assertEqual(client.ECODE_NOENT, errors.ECODE_NOENT)
+    self.assertEqual(client.ECODE_EXISTS, errors.ECODE_EXISTS)
+    self.assertEqual(client.ECODE_NOTUNIQUE, errors.ECODE_NOTUNIQUE)
+    self.assertEqual(client.ECODE_FAULT, errors.ECODE_FAULT)
+    self.assertEqual(client.ECODE_ENVIRON, errors.ECODE_ENVIRON)
+
   def testErrors(self):
     self.assertEqual(client.ECODE_ALL, errors.ECODE_ALL)
 
@@ -1323,9 +1335,11 @@ class GanetiRapiClientTests(testutils.GanetiTestCase):
 
   def testRecreateInstanceDisks(self):
     self.rapi.AddResponse("13553")
-    job_id = self.client.RecreateInstanceDisks("inst23153")
+    job_id = self.client.RecreateInstanceDisks("inst23153", iallocator="hail")
     self.assertEqual(job_id, 13553)
     self.assertItems(["inst23153"])
+    data = serializer.LoadJson(self.rapi.GetLastRequestData())
+    self.assertEqual("hail", data["iallocator"])
     self.assertHandler(rlib2.R_2_instances_name_recreate_disks)
     self.assertFalse(self.rapi.GetLastHandler().queryargs)
 

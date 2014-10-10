@@ -9,7 +9,7 @@ commented out below.
 
 {-
 
-Copyright (C) 2011, 2012, 2013 Google Inc.
+Copyright (C) 2011, 2012, 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -40,12 +40,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 module Ganeti.Objects
   ( HvParams
   , OsParams
+  , OsParamsPrivate
   , PartialNicParams(..)
   , FilledNicParams(..)
   , fillNicParams
   , allNicParamFields
   , PartialNic(..)
   , FileDriver(..)
+  , DRBDSecret
+  , LogicalVolume(..)
   , DiskLogicalId(..)
   , Disk(..)
   , includesLogicalId
@@ -55,8 +58,6 @@ module Ganeti.Objects
   , fillBeParams
   , allBeParamFields
   , Instance(..)
-  , toDictInstance
-  , getDiskSizeRequirements
   , PartialNDParams(..)
   , FilledNDParams(..)
   , fillNDParams
@@ -71,16 +72,21 @@ module Ganeti.Objects
   , FilledIPolicy(..)
   , PartialIPolicy(..)
   , fillIPolicy
-  , DiskParams
+  , GroupDiskParams
   , NodeGroup(..)
   , IpFamily(..)
+  , ipFamilyToRaw
   , ipFamilyToVersion
   , fillDict
   , ClusterHvParams
   , OsHvParams
   , ClusterBeParams
   , ClusterOsParams
+  , ClusterOsParamsPrivate
   , ClusterNicParams
+  , UidPool
+  , formatUidRange
+  , UidRange
   , Cluster(..)
   , ConfigData(..)
   , TimeStampObject(..)
@@ -90,19 +96,33 @@ module Ganeti.Objects
   , DictObject(..) -- re-exported from THH
   , TagSet -- re-exported from THH
   , Network(..)
-  , Ip4Address(..)
-  , Ip4Network(..)
+  , AddressPool(..)
+  , Ip4Address()
+  , mkIp4Address
+  , Ip4Network()
+  , mkIp4Network
+  , ip4netAddr
+  , ip4netMask
   , readIp4Address
+  , ip4AddressToList
+  , ip4AddressToNumber
+  , ip4AddressFromNumber
   , nextIp4Address
   , IAllocatorParams
+  , MasterNetworkParameters(..)
   ) where
 
 import Control.Applicative
-import Data.List (foldl')
+import Control.Arrow (first)
+import Control.Monad.State
+import Data.Char
+import Data.List (foldl', isPrefixOf, isInfixOf, intercalate)
 import Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Tuple (swap)
 import Data.Word
+import System.Time (ClockTime(..))
 import Text.JSON (showJSON, readJSON, JSON, JSValue(..), fromJSString)
 import qualified Text.JSON as J
 
@@ -110,9 +130,12 @@ import qualified AutoConf
 import qualified Ganeti.Constants as C
 import qualified Ganeti.ConstantUtils as ConstantUtils
 import Ganeti.JSON
+import Ganeti.Objects.BitArray (BitArray)
 import Ganeti.Types
 import Ganeti.THH
+import Ganeti.THH.Field
 import Ganeti.Utils (sepSplit, tryRead, parseUnitAssumeBinary)
+import Ganeti.Utils.Validate
 
 -- * Generic definitions
 
@@ -131,11 +154,12 @@ type HvParams = Container JSValue
 -- container, since the keys are dynamically declared by the OSes, and
 -- the values are always strings.
 type OsParams = Container String
+type OsParamsPrivate = Container (Private String)
 
 -- | Class of objects that have timestamps.
 class TimeStampObject a where
-  cTimeOf :: a -> Double
-  mTimeOf :: a -> Double
+  cTimeOf :: a -> ClockTime
+  mTimeOf :: a -> ClockTime
 
 -- | Class of objects that have an UUID.
 class UuidObject a where
@@ -153,15 +177,15 @@ class TagsObject a where
 
 -- ** Ipv4 types
 
--- | Custom type for a simple IPv4 address.
 data Ip4Address = Ip4Address Word8 Word8 Word8 Word8
-                  deriving Eq
+  deriving (Eq, Ord)
+
+mkIp4Address :: (Word8, Word8, Word8, Word8) -> Ip4Address
+mkIp4Address (a, b, c, d) = Ip4Address a b c d
 
 instance Show Ip4Address where
-  show (Ip4Address a b c d) = show a ++ "." ++ show b ++ "." ++
-                              show c ++ "." ++ show d
+  show (Ip4Address a b c d) = intercalate "." $ map show [a, b, c, d]
 
--- | Parses an IPv4 address from a string.
 readIp4Address :: (Applicative m, Monad m) => String -> m Ip4Address
 readIp4Address s =
   case sepSplit '.' s of
@@ -172,28 +196,39 @@ readIp4Address s =
                       tryRead "fourth octet" d
     _ -> fail $ "Can't parse IPv4 address from string " ++ s
 
--- | JSON instance for 'Ip4Address'.
 instance JSON Ip4Address where
   showJSON = showJSON . show
   readJSON (JSString s) = readIp4Address (fromJSString s)
   readJSON v = fail $ "Invalid JSON value " ++ show v ++ " for an IPv4 address"
 
--- | \"Next\" address implementation for IPv4 addresses.
---
--- Note that this loops! Note also that this is a very dumb
--- implementation.
+-- Converts an address to a list of numbers
+ip4AddressToList :: Ip4Address -> [Word8]
+ip4AddressToList (Ip4Address a b c d) = [a, b, c, d]
+
+-- | Converts an address into its ordinal number.
+-- This is needed for indexing IP adresses in reservation pools.
+ip4AddressToNumber :: Ip4Address -> Integer
+ip4AddressToNumber = foldl (\n i -> 256 * n + toInteger i) 0 . ip4AddressToList
+
+-- | Converts a number into an address.
+-- This is needed for indexing IP adresses in reservation pools.
+ip4AddressFromNumber :: Integer -> Ip4Address
+ip4AddressFromNumber n =
+  let s = state $ first fromInteger . swap . (`divMod` 256)
+      (d, c, b, a) = evalState ((,,,) <$> s <*> s <*> s <*> s) n
+   in Ip4Address a b c d
+
 nextIp4Address :: Ip4Address -> Ip4Address
-nextIp4Address (Ip4Address a b c d) =
-  let inc xs y = if all (==0) xs then y + 1 else y
-      d' = d + 1
-      c' = inc [d'] c
-      b' = inc [c', d'] b
-      a' = inc [b', c', d'] a
-  in Ip4Address a' b' c' d'
+nextIp4Address = ip4AddressFromNumber . (+ 1) . ip4AddressToNumber
 
 -- | Custom type for an IPv4 network.
-data Ip4Network = Ip4Network Ip4Address Word8
-                  deriving Eq
+data Ip4Network = Ip4Network { ip4netAddr :: Ip4Address
+                             , ip4netMask :: Word8
+                             }
+                  deriving (Eq)
+
+mkIp4Network :: Ip4Address -> Word8 -> Ip4Network
+mkIp4Network = Ip4Network
 
 instance Show Ip4Network where
   show (Ip4Network ip netmask) = show ip ++ "/" ++ show netmask
@@ -213,10 +248,26 @@ instance JSON Ip4Network where
       _ -> fail $ "Can't parse IPv4 network from string " ++ fromJSString s
   readJSON v = fail $ "Invalid JSON value " ++ show v ++ " for an IPv4 network"
 
+-- ** Address pools
+
+-- | Currently address pools just wrap a reservation 'BitArray'.
+--
+-- In future, 'Network' might be extended to include several address pools
+-- and address pools might include their own ranges of addresses.
+newtype AddressPool = AddressPool { apReservations :: BitArray }
+  deriving (Eq, Ord, Show)
+
+instance JSON AddressPool where
+  showJSON = showJSON . apReservations
+  readJSON = liftM AddressPool . readJSON
+
 -- ** Ganeti \"network\" config object.
 
 -- FIXME: Not all types might be correct here, since they
 -- haven't been exhaustively deduced from the python code yet.
+--
+-- FIXME: When parsing, check that the ext_reservations and reservations
+-- have the same length
 $(buildObject "Network" "network" $
   [ simpleField "name"             [t| NonEmptyString |]
   , optionalField $
@@ -229,9 +280,9 @@ $(buildObject "Network" "network" $
   , optionalField $
     simpleField "gateway6"         [t| String |]
   , optionalField $
-    simpleField "reservations"     [t| String |]
+    simpleField "reservations"     [t| AddressPool |]
   , optionalField $
-    simpleField "ext_reservations" [t| String |]
+    simpleField "ext_reservations" [t| AddressPool |]
   ]
   ++ uuidFields
   ++ timeStampFields
@@ -276,13 +327,77 @@ instance UuidObject PartialNic where
 devType :: String
 devType = "dev_type"
 
+-- | The disk parameters type.
+type DiskParams = Container JSValue
+
+-- | An alias for DRBD secrets
+type DRBDSecret = String
+
+-- Represents a group name and a volume name.
+--
+-- From @man lvm@:
+--
+-- The following characters are valid for VG and LV names: a-z A-Z 0-9 + _ . -
+--
+-- VG  and LV names cannot begin with a hyphen.  There are also various reserved
+-- names that are used internally by lvm that can not be used as LV or VG names.
+-- A VG cannot be  called  anything  that exists in /dev/ at the time of
+-- creation, nor can it be called '.' or '..'.  A LV cannot be called '.' '..'
+-- 'snapshot' or 'pvmove'. The LV name may also not contain the strings '_mlog'
+-- or '_mimage'
+data LogicalVolume = LogicalVolume { lvGroup :: String
+                                   , lvVolume :: String
+                                   }
+  deriving (Eq, Ord)
+
+instance Show LogicalVolume where
+  showsPrec _ (LogicalVolume g v) =
+    showString g . showString "/" . showString v
+
+-- | Check the constraints for a VG/LV names (except the @/dev/@ check).
+instance Validatable LogicalVolume where
+  validate (LogicalVolume g v) = do
+      let vgn = "Volume group name"
+      -- Group name checks
+      nonEmpty vgn g
+      validChars vgn g
+      notStartsDash vgn g
+      notIn vgn g [".", ".."]
+      -- Volume name checks
+      let lvn = "Volume name"
+      nonEmpty lvn v
+      validChars lvn v
+      notStartsDash lvn v
+      notIn lvn v [".", "..", "snapshot", "pvmove"]
+      reportIf ("_mlog" `isInfixOf` v) $ lvn ++ " must not contain '_mlog'."
+      reportIf ("_mimage" `isInfixOf` v) $ lvn ++ "must not contain '_mimage'."
+    where
+      nonEmpty prefix x = reportIf (null x) $ prefix ++ " must be non-empty"
+      notIn prefix x =
+        mapM_ (\y -> reportIf (x == y)
+                              $ prefix ++ " must not be '" ++ y ++ "'")
+      notStartsDash prefix x = reportIf ("-" `isPrefixOf` x)
+                                 $ prefix ++ " must not start with '-'"
+      validChars prefix x =
+        reportIf (not . all validChar $ x)
+                 $ prefix ++ " must consist only of [a-z][A-Z][0-9][+_.-]"
+      validChar c = isAsciiLower c || isAsciiUpper c || isDigit c
+                    || (c `elem` "+_.-")
+
+instance J.JSON LogicalVolume where
+  showJSON = J.showJSON . show
+  readJSON (J.JSString s) | (g, _ : l) <- break (== '/') (J.fromJSString s) =
+    either fail return . evalValidate . validate' $ LogicalVolume g l
+  readJSON v = fail $ "Invalid JSON value " ++ show v
+                      ++ " for a logical volume"
+
 -- | The disk configuration type. This includes the disk type itself,
 -- for a more complete consistency. Note that since in the Python
 -- code-base there's no authoritative place where we document the
 -- logical id, this is probably a good reference point.
 data DiskLogicalId
-  = LIDPlain String String  -- ^ Volume group, logical volume
-  | LIDDrbd8 String String Int Int Int String
+  = LIDPlain LogicalVolume  -- ^ Volume group, logical volume
+  | LIDDrbd8 String String Int Int Int DRBDSecret
   -- ^ NodeA, NodeB, Port, MinorA, MinorB, Secret
   | LIDFile FileDriver String -- ^ Driver, path
   | LIDSharedFile FileDriver String -- ^ Driver, path
@@ -307,7 +422,8 @@ lidEncodeType v = [(devType, showJSON . lidDiskType $ v)]
 
 -- | Custom encoder for DiskLogicalId (logical id only).
 encodeDLId :: DiskLogicalId -> JSValue
-encodeDLId (LIDPlain vg lv) = JSArray [showJSON vg, showJSON lv]
+encodeDLId (LIDPlain (LogicalVolume vg lv)) =
+  JSArray [showJSON vg, showJSON lv]
 encodeDLId (LIDDrbd8 nodeA nodeB port minorA minorB key) =
   JSArray [ showJSON nodeA, showJSON nodeB, showJSON port
           , showJSON minorA, showJSON minorB, showJSON key ]
@@ -346,7 +462,7 @@ decodeDLId obj lid = do
         JSArray [vg, lv] -> do
           vg' <- readJSON vg
           lv' <- readJSON lv
-          return $ LIDPlain vg' lv'
+          return $ LIDPlain (LogicalVolume vg' lv')
         _ -> fail "Can't read logical_id for plain type"
     DTFile ->
       case lid of
@@ -405,7 +521,11 @@ data Disk = Disk
   , diskMode       :: DiskMode
   , diskName       :: Maybe String
   , diskSpindles   :: Maybe Int
+  , diskParams     :: Maybe DiskParams
   , diskUuid       :: String
+  , diskSerial     :: Int
+  , diskCtime      :: ClockTime
+  , diskMtime      :: ClockTime
   } deriving (Show, Eq)
 
 $(buildObjectSerialisation "Disk" $
@@ -417,8 +537,11 @@ $(buildObjectSerialisation "Disk" $
   , defaultField [| DiskRdWr |] $ simpleField "mode" [t| DiskMode |]
   , optionalField $ simpleField "name" [t| String |]
   , optionalField $ simpleField "spindles" [t| Int |]
+  , optionalField $ simpleField "params" [t| DiskParams |]
   ]
-  ++ uuidFields)
+  ++ uuidFields
+  ++ serialFields
+  ++ timeStampFields)
 
 instance UuidObject Disk where
   uuidOf = diskUuid
@@ -426,12 +549,12 @@ instance UuidObject Disk where
 -- | Determines whether a disk or one of his children has the given logical id
 -- (determined by the volume group name and by the logical volume name).
 -- This can be true only for DRBD or LVM disks.
-includesLogicalId :: String -> String -> Disk -> Bool
-includesLogicalId vg_name lv_name disk =
+includesLogicalId :: LogicalVolume -> Disk -> Bool
+includesLogicalId lv disk =
   case diskLogicalId disk of
-    LIDPlain vg lv -> vg_name == vg && lv_name == lv
+    LIDPlain lv' -> lv' == lv
     LIDDrbd8 {} ->
-      any (includesLogicalId vg_name lv_name) $ diskChildren disk
+      any (includesLogicalId lv) $ diskChildren disk
     _ -> False
 
 -- * Instance definitions
@@ -448,19 +571,20 @@ $(buildParam "Be" "bep"
   ])
 
 $(buildObject "Instance" "inst" $
-  [ simpleField "name"               [t| String             |]
-  , simpleField "primary_node"       [t| String             |]
-  , simpleField "os"                 [t| String             |]
-  , simpleField "hypervisor"         [t| Hypervisor         |]
-  , simpleField "hvparams"           [t| HvParams           |]
-  , simpleField "beparams"           [t| PartialBeParams    |]
-  , simpleField "osparams"           [t| OsParams           |]
-  , simpleField "admin_state"        [t| AdminState         |]
+  [ simpleField "name"             [t| String             |]
+  , simpleField "primary_node"     [t| String             |]
+  , simpleField "os"               [t| String             |]
+  , simpleField "hypervisor"       [t| Hypervisor         |]
+  , simpleField "hvparams"         [t| HvParams           |]
+  , simpleField "beparams"         [t| PartialBeParams    |]
+  , simpleField "osparams"         [t| OsParams           |]
+  , simpleField "osparams_private" [t| OsParamsPrivate    |]
+  , simpleField "admin_state"      [t| AdminState         |]
   , simpleField "admin_state_source" [t| AdminStateSource   |]
-  , simpleField "nics"               [t| [PartialNic]       |]
-  , simpleField "disks"              [t| [Disk]             |]
-  , simpleField "disk_template"      [t| DiskTemplate       |]
-  , simpleField "disks_active"       [t| Bool               |]
+  , simpleField "nics"             [t| [PartialNic]       |]
+  , simpleField "disks"            [t| [String]           |]
+  , simpleField "disk_template"    [t| DiskTemplate       |]
+  , simpleField "disks_active"     [t| Bool               |]
   , optionalField $ simpleField "network_port" [t| Int  |]
   ]
   ++ timeStampFields
@@ -480,19 +604,6 @@ instance SerialNoObject Instance where
 
 instance TagsObject Instance where
   tagsOf = instTags
-
--- | Retrieves the real disk size requirements for all the disks of the
--- instance. This includes the metadata etc. and is different from the values
--- visible to the instance.
-getDiskSizeRequirements :: Instance -> Int
-getDiskSizeRequirements inst =
-  sum . map
-    (\disk -> case instDiskTemplate inst of
-                DTDrbd8    -> diskSize disk + C.drbdMetaSize
-                DTDiskless -> 0
-                DTBlock    -> 0
-                _          -> diskSize disk )
-    $ instDisks inst
 
 -- * IPolicy definitions
 
@@ -567,6 +678,7 @@ $(buildParam "ND" "ndp"
   , simpleField "ovs_name"       [t| String |]
   , simpleField "ovs_link"       [t| String |]
   , simpleField "ssh_port"      [t| Int |]
+  , simpleField "cpu_speed"     [t| Double |]
   ])
 
 $(buildObject "Node" "node" $
@@ -602,8 +714,8 @@ instance TagsObject Node where
 
 -- * NodeGroup definitions
 
--- | The disk parameters type.
-type DiskParams = Container (Container JSValue)
+-- | The cluster/group disk parameters type.
+type GroupDiskParams = Container DiskParams
 
 -- | A mapping from network UUIDs to nic params of the networks.
 type Networks = Container PartialNicParams
@@ -614,7 +726,7 @@ $(buildObject "NodeGroup" "group" $
   , simpleField "ndparams"     [t| PartialNDParams |]
   , simpleField "alloc_policy" [t| AllocPolicy     |]
   , simpleField "ipolicy"      [t| PartialIPolicy  |]
-  , simpleField "diskparams"   [t| DiskParams      |]
+  , simpleField "diskparams"   [t| GroupDiskParams |]
   , simpleField "networks"     [t| Networks        |]
   ]
   ++ timeStampFields
@@ -659,12 +771,21 @@ type ClusterBeParams = Container FilledBeParams
 
 -- | Cluster OsParams.
 type ClusterOsParams = Container OsParams
+type ClusterOsParamsPrivate = Container (Private OsParams)
 
 -- | Cluster NicParams.
 type ClusterNicParams = Container FilledNicParams
 
+-- | A low-high UID ranges.
+type UidRange = (Int, Int)
+
+formatUidRange :: UidRange -> String
+formatUidRange (lower, higher)
+  | lower == higher = show lower
+  | otherwise       = show lower ++ "-" ++ show higher
+
 -- | Cluster UID Pool, list (low, high) UID ranges.
-type UidPool = [(Int, Int)]
+type UidPool = [UidRange]
 
 -- | The iallocator parameters type.
 type IAllocatorParams = Container JSValue
@@ -672,52 +793,72 @@ type IAllocatorParams = Container JSValue
 -- | The master candidate client certificate digests
 type CandidateCertificates = Container String
 
+-- | Disk state parameters.
+--
+-- As according to the documentation this option is unused by Ganeti,
+-- the content is just a 'JSValue'.
+type DiskState = Container JSValue
+
+-- | Hypervisor state parameters.
+--
+-- As according to the documentation this option is unused by Ganeti,
+-- the content is just a 'JSValue'.
+type HypervisorState = Container JSValue
+
 -- * Cluster definitions
 $(buildObject "Cluster" "cluster" $
-  [ simpleField "rsahostkeypub"             [t| String           |]
+  [ simpleField "rsahostkeypub"                  [t| String                 |]
   , optionalField $
-    simpleField "dsahostkeypub"             [t| String           |]
-  , simpleField "highest_used_port"         [t| Int              |]
-  , simpleField "tcpudp_port_pool"          [t| [Int]            |]
-  , simpleField "mac_prefix"                [t| String           |]
+    simpleField "dsahostkeypub"                  [t| String                 |]
+  , simpleField "highest_used_port"              [t| Int                    |]
+  , simpleField "tcpudp_port_pool"               [t| [Int]                  |]
+  , simpleField "mac_prefix"                     [t| String                 |]
   , optionalField $
-    simpleField "volume_group_name"         [t| String           |]
-  , simpleField "reserved_lvs"              [t| [String]         |]
+    simpleField "volume_group_name"              [t| String                 |]
+  , simpleField "reserved_lvs"                   [t| [String]               |]
   , optionalField $
-    simpleField "drbd_usermode_helper"      [t| String           |]
-  , simpleField "master_node"               [t| String           |]
-  , simpleField "master_ip"                 [t| String           |]
-  , simpleField "master_netdev"             [t| String           |]
-  , simpleField "master_netmask"            [t| Int              |]
-  , simpleField "use_external_mip_script"   [t| Bool             |]
-  , simpleField "cluster_name"              [t| String           |]
-  , simpleField "file_storage_dir"          [t| String           |]
-  , simpleField "shared_file_storage_dir"   [t| String           |]
-  , simpleField "gluster_storage_dir"       [t| String           |]
-  , simpleField "enabled_hypervisors"       [t| [Hypervisor]     |]
-  , simpleField "hvparams"                  [t| ClusterHvParams  |]
-  , simpleField "os_hvp"                    [t| OsHvParams       |]
-  , simpleField "beparams"                  [t| ClusterBeParams  |]
-  , simpleField "osparams"                  [t| ClusterOsParams  |]
-  , simpleField "nicparams"                 [t| ClusterNicParams |]
-  , simpleField "ndparams"                  [t| FilledNDParams   |]
-  , simpleField "diskparams"                [t| DiskParams       |]
-  , simpleField "candidate_pool_size"       [t| Int              |]
-  , simpleField "modify_etc_hosts"          [t| Bool             |]
-  , simpleField "modify_ssh_setup"          [t| Bool             |]
-  , simpleField "maintain_node_health"      [t| Bool             |]
-  , simpleField "uid_pool"                  [t| UidPool          |]
-  , simpleField "default_iallocator"        [t| String           |]
-  , simpleField "default_iallocator_params" [t| IAllocatorParams |]
-  , simpleField "hidden_os"                 [t| [String]         |]
-  , simpleField "blacklisted_os"            [t| [String]         |]
-  , simpleField "primary_ip_family"         [t| IpFamily         |]
-  , simpleField "prealloc_wipe_disks"       [t| Bool             |]
-  , simpleField "ipolicy"                   [t| FilledIPolicy    |]
-  , simpleField "enabled_disk_templates"    [t| [DiskTemplate]   |]
-  , simpleField "candidate_certs"           [t| CandidateCertificates |]
-  , simpleField "max_running_jobs"          [t| Int              |]
-  , simpleField "enabled_user_shutdown"     [t| Bool             |]
+    simpleField "drbd_usermode_helper"           [t| String                 |]
+  , simpleField "master_node"                    [t| String                 |]
+  , simpleField "master_ip"                      [t| String                 |]
+  , simpleField "master_netdev"                  [t| String                 |]
+  , simpleField "master_netmask"                 [t| Int                    |]
+  , simpleField "use_external_mip_script"        [t| Bool                   |]
+  , simpleField "cluster_name"                   [t| String                 |]
+  , simpleField "file_storage_dir"               [t| String                 |]
+  , simpleField "shared_file_storage_dir"        [t| String                 |]
+  , simpleField "gluster_storage_dir"            [t| String                 |]
+  , simpleField "enabled_hypervisors"            [t| [Hypervisor]           |]
+  , simpleField "hvparams"                       [t| ClusterHvParams        |]
+  , simpleField "os_hvp"                         [t| OsHvParams             |]
+  , simpleField "beparams"                       [t| ClusterBeParams        |]
+  , simpleField "osparams"                       [t| ClusterOsParams        |]
+  , simpleField "osparams_private_cluster"       [t| ClusterOsParamsPrivate |]
+  , simpleField "nicparams"                      [t| ClusterNicParams       |]
+  , simpleField "ndparams"                       [t| FilledNDParams         |]
+  , simpleField "diskparams"                     [t| GroupDiskParams        |]
+  , simpleField "candidate_pool_size"            [t| Int                    |]
+  , simpleField "modify_etc_hosts"               [t| Bool                   |]
+  , simpleField "modify_ssh_setup"               [t| Bool                   |]
+  , simpleField "maintain_node_health"           [t| Bool                   |]
+  , simpleField "uid_pool"                       [t| UidPool                |]
+  , simpleField "default_iallocator"             [t| String                 |]
+  , simpleField "default_iallocator_params"      [t| IAllocatorParams       |]
+  , simpleField "hidden_os"                      [t| [String]               |]
+  , simpleField "blacklisted_os"                 [t| [String]               |]
+  , simpleField "primary_ip_family"              [t| IpFamily               |]
+  , simpleField "prealloc_wipe_disks"            [t| Bool                   |]
+  , simpleField "ipolicy"                        [t| FilledIPolicy          |]
+  , simpleField "hv_state_static"                [t| HypervisorState        |]
+  , simpleField "disk_state_static"              [t| DiskState              |]
+  , simpleField "enabled_disk_templates"         [t| [DiskTemplate]         |]
+  , simpleField "candidate_certs"                [t| CandidateCertificates  |]
+  , simpleField "max_running_jobs"               [t| Int                    |]
+  , simpleField "max_tracked_jobs"               [t| Int                    |]
+  , simpleField "install_image"                  [t| String                 |]
+  , simpleField "instance_communication_network" [t| String                 |]
+  , simpleField "zeroing_image"                  [t| String                 |]
+  , simpleField "compression_tools"              [t| [String]               |]
+  , simpleField "enabled_user_shutdown"          [t| Bool                   |]
  ]
  ++ timeStampFields
  ++ uuidFields
@@ -747,8 +888,25 @@ $(buildObject "ConfigData" "config" $
   , simpleField "nodegroups" [t| Container NodeGroup |]
   , simpleField "instances"  [t| Container Instance  |]
   , simpleField "networks"   [t| Container Network   |]
+  , simpleField "disks"      [t| Container Disk      |]
   ]
+  ++ timeStampFields
   ++ serialFields)
 
 instance SerialNoObject ConfigData where
   serialOf = configSerial
+
+instance TimeStampObject ConfigData where
+  cTimeOf = configCtime
+  mTimeOf = configMtime
+
+-- * Master network parameters
+
+$(buildObject "MasterNetworkParameters" "masterNetworkParameters"
+  [ simpleField "uuid"      [t| String   |]
+  , simpleField "ip"        [t| String   |]
+  , simpleField "netmask"   [t| Int      |]
+  , simpleField "netdev"    [t| String   |]
+  , simpleField "ip_family" [t| IpFamily |]
+  ])
+

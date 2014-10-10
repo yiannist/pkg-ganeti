@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -39,14 +39,16 @@ from ganeti import errors
 from ganeti import locking
 from ganeti import masterd
 from ganeti import utils
+from ganeti.utils import retry
 
 from ganeti.cmdlib.base import NoHooksLU, LogicalUnit
-from ganeti.cmdlib.common import CheckNodeOnline, \
-  ExpandNodeUuidAndName
+from ganeti.cmdlib.common import CheckNodeOnline, ExpandNodeUuidAndName, \
+  IsInstanceRunning, DetermineImageSize
 from ganeti.cmdlib.instance_storage import StartInstanceDisks, \
-  ShutdownInstanceDisks
+  ShutdownInstanceDisks, TemporaryDisk, ImageDisks
 from ganeti.cmdlib.instance_utils import GetClusterDomainSecret, \
-  BuildInstanceHookEnvByObject, CheckNodeNotDrained, RemoveInstance
+  BuildInstanceHookEnvByObject, CheckNodeNotDrained, RemoveInstance, \
+  CheckCompressionTool
 
 
 class LUBackupPrepare(NoHooksLU):
@@ -122,8 +124,23 @@ class LUBackupExport(LogicalUnit):
         raise errors.OpPrereqError("Missing destination X509 CA",
                                    errors.ECODE_INVAL)
 
+    if self.op.zero_free_space and not self.op.compress:
+      raise errors.OpPrereqError("Zeroing free space does not make sense "
+                                 "unless compression is used")
+
+    if self.op.zero_free_space and not self.op.shutdown:
+      raise errors.OpPrereqError("Unless the instance is shut down, zeroing "
+                                 "cannot be used.")
+
   def ExpandNames(self):
     self._ExpandAndLockInstance()
+
+    # In case we are zeroing, a node lock is required as we will be creating and
+    # destroying a disk - allocations should be stopped, but not on the entire
+    # cluster
+    if self.op.zero_free_space:
+      self.recalculate_locks = {locking.LEVEL_NODE: constants.LOCKS_REPLACE}
+      self._LockInstancesNodes(primary_only=True)
 
     # Lock all nodes for local exports
     if self.op.mode == constants.EXPORT_MODE_LOCAL:
@@ -164,7 +181,9 @@ class LUBackupExport(LogicalUnit):
       "REMOVE_INSTANCE": str(bool(self.op.remove_instance)),
       }
 
-    env.update(BuildInstanceHookEnvByObject(self, self.instance))
+    env.update(BuildInstanceHookEnvByObject(
+      self, self.instance,
+      secondary_nodes=self.secondary_nodes, disks=self.inst_disks))
 
     return env
 
@@ -266,10 +285,49 @@ class LUBackupExport(LogicalUnit):
 
     # instance disk type verification
     # TODO: Implement export support for file-based disks
-    for disk in self.instance.disks:
+    for disk in self.cfg.GetInstanceDisks(self.instance.uuid):
       if disk.dev_type in constants.DTS_FILEBASED:
         raise errors.OpPrereqError("Export not supported for instances with"
                                    " file-based disks", errors.ECODE_INVAL)
+
+    # Check prerequisites for zeroing
+    if self.op.zero_free_space:
+      # Check that user shutdown detection has been enabled
+      hvparams = self.cfg.GetClusterInfo().FillHV(self.instance)
+      if self.instance.hypervisor == constants.HT_KVM and \
+         not hvparams.get(constants.HV_KVM_USER_SHUTDOWN, False):
+        raise errors.OpPrereqError("Instance shutdown detection must be "
+                                   "enabled for zeroing to work")
+
+      # Check that the instance is set to boot from the disk
+      if constants.HV_BOOT_ORDER in hvparams and \
+         hvparams[constants.HV_BOOT_ORDER] != constants.HT_BO_DISK:
+        raise errors.OpPrereqError("Booting from disk must be set for zeroing "
+                                   "to work")
+
+      # Check that the zeroing image is set
+      if not self.cfg.GetZeroingImage():
+        raise errors.OpPrereqError("A zeroing image must be set for zeroing to"
+                                   " work")
+
+      if self.op.zeroing_timeout_fixed is None:
+        self.op.zeroing_timeout_fixed = constants.HELPER_VM_STARTUP
+
+      if self.op.zeroing_timeout_per_mib is None:
+        self.op.zeroing_timeout_per_mib = constants.ZEROING_TIMEOUT_PER_MIB
+
+    else:
+      if (self.op.zeroing_timeout_fixed is not None or
+          self.op.zeroing_timeout_per_mib is not None):
+        raise errors.OpPrereqError("Zeroing timeout options can only be used"
+                                   " only with the --zero-free-space option")
+
+    self.secondary_nodes = \
+      self.cfg.GetInstanceSecondaryNodes(self.instance.uuid)
+    self.inst_disks = self.cfg.GetInstanceDisks(self.instance.uuid)
+
+    # Check if the compression tool is whitelisted
+    CheckCompressionTool(self, self.op.compress)
 
   def _CleanupExports(self, feedback_fn):
     """Removes exports of current instance from all other nodes.
@@ -300,6 +358,76 @@ class LUBackupExport(LogicalUnit):
                             " on node %s: %s", iname,
                             self.cfg.GetNodeName(node_uuid), msg)
 
+  def _InstanceDiskSizeSum(self):
+    """Calculates the size of all the disks of the instance used in this LU.
+
+    @rtype: int
+    @return: Size of the disks in MiB
+
+    """
+    inst_disks = self.cfg.GetInstanceDisks(self.instance.uuid)
+    return sum([d.size for d in inst_disks])
+
+  def ZeroFreeSpace(self, feedback_fn):
+    """Zeroes the free space on a shutdown instance.
+
+    @type feedback_fn: function
+    @param feedback_fn: Function used to log progress
+
+    """
+    assert self.op.zeroing_timeout_fixed is not None
+    assert self.op.zeroing_timeout_per_mib is not None
+
+    zeroing_image = self.cfg.GetZeroingImage()
+    src_node_uuid = self.instance.primary_node
+
+    try:
+      disk_size = DetermineImageSize(self, zeroing_image, src_node_uuid)
+    except errors.OpExecError, err:
+      raise errors.OpExecError("Could not create temporary disk for zeroing:"
+                               " %s", err)
+
+    # Calculate the sum prior to adding the temporary disk
+    instance_disks_size_sum = self._InstanceDiskSizeSum()
+
+    with TemporaryDisk(self,
+                       self.instance,
+                       [(constants.DT_PLAIN, constants.DISK_RDWR, disk_size)],
+                       feedback_fn):
+      feedback_fn("Activating instance disks")
+      StartInstanceDisks(self, self.instance, False)
+
+      feedback_fn("Imaging disk with zeroing image")
+      ImageDisks(self, self.instance, zeroing_image)
+
+      feedback_fn("Starting instance with zeroing image")
+      result = self.rpc.call_instance_start(src_node_uuid,
+                                            (self.instance, [], []),
+                                            False, self.op.reason)
+      result.Raise("Could not start instance %s when using the zeroing image "
+                   "%s" % (self.instance.name, zeroing_image))
+
+      # First wait for the instance to start up
+      running_check = lambda: IsInstanceRunning(self, self.instance,
+                                                prereq=False)
+      instance_up = retry.SimpleRetry(True, running_check, 5.0,
+                                      self.op.shutdown_timeout)
+      if not instance_up:
+        raise errors.OpExecError("Could not boot instance when using the "
+                                 "zeroing image %s" % zeroing_image)
+
+      feedback_fn("Instance is up, now awaiting shutdown")
+
+      # Then for it to be finished, detected by its shutdown
+      timeout = self.op.zeroing_timeout_fixed + \
+                self.op.zeroing_timeout_per_mib * instance_disks_size_sum
+      instance_up = retry.SimpleRetry(False, running_check, 20.0, timeout)
+      if instance_up:
+        self.LogWarning("Zeroing not completed prior to timeout; instance will"
+                        "be shut down forcibly")
+
+    feedback_fn("Zeroing completed!")
+
   def Exec(self, feedback_fn):
     """Export an instance to an image in the cluster.
 
@@ -319,12 +447,16 @@ class LUBackupExport(LogicalUnit):
                    " node %s" % (self.instance.name,
                                  self.cfg.GetNodeName(src_node_uuid)))
 
+    if self.op.zero_free_space:
+      self.ZeroFreeSpace(feedback_fn)
+
     activate_disks = not self.instance.disks_active
 
     if activate_disks:
       # Activate the instance disks if we're exporting a stopped instance
       feedback_fn("Activating disks for %s" % self.instance.name)
       StartInstanceDisks(self, self.instance, None)
+      self.instance = self.cfg.GetInstanceInfo(self.instance.uuid)
 
     try:
       helper = masterd.instance.ExportInstanceHelper(self, feedback_fn,
@@ -335,7 +467,7 @@ class LUBackupExport(LogicalUnit):
         if (self.op.shutdown and
             self.instance.admin_state == constants.ADMINST_UP and
             not self.op.remove_instance):
-          assert not activate_disks
+          assert self.instance.disks_active
           feedback_fn("Starting instance %s" % self.instance.name)
           result = self.rpc.call_instance_start(src_node_uuid,
                                                 (self.instance, None, None),

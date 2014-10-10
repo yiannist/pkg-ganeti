@@ -1,4 +1,7 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-
 
@@ -38,21 +41,26 @@ module Ganeti.BasicTypes
   , mkResultT
   , withError
   , withErrorT
-  , resultT
+  , toError
+  , toErrorBase
   , toErrorStr
   , Error(..) -- re-export from Control.Monad.Error
+  , MonadIO(..) -- re-export from Control.Monad.IO.Class
   , isOk
   , isBad
   , justOk
   , justBad
   , eitherToResult
+  , isLeft
   , annotateResult
   , annotateError
   , failError
   , catchErrorT
   , handleErrorT
+  , orElse
   , iterateOk
   , select
+  , runListHead
   , LookupResult(..)
   , MatchPriority(..)
   , lookupName
@@ -65,9 +73,12 @@ module Ganeti.BasicTypes
   ) where
 
 import Control.Applicative
+import Control.Exception (try)
 import Control.Monad
+import Control.Monad.Base
 import Control.Monad.Error.Class
 import Control.Monad.Trans
+import Control.Monad.Trans.Control
 import Data.Function
 import Data.List
 import Data.Maybe
@@ -160,14 +171,45 @@ instance (Monad m, Error a) => Monad (ResultT a m) where
   (>>=)    = flip (elimResultT throwError)
 
 instance (Monad m, Error a) => MonadError a (ResultT a m) where
-  throwError = resultT . Bad
+  throwError = ResultT . return . Bad
   catchError = catchErrorT
 
 instance MonadTrans (ResultT a) where
   lift = ResultT . liftM Ok
 
+-- | The instance catches any 'IOError' using 'try' and converts it into an
+-- error message using 'strMsg'.
+--
+-- This way, monadic code within 'ResultT' that uses solely 'liftIO' to
+-- include 'IO' actions ensures that all IO exceptions are handled.
+--
+-- Other exceptions (see instances of 'Exception') are not currently handled.
+-- This might be revised in the future.
 instance (MonadIO m, Error a) => MonadIO (ResultT a m) where
-  liftIO = lift . liftIO
+  liftIO = ResultT . liftIO
+                   . liftM (either (failError . show) return)
+                   . (try :: IO a -> IO (Either IOError a))
+
+instance (MonadBase IO m, Error a) => MonadBase IO (ResultT a m) where
+  liftBase = ResultT . liftBase
+                   . liftM (either (failError . show) return)
+                   . (try :: IO a -> IO (Either IOError a))
+
+instance (Error a) => MonadTransControl (ResultT a) where
+  newtype StT (ResultT a) b = StResultT { runStResultT :: GenericResult a b }
+  liftWith f = ResultT . liftM return $ f (liftM StResultT . runResultT)
+  restoreT = ResultT . liftM runStResultT
+  {-# INLINE liftWith #-}
+  {-# INLINE restoreT #-}
+
+instance (Error a, MonadBaseControl IO m)
+         => MonadBaseControl IO (ResultT a m) where
+  newtype StM (ResultT a m) b
+    = StMResultT { runStMResultT :: ComposeSt (ResultT a) m b }
+  liftBaseWith = defaultLiftBaseWith StMResultT
+  restoreM = defaultRestoreM runStMResultT
+  {-# INLINE liftBaseWith #-}
+  {-# INLINE restoreM #-}
 
 instance (Monad m, Error a, Monoid a) => MonadPlus (ResultT a m) where
   mzero = ResultT $ return mzero
@@ -192,9 +234,17 @@ withErrorT :: (Monad m, Error e)
            => (e' -> e) -> ResultT e' m a -> ResultT e m a
 withErrorT f = ResultT . liftM (withError f) . runResultT
 
--- | Lift a `Result` value to a `ResultT`.
-resultT :: Monad m => GenericResult a b -> ResultT a m b
-resultT = ResultT . return
+-- | Lift a 'Result' value to any 'MonadError'. Since 'ResultT' is itself its
+-- instance, it's a generalization of
+-- @Monad m => GenericResult a b -> ResultT a m b@.
+toError :: (MonadError e m) => GenericResult e a -> m a
+toError = genericResult throwError return
+{-# INLINE toError #-}
+
+-- | Lift a 'ResultT' value into any 'MonadError' with the same base monad.
+toErrorBase :: (MonadBase b m, MonadError e m) => ResultT e b a -> m a
+toErrorBase = (toError =<<) . liftBase . runResultT
+{-# INLINE toErrorBase #-}
 
 -- | An alias for @withError strMsg@, which is often used to lift a pure error
 -- to a monad stack. See also 'annotateResult'.
@@ -234,10 +284,18 @@ eitherToResult :: Either a b -> GenericResult a b
 eitherToResult (Left  s) = Bad s
 eitherToResult (Right v) = Ok  v
 
---- | Annotate a Result with an ownership information.
-annotateResult :: String -> Result a -> Result a
-annotateResult owner (Bad s) = Bad $ owner ++ ": " ++ s
-annotateResult _ v = v
+-- | Check if an either is Left. Equivalent to isLeft from Data.Either
+-- version 4.7.0.0 or higher.
+isLeft :: Either a b -> Bool
+isLeft (Left _) = True
+isLeft _        = False
+
+-- | Annotate an error with an ownership information, lifting it to a
+-- 'MonadError'. Since 'Result' is an instance of 'MonadError' itself,
+-- it's a generalization of type @String -> Result a -> Result a@.
+-- See also 'toErrorStr'.
+annotateResult :: (MonadError e m, Error e) => String -> Result a -> m a
+annotateResult owner = toErrorStr . annotateError owner
 
 -- | Annotate an error with an ownership information inside a 'MonadError'.
 -- See also 'annotateResult'.
@@ -266,6 +324,12 @@ catchErrorT :: (Monad m, Error e)
 catchErrorT = flip handleErrorT
 {-# INLINE catchErrorT #-}
 
+-- | If the first computation fails, run the second one.
+-- Unlike 'mplus' instance for 'ResultT', this doesn't require
+-- the 'Monoid' constrait.
+orElse :: (MonadError e m) => m a -> m a -> m a
+orElse x y = catchError x (const y)
+
 -- | Iterate while Ok.
 iterateOk :: (a -> GenericResult b a) -> a -> [a]
 iterateOk f a = genericResult (const []) ((:) a . iterateOk f) (f a)
@@ -277,6 +341,12 @@ select :: a            -- ^ default result
        -> [(Bool, a)]  -- ^ list of \"condition, result\"
        -> a            -- ^ first result which has a True condition, or default
 select def = maybe def snd . find fst
+
+-- | Apply a function to the first element of a list, return the default
+-- value, if the list is empty. This is just a convenient combination of
+-- maybe and listToMaybe.
+runListHead :: a -> (b -> a) -> [b] -> a
+runListHead a f = maybe a f . listToMaybe
 
 -- * Lookup of partial names functionality
 

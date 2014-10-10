@@ -44,7 +44,7 @@ Before installing, please verify that you have the following programs:
   <socat-note>` below
 - `Paramiko <http://www.lag.net/paramiko/>`_, if you want to use
   ``ganeti-listrunner``
-- `affinity Python module <http://pypi.python.org/pypi/affinity/0.1.0>`_,
+- `psutil Python module <https://github.com/giampaolo/psutil>`_,
   optional python package for supporting CPU pinning under KVM
 - `fdsend Python module <https://gitorious.org/python-fdsend>`_,
   optional Python package for supporting NIC hotplugging under KVM
@@ -67,22 +67,10 @@ packages, except for RBD, DRBD and Xen::
                     python-pyparsing python-simplejson python-bitarray \
                     python-pyinotify python-pycurl python-ipaddr socat fping
 
-For older distributions (eg. Debian  Squeeze) the package names are
-different.::
-
-  $ apt-get install lvm2 ssh bridge-utils iproute iputils-arping make \
-                    ndisc6 python python-pyopenssl openssl \
-                    python-pyparsing python-simplejson python-bitarray \
-                    python-pyinotify python-pycurl python-ipaddr socat fping
-
-If bitarray is missing it can be installed from easy-install::
-
-  $ easy_install bitarray
-
 Note that the previous instructions don't install optional packages.
 To install the optional package, run the following line.::
 
-  $ apt-get install python-paramiko python-affinity qemu-utils
+  $ apt-get install python-paramiko python-psutil qemu-utils
 
 If some of the python packages are not available in your system,
 you can try installing them using ``easy_install`` command.
@@ -90,7 +78,7 @@ For example::
 
   $ apt-get install python-setuptools python-dev
   $ cd / && easy_install \
-            affinity \
+            psutil \
             bitarray \
             ipaddr
 
@@ -103,7 +91,7 @@ On Fedora to install all required packages except RBD, DRBD and Xen::
 
 For optional packages use the command::
 
-  $ yum install python-paramiko python-affinity qemu-img
+  $ yum install python-paramiko python-psutil qemu-img
 
 If you want to build from source, please see doc/devnotes.rst for more
 dependencies.
@@ -138,7 +126,7 @@ Starting with Ganeti 2.7, the Haskell GHC compiler and a few base
 libraries are required in order to build Ganeti (but not to run and
 deploy Ganeti on production machines). More specifically:
 
-- `GHC <http://www.haskell.org/ghc/>`_ version 6.12 or higher
+- `GHC <http://www.haskell.org/ghc/>`_ version 7 or higher
 - or even better, `The Haskell Platform
   <http://hackage.haskell.org/platform/>`_ which gives you a simple way
   to bootstrap Haskell
@@ -151,39 +139,48 @@ deploy Ganeti on production machines). More specifically:
   `utf8-string <http://hackage.haskell.org/package/utf8-string>`_
   libraries; these usually come with the GHC compiler
 - `text <http://hackage.haskell.org/package/text>`_
-- `deepseq <http://hackage.haskell.org/package/deepseq>`_
+- `deepseq <http://hackage.haskell.org/package/deepseq>`_,
+  usually comes with the GHC compiler
 - `curl <http://hackage.haskell.org/package/curl>`_, tested with
   versions 1.3.4 and above
 - `hslogger <http://software.complete.org/hslogger>`_, version 1.1 and
-  above (note that Debian Squeeze only has version 1.0.9)
+  above.
 - `hinotify <http://hackage.haskell.org/package/hinotify>`_, tested with
   version 0.3.2
 - `Crypto <http://hackage.haskell.org/package/Crypto>`_, tested with
   version 4.2.4
 - `regex-pcre <http://hackage.haskell.org/package/regex-pcre>`_,
   bindings for the ``pcre`` library
-- `attoparsec <http://hackage.haskell.org/package/attoparsec>`_
+- `attoparsec <http://hackage.haskell.org/package/attoparsec>`_,
+  version 0.10 and above
 - `vector <http://hackage.haskell.org/package/vector>`_
 - `process <http://hackage.haskell.org/package/process>`_, version 1.0.1.1 and
-  above
+  above; usually comes with the GHC compiler
+- `base64-bytestring
+  <http://hackage.haskell.org/package/base64-bytestring>`_,
+  version 1.0.0.0 and above
+- `lifted-base <http://hackage.haskell.org/package/lifted-base>`_,
+  version 0.1.1 and above.
+- `lens <http://hackage.haskell.org/package/lens>`_,
+  version 3.0 and above.
 
 Some of these are also available as package in Debian/Ubuntu::
 
   $ apt-get install ghc libghc-json-dev libghc-network-dev \
-                    libghc-parallel-dev libghc-deepseq-dev \
+                    libghc-parallel-dev \
                     libghc-utf8-string-dev libghc-curl-dev \
                     libghc-hslogger-dev \
                     libghc-crypto-dev libghc-text-dev \
                     libghc-hinotify-dev libghc-regex-pcre-dev \
                     libpcre3-dev \
                     libghc-attoparsec-dev libghc-vector-dev \
-                    libghc6-zlib-dev
+                    libghc-zlib-dev
 
-Or in older versions of these distributions (using GHC 6.x)::
+Debian Jessie also includes recent enough versions of these libraries::
 
-  $ apt-get install ghc6 libghc6-json-dev libghc6-network-dev \
-                    libghc6-parallel-dev libghc6-deepseq-dev \
-                    libghc6-curl-dev
+  $ apt-get install libghc-base64-bytestring-dev \
+                    libghc-lens-dev \
+                    libghc-lifted-base-dev
 
 In Fedora, some of them are available via packages as well::
 
@@ -210,21 +207,37 @@ ones not available in your distribution packages) via ``cabal``::
 
   $ cabal install json network parallel utf8-string curl hslogger \
                   Crypto text hinotify==0.3.2 regex-pcre \
-                  attoparsec vector base64-bytestring
+                  attoparsec vector base64-bytestring \
+                  lifted-base==0.2.0.3 lens==3.10
+
+(The specified versions are suitable for Debian Wheezy, for other
+distributions different versions might be needed.)
+
+.. _cabal-order-note:
+.. note::
+  When installing additional libraries using ``cabal``, be sure to first
+  install all the required libraries available in your distribution and
+  only then install the rest using ``cabal``.
+  Otherwise cabal might install different versions of libraries that are
+  available in your distribution, causing conflicts during the
+  compilation.
+  This applies in particular when installing libraries for the optional
+  features.
 
 Haskell optional features
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Optionally, more functionality can be enabled if your build machine has
 a few more Haskell libraries enabled: the ``ganeti-confd`` daemon
-(``--enable-confd``) and the monitoring daemon (``--enable-mond``).
+(``--enable-confd``), the monitoring daemon (``--enable-monitoring``) and
+the meta-data daemon (``--enable-metadata``).
 The extra dependency for these is:
 
 - `snap-server` <http://hackage.haskell.org/package/snap-server>`_, version
   0.8.1 and above.
 
-This library is available in Debian Wheezy (but not in Squeeze), so you
-can use either apt::
+This library is available in Debian Wheezy or later, so you can use
+either apt::
 
   $ apt-get install libghc-snap-server-dev
 
@@ -233,15 +246,6 @@ or ``cabal``::
   $ cabal install snap-server
 
 to install it.
-
-In case you still use ghc-6.12, note that ``cabal`` would automatically try to
-install newer versions of some of the libraries snap-server depends on, that
-cannot be compiled with ghc-6.12, so you have to install snap-server on its
-own, explicitly forcing the installation of compatible versions::
-
-  $ cabal install MonadCatchIO-transformers==0.2.2.0 mtl==2.0.1.0 \
-                  hashable==1.1.2.0 case-insensitive==0.3 parsec==3.0.1 \
-                  network==2.3 snap-server==0.8.1
 
 .. _cabal-note:
 .. note::

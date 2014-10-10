@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -43,20 +43,21 @@ import tempfile
 import itertools
 
 from ganeti.cli import *
-from ganeti import opcodes
+from ganeti import bootstrap
+from ganeti import compat
 from ganeti import constants
 from ganeti import errors
-from ganeti import utils
-from ganeti import bootstrap
-from ganeti import ssh
-from ganeti import objects
-from ganeti import uidpool
-from ganeti import compat
 from ganeti import netutils
-from ganeti import ssconf
+from ganeti import objects
+from ganeti import opcodes
 from ganeti import pathutils
-from ganeti import serializer
 from ganeti import qlang
+from ganeti import serializer
+from ganeti import ssconf
+from ganeti import ssh
+from ganeti import uidpool
+from ganeti import utils
+from ganeti.client import base
 
 
 ON_OPT = cli_option("--on", default=False,
@@ -274,6 +275,18 @@ def InitCluster(opts, args):
 
   hv_state = dict(opts.hv_state)
 
+  if opts.install_image:
+    install_image = opts.install_image
+  else:
+    install_image = ""
+
+  if opts.zeroing_image:
+    zeroing_image = opts.zeroing_image
+  else:
+    zeroing_image = ""
+
+  compression_tools = _GetCompressionTools(opts)
+
   default_ialloc_params = opts.default_iallocator_params
 
   if opts.enabled_user_shutdown:
@@ -311,6 +324,9 @@ def InitCluster(opts, args):
                         hv_state=hv_state,
                         disk_state=disk_state,
                         enabled_disk_templates=enabled_disk_templates,
+                        install_image=install_image,
+                        zeroing_image=zeroing_image,
+                        compression_tools=compression_tools,
                         enabled_user_shutdown=enabled_user_shutdown,
                         )
   op = opcodes.OpClusterPostInit()
@@ -429,7 +445,7 @@ def ShowClusterVersion(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
   result = cl.QueryClusterInfo()
   ToStdout("Software version: %s", result["software_version"])
   ToStdout("Internode protocol: %s", result["protocol_version"])
@@ -485,7 +501,7 @@ def ShowClusterConfig(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
   result = cl.QueryClusterInfo()
 
   if result["tags"]:
@@ -518,12 +534,14 @@ def ShowClusterConfig(opts, args):
     ("Default hypervisor", result["default_hypervisor"]),
     ("Enabled hypervisors", utils.CommaJoin(enabled_hv)),
 
-    ("Hypervisor parameters", _FormatGroupedParams(hvparams)),
+    ("Hypervisor parameters", _FormatGroupedParams(hvparams,
+                                                   opts.roman_integers)),
 
     ("OS-specific hypervisor parameters",
-     _FormatGroupedParams(result["os_hvp"])),
+     _FormatGroupedParams(result["os_hvp"], opts.roman_integers)),
 
-    ("OS parameters", _FormatGroupedParams(result["osparams"])),
+    ("OS parameters", _FormatGroupedParams(result["osparams"],
+                                           opts.roman_integers)),
 
     ("Hidden OSes", utils.CommaJoin(result["hidden_os"])),
     ("Blacklisted OSes", utils.CommaJoin(result["blacklisted_os"])),
@@ -535,8 +553,13 @@ def ShowClusterConfig(opts, args):
       ("maximal number of jobs running simultaneously",
        compat.TryToRoman(result["max_running_jobs"],
                          convert=opts.roman_integers)),
+      ("maximal number of jobs simultaneously tracked by the scheduler",
+       compat.TryToRoman(result["max_tracked_jobs"],
+                         convert=opts.roman_integers)),
+      ("mac prefix", result["mac_prefix"]),
       ("master netdev", result["master_netdev"]),
-      ("master netmask", result["master_netmask"]),
+      ("master netmask", compat.TryToRoman(result["master_netmask"],
+                                           opts.roman_integers)),
       ("use external master IP address setup script",
        result["use_external_mip_script"]),
       ("lvm volume group", result["volume_group_name"]),
@@ -550,13 +573,19 @@ def ShowClusterConfig(opts, args):
       ("default instance allocator", result["default_iallocator"]),
       ("default instance allocator parameters",
        result["default_iallocator_params"]),
-      ("primary ip version", result["primary_ip_version"]),
+      ("primary ip version", compat.TryToRoman(result["primary_ip_version"],
+                                               opts.roman_integers)),
       ("preallocation wipe disks", result["prealloc_wipe_disks"]),
       ("OS search path", utils.CommaJoin(pathutils.OS_SEARCH_PATH)),
       ("ExtStorage Providers search path",
        utils.CommaJoin(pathutils.ES_SEARCH_PATH)),
       ("enabled disk templates",
        utils.CommaJoin(result["enabled_disk_templates"])),
+      ("install image", result["install_image"]),
+      ("instance communication network",
+       result["instance_communication_network"]),
+      ("zeroing image", result["zeroing_image"]),
+      ("compression tools", result["compression_tools"]),
       ("enabled user shutdown", result["enabled_user_shutdown"]),
       ]),
 
@@ -573,7 +602,7 @@ def ShowClusterConfig(opts, args):
      _FormatGroupedParams(result["diskparams"], roman=opts.roman_integers)),
 
     ("Instance policy - limits for instances",
-     FormatPolicyInfo(result["ipolicy"], None, True)),
+     FormatPolicyInfo(result["ipolicy"], None, True, opts.roman_integers)),
     ]
 
   PrintGenericInfo(info)
@@ -599,7 +628,7 @@ def ClusterCopyFile(opts, args):
                                errors.ECODE_INVAL)
 
   cl = GetClient()
-  qcl = GetClient(query=True)
+  qcl = GetClient()
   try:
     cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
 
@@ -630,7 +659,7 @@ def RunClusterCommand(opts, args):
 
   """
   cl = GetClient()
-  qcl = GetClient(query=True)
+  qcl = GetClient()
 
   command = " ".join(args)
 
@@ -1095,6 +1124,18 @@ def _GetDrbdHelper(opts, enabled_disk_templates):
   return drbd_helper
 
 
+def _GetCompressionTools(opts):
+  """Determine the list of custom compression tools.
+
+  """
+  if opts.compression_tools:
+    return opts.compression_tools.split(",")
+  elif opts.compression_tools is None:
+    return None # To note the parameter was not provided
+  else:
+    return constants.IEC_DEFAULT_TOOLS # Resetting to default
+
+
 def SetClusterParams(opts, args):
   """Modify the cluster.
 
@@ -1112,6 +1153,7 @@ def SetClusterParams(opts, args):
           opts.ndparams or opts.diskparams or
           opts.candidate_pool_size is not None or
           opts.max_running_jobs is not None or
+          opts.max_tracked_jobs is not None or
           opts.uid_pool is not None or
           opts.maintain_node_health is not None or
           opts.add_uids is not None or
@@ -1119,6 +1161,7 @@ def SetClusterParams(opts, args):
           opts.default_iallocator is not None or
           opts.default_iallocator_params or
           opts.reserved_lvs is not None or
+          opts.mac_prefix is not None or
           opts.master_netdev is not None or
           opts.master_netmask is not None or
           opts.use_external_mip_script is not None or
@@ -1133,6 +1176,11 @@ def SetClusterParams(opts, args):
           opts.ipolicy_spindle_ratio is not None or
           opts.modify_etc_hosts is not None or
           opts.file_storage_dir is not None or
+          opts.install_image is not None or
+          opts.instance_communication_network is not None or
+          opts.zeroing_image is not None or
+          opts.shared_file_storage_dir is not None or
+          opts.compression_tools is not None or
           opts.shared_file_storage_dir is not None or
           opts.enabled_user_shutdown is not None):
     ToStderr("Please give at least one of the parameters.")
@@ -1215,6 +1263,8 @@ def SetClusterParams(opts, args):
 
   hv_state = dict(opts.hv_state)
 
+  compression_tools = _GetCompressionTools(opts)
+
   op = opcodes.OpClusterSetParams(
     vg_name=vg_name,
     drbd_helper=drbd_helper,
@@ -1228,6 +1278,7 @@ def SetClusterParams(opts, args):
     ipolicy=ipolicy,
     candidate_pool_size=opts.candidate_pool_size,
     max_running_jobs=opts.max_running_jobs,
+    max_tracked_jobs=opts.max_tracked_jobs,
     maintain_node_health=mnh,
     modify_etc_hosts=opts.modify_etc_hosts,
     uid_pool=uid_pool,
@@ -1236,6 +1287,7 @@ def SetClusterParams(opts, args):
     default_iallocator=opts.default_iallocator,
     default_iallocator_params=opts.default_iallocator_params,
     prealloc_wipe_disks=opts.prealloc_wipe_disks,
+    mac_prefix=opts.mac_prefix,
     master_netdev=opts.master_netdev,
     master_netmask=opts.master_netmask,
     reserved_lvs=opts.reserved_lvs,
@@ -1245,11 +1297,14 @@ def SetClusterParams(opts, args):
     enabled_disk_templates=enabled_disk_templates,
     force=opts.force,
     file_storage_dir=opts.file_storage_dir,
+    install_image=opts.install_image,
+    instance_communication_network=opts.instance_communication_network,
+    zeroing_image=opts.zeroing_image,
     shared_file_storage_dir=opts.shared_file_storage_dir,
+    compression_tools=compression_tools,
     enabled_user_shutdown=opts.enabled_user_shutdown,
     )
-  SubmitOrSend(op, opts)
-  return 0
+  return base.GetResult(None, opts, SubmitOrSend(op, opts))
 
 
 def QueueOps(opts, args):
@@ -1590,7 +1645,7 @@ def Epo(opts, args, qcl=None, _on_fn=_EpoOn, _off_fn=_EpoOff,
 
   if qcl is None:
     # Query client
-    qcl = GetClient(query=True)
+    qcl = GetClient()
 
   if opts.groups:
     node_query_list = \
@@ -1657,7 +1712,7 @@ def ShowCreateCommand(opts, args):
   Currently it works only for ipolicy specs.
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
   result = cl.QueryClusterInfo()
   ToStdout(_GetCreateCommand(result))
 
@@ -1921,23 +1976,6 @@ def _VersionSpecificDowngrade():
   @return: True upon success
   """
   ToStdout("Performing version-specific downgrade tasks.")
-
-  ToStdout("...removing client certificates ssconf file")
-  ssconffile = ssconf.SimpleStore().KeyToFilename(
-    constants.SS_MASTER_CANDIDATES_CERTS)
-  badnodes = _VerifyCommand(["rm", "-f", ssconffile])
-  if badnodes:
-    ToStderr("Warning: failed to clean up ssconf on %s."
-             % (", ".join(badnodes),))
-    return False
-
-  ToStdout("...removing client certificates")
-  badnodes = _VerifyCommand(["rm", "-f", pathutils.NODED_CLIENT_CERT_FILE])
-  if badnodes:
-    ToStderr("Warning: failed to clean up certificates on %s."
-             % (", ".join(badnodes),))
-    return False
-
   return True
 
 
@@ -2160,8 +2198,10 @@ commands = {
      PRIMARY_IP_VERSION_OPT, PREALLOC_WIPE_DISKS_OPT, NODE_PARAMS_OPT,
      GLOBAL_SHARED_FILEDIR_OPT, USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT,
      HV_STATE_OPT, DISK_STATE_OPT, ENABLED_DISK_TEMPLATES_OPT,
-     ENABLED_USER_SHUTDOWN_OPT, IPOLICY_STD_SPECS_OPT,
-     GLOBAL_GLUSTER_FILEDIR_OPT]
+     IPOLICY_STD_SPECS_OPT, GLOBAL_GLUSTER_FILEDIR_OPT, INSTALL_IMAGE_OPT,
+     ZEROING_IMAGE_OPT, COMPRESSION_TOOLS_OPT,
+     ENABLED_USER_SHUTDOWN_OPT,
+     ]
      + INSTANCE_POLICY_OPTS + SPLIT_ISPECS_OPTS,
     "[opts...] <cluster_name>", "Initialises a new cluster configuration"),
   "destroy": (
@@ -2236,17 +2276,19 @@ commands = {
   "modify": (
     SetClusterParams, ARGS_NONE,
     [FORCE_OPT,
-     BACKEND_OPT, CP_SIZE_OPT, RQL_OPT,
-     ENABLED_HV_OPT, HVLIST_OPT, MASTER_NETDEV_OPT,
-     MASTER_NETMASK_OPT, NIC_PARAMS_OPT, VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT,
-     UIDPOOL_OPT, ADD_UIDS_OPT, REMOVE_UIDS_OPT, DRBD_HELPER_OPT,
-     DEFAULT_IALLOCATOR_OPT, DEFAULT_IALLOCATOR_PARAMS_OPT, RESERVED_LVS_OPT,
-     DRY_RUN_OPT, PRIORITY_OPT, PREALLOC_WIPE_DISKS_OPT, NODE_PARAMS_OPT,
-     USE_EXTERNAL_MIP_SCRIPT, DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT] +
-     SUBMIT_OPTS +
+     BACKEND_OPT, CP_SIZE_OPT, RQL_OPT, MAX_TRACK_OPT, INSTALL_IMAGE_OPT,
+     INSTANCE_COMMUNICATION_NETWORK_OPT, ENABLED_HV_OPT, HVLIST_OPT,
+     MAC_PREFIX_OPT, MASTER_NETDEV_OPT, MASTER_NETMASK_OPT, NIC_PARAMS_OPT,
+     VG_NAME_OPT, MAINTAIN_NODE_HEALTH_OPT, UIDPOOL_OPT, ADD_UIDS_OPT,
+     REMOVE_UIDS_OPT, DRBD_HELPER_OPT, DEFAULT_IALLOCATOR_OPT,
+     DEFAULT_IALLOCATOR_PARAMS_OPT, RESERVED_LVS_OPT, DRY_RUN_OPT, PRIORITY_OPT,
+     PREALLOC_WIPE_DISKS_OPT, NODE_PARAMS_OPT, USE_EXTERNAL_MIP_SCRIPT,
+     DISK_PARAMS_OPT, HV_STATE_OPT, DISK_STATE_OPT] + SUBMIT_OPTS +
      [ENABLED_DISK_TEMPLATES_OPT, IPOLICY_STD_SPECS_OPT, MODIFY_ETCHOSTS_OPT,
       ENABLED_USER_SHUTDOWN_OPT] +
-     INSTANCE_POLICY_OPTS + [GLOBAL_FILEDIR_OPT, GLOBAL_SHARED_FILEDIR_OPT],
+     INSTANCE_POLICY_OPTS +
+     [GLOBAL_FILEDIR_OPT, GLOBAL_SHARED_FILEDIR_OPT, ZEROING_IMAGE_OPT,
+      COMPRESSION_TOOLS_OPT],
     "[opts...]",
     "Alters the parameters of the cluster"),
   "renew-crypto": (

@@ -30,6 +30,14 @@ clusters.
 .PD 0
 .P
 .PD
+[--zero-free-space] [--zeroing-timeout-fixed]
+.PD 0
+.P
+.PD
+[--zeroing-timeout-per-mib]
+.PD 0
+.P
+.PD
 {\f[I]instance\f[]}
 .PP
 Exports an instance to the target node.
@@ -38,7 +46,8 @@ All the instance data and its configuration will be exported under the
 .PP
 The \f[C]--transport-compression\f[] option is used to specify which
 compression mode is used to try and speed up moves during the export.
-Valid values are \[aq]none\[aq] (the default) and \[aq]gzip\[aq].
+Valid values are \[aq]none\[aq], and any values defined in the
+\[aq]compression_tools\[aq] cluster parameter.
 .PP
 The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
 before forcing the shutdown (xm destroy in xen, killing the kvm process,
@@ -54,6 +63,14 @@ dump.
 The \f[C]--remove\f[] option can be used to remove the instance after it
 was exported.
 This is useful to make one last backup before removing the instance.
+.PP
+The \f[C]--zero-free-space\f[] option can be used to zero the free space
+of the instance prior to exporting it, saving space if compression is
+used.
+The \f[C]--zeroing-timeout-fixed\f[] and
+\f[C]--zeroing-timeout-per-mib\f[] options control the timeout, the
+former determining the minimum time to wait, and the latter how much
+longer to wait per MiB of data the instance has.
 .PP
 The exit code of the command is 0 if all disks were backed up
 successfully, 1 if no data was backed up or if the configuration export

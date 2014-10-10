@@ -334,6 +334,18 @@ same options relative to specs in the instance policies.
 .PD 0
 .P
 .PD
+[--install-image \f[I]image\f[]]
+.PD 0
+.P
+.PD
+[--zeroing-image \f[I]image\f[]]
+.PD 0
+.P
+.PD
+[--compression-tools [\f[I]tool\f[], [\f[I]tool\f[]]]]
+.PD 0
+.P
+.PD
 [--user-shutdown {yes | no}]
 .PD 0
 .P
@@ -476,8 +488,8 @@ inside the instance, and Ganeti will report the instance status as
 watcher will not restart these instances, thus preserving their instance
 status.
 This option is disabled by default.
-After enabled, the hypervisor parameter \f[C]user_shutdown\f[] must also
-be set, either at the cluster level or on a per-instance basis (see
+For KVM, the hypervisor parameter \f[C]user_shutdown\f[] must also be
+set, either at the cluster level or on a per-instance basis (see
 \f[B]gnt-instance\f[](8)).
 .PP
 The \f[C]-H\ (--hypervisor-parameters)\f[] option allows you to set
@@ -854,6 +866,40 @@ The first disk template in the list of enabled disk template is the
 default disk template.
 It will be used for instance creation, if no disk template is requested
 explicitely.
+.PP
+The \f[C]--install-image\f[] option specifies the location of the OS
+image to use to run the OS scripts inside a virtualized environment.
+This can be a file path or a URL.
+In the case that a file path is used, nodes are expected to have the
+install image located at the given path, although that is enforced
+during a instance create with unsafe OS scripts operation only.
+.PP
+The \f[C]--zeroing-image\f[] option specifies the location of the OS
+image to use to zero out the free space of an instance.
+This can be a file path or a URL.
+In the case that a file path is used, nodes are expected to have the
+zeroing image located at the given path, although that is enforced
+during a zeroing operation only.
+.PP
+The \f[C]--compression-tools\f[] option specifies the tools that can be
+used to compress the disk data of instances in transfer.
+The default tools are: \[aq]gzip\[aq], \[aq]gzip-slow\[aq], and
+\[aq]gzip-fast\[aq].
+For compatibility reasons, the \[aq]gzip\[aq] tool cannot be excluded
+from the list of compression tools.
+Ganeti knows how to use certain tools, but does not provide them as a
+default as they are not commonly present: currently only \[aq]lzop\[aq].
+The user should indicate their presence by specifying them through this
+option.
+Any other custom tool specified must have a simple executable name
+(\[aq][-_a-zA-Z0-9]+\[aq]), accept input on stdin, and produce output on
+stdout.
+The \[aq]-d\[aq] flag specifies that decompression rather than
+compression is taking place.
+The \[aq]-h\[aq] flag must be supported as a means of testing whether
+the executable exists.
+These requirements are compatible with the gzip command line options,
+allowing many tools to be easily wrapped and used.
 .SS MASTER-FAILOVER
 .PP
 \f[B]master-failover\f[] [--no-voting] [--yes-do-it]
@@ -944,6 +990,10 @@ is not the master node), the exit code will be 1.
 .PD 0
 .P
 .PD
+[--max-tracked-jobs \f[I]count\f[] ]
+.PD 0
+.P
+.PD
 [--maintain-node-health {yes | no}]
 .PD 0
 .P
@@ -966,6 +1016,10 @@ is not the master node), the exit code will be 1.
 .P
 .PD
 [--node-parameters \f[I]ndparams\f[]]
+.PD 0
+.P
+.PD
+[{-m|--mac-prefix} \f[I]mac-prefix\f[]]
 .PD 0
 .P
 .PD
@@ -1026,6 +1080,22 @@ is not the master node), the exit code will be 1.
 .PD 0
 .P
 .PD
+[--compression-tools [\f[I]tool\f[], [\f[I]tool\f[]]]]
+.PD 0
+.P
+.PD
+[--instance-communication-network \f[I]network\f[]]
+.PD 0
+.P
+.PD
+[--install-image \f[I]image\f[]]
+.PD 0
+.P
+.PD
+[--zeroing-image \f[I]image\f[]]
+.PD 0
+.P
+.PD
 [--user-shutdown {yes | no}]
 .PP
 Modify the options for the cluster.
@@ -1035,7 +1105,12 @@ The \f[C]--vg-name\f[], \f[C]--enabled-hypervisors\f[],
 \f[C]-B\ (--backend-parameters)\f[], \f[C]-D\ (--disk-parameters)\f[],
 \f[C]--nic-parameters\f[], \f[C]-C\ (--candidate-pool-size)\f[],
 \f[C]--maintain-node-health\f[], \f[C]--prealloc-wipe-disks\f[],
-\f[C]--uid-pool\f[], \f[C]--node-parameters\f[],
+\f[C]--uid-pool\f[], \f[C]--node-parameters\f[], \f[C]--mac-prefix\f[],
+\f[C]--master-netdev\f[], \f[C]--master-netmask\f[],
+\f[C]--use-external-mip-script\f[], \f[C]--drbd-usermode-helper\f[],
+\f[C]--file-storage-dir\f[], \f[C]--shared-file-storage-dir\f[],
+\f[C]--compression-tools\f[], and \f[C]--enabled-disk-templates\f[]
+options are described in the \f[B]init\f[] command.
 \f[C]--master-netdev\f[], \f[C]--master-netmask\f[],
 \f[C]--use-external-mip-script\f[], \f[C]--drbd-usermode-helper\f[],
 \f[C]--file-storage-dir\f[], \f[C]--shared-file-storage-dir\f[],
@@ -1048,6 +1123,12 @@ described in detail in \f[B]ganeti\f[](7).
 The \f[C]--max-running-jobs\f[] options allows to set limit on the
 number of jobs in non-finished jobs that are not queued, i.e., the
 number of jobs that are in waiting or running state.
+The \f[C]--max-tracked-jobs\f[] options allows to set the limit on the
+tracked jobs.
+Normally, Ganeti will watch waiting and running jobs by tracking their
+job file with inotify.
+If this limit is exceeded, however, Ganeti will back off and only
+periodically pull for updates.
 .PP
 The \f[C]--add-uids\f[] and \f[C]--remove-uids\f[] options can be used
 to modify the user-id pool by adding/removing a list of user-ids or
@@ -1078,6 +1159,19 @@ To clear the default iallocator parameters, just pass an empty string
 .PP
 The \f[C]--ipolicy-...\f[] options are described in the \f[B]init\f[]
 command.
+.PP
+The \f[C]--instance-communication-network\f[] enables instance
+communication by specifying the name of the Ganeti network that should
+be used for instance communication.
+If the supplied network does not exist, Ganeti will create a new network
+with the supplied name with the default parameters for instance
+communication.
+If the supplied network exists, Ganeti will check its parameters and
+warn about unusual configurations, but it will still use that network
+for instance communication.
+.PP
+See \f[B]gnt-cluster init\f[] for a description of
+\f[C]--install-image\f[] and \f[C]--zeroing-image\f[].
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
@@ -1292,6 +1386,10 @@ The option must be repeated for each error that should be ignored (e.g.:
 \f[C]-I\ ENODEVERSION\ -I\ ENODEORPHANLV\f[]).
 The \f[C]--error-codes\f[] option can be used to determine the error
 code of a given error.
+.PP
+Note that the verification of the configuration file consistency across
+master candidates can fail if there are other concurrently running
+operations that modify the configuration.
 .PP
 List of error codes:
 .TP

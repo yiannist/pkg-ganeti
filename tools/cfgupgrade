@@ -63,11 +63,11 @@ args = None
 #: Target major version we will upgrade to
 TARGET_MAJOR = 2
 #: Target minor version we will upgrade to
-TARGET_MINOR = 11
+TARGET_MINOR = 12
 #: Target major version for downgrade
 DOWNGRADE_MAJOR = 2
 #: Target minor version for downgrade
-DOWNGRADE_MINOR = 10
+DOWNGRADE_MINOR = 11
 
 # map of legacy device types
 # (mapping differing old LD_* constants to new DT_* constants)
@@ -159,7 +159,16 @@ def UpgradeCluster(config_data):
   ial_params = cluster.get("default_iallocator_params", None)
   if not ial_params:
     cluster["default_iallocator_params"] = {}
-  cluster["candidate_certs"] = cluster.get("candidate_certs", {})
+  if not "candidate_certs" in cluster:
+    cluster["candidate_certs"] = {}
+  cluster["instance_communication_network"] = \
+    cluster.get("instance_communication_network", "")
+  cluster["install_image"] = \
+    cluster.get("install_image", "")
+  cluster["zeroing_image"] = \
+    cluster.get("zeroing_image", "")
+  cluster["compression_tools"] = \
+    cluster.get("compression_tools", constants.IEC_DEFAULT_TOOLS)
   if "enabled_user_shutdown" not in cluster:
     cluster["enabled_user_shutdown"] = False
 
@@ -221,28 +230,24 @@ def UpgradeDiskDevType(disk):
   ChangeDiskDevType(disk, DEV_TYPE_OLD_NEW)
 
 
-def UpgradeInstances(config_data):
-  """Upgrades the instances' configuration."""
+def _ConvertNicNameToUuid(iobj, network2uuid):
+  for nic in iobj["nics"]:
+    name = nic.get("network", None)
+    if name:
+      uuid = network2uuid.get(name, None)
+      if uuid:
+        print("NIC with network name %s found."
+              " Substituting with uuid %s." % (name, uuid))
+        nic["network"] = uuid
 
-  network2uuid = dict((n["name"], n["uuid"])
-                      for n in config_data["networks"].values())
-  if "instances" not in config_data:
-    raise Error("Can't find the 'instances' key in the configuration!")
 
+def _ConvertDiskAndCheckMissingSpindles(iobj, instance):
   missing_spindles = False
-  for instance, iobj in config_data["instances"].items():
-    for nic in iobj["nics"]:
-      name = nic.get("network", None)
-      if name:
-        uuid = network2uuid.get(name, None)
-        if uuid:
-          print("NIC with network name %s found."
-                " Substituting with uuid %s." % (name, uuid))
-          nic["network"] = uuid
-
-    if "disks" not in iobj:
-      raise Error("Instance '%s' doesn't have a disks entry?!" % instance)
-    disks = iobj["disks"]
+  if "disks" not in iobj:
+    raise Error("Instance '%s' doesn't have a disks entry?!" % instance)
+  disks = iobj["disks"]
+  if not all(isinstance(d, str) for d in disks):
+    #  Disks are not top level citizens
     for idx, dobj in enumerate(disks):
       RemovePhysicalId(dobj)
 
@@ -260,6 +265,24 @@ def UpgradeInstances(config_data):
       if not "spindles" in dobj:
         missing_spindles = True
 
+      if not "uuid" in dobj:
+        dobj["uuid"] = utils.io.NewUUID()
+  return missing_spindles
+
+
+def UpgradeInstances(config_data):
+  """Upgrades the instances' configuration."""
+
+  network2uuid = dict((n["name"], n["uuid"])
+                      for n in config_data["networks"].values())
+  if "instances" not in config_data:
+    raise Error("Can't find the 'instances' key in the configuration!")
+
+  missing_spindles = False
+  for instance, iobj in config_data["instances"].items():
+    _ConvertNicNameToUuid(iobj, network2uuid)
+    if _ConvertDiskAndCheckMissingSpindles(iobj, instance):
+      missing_spindles = True
     if "admin_state_source" not in iobj:
       iobj["admin_state_source"] = constants.ADMIN_SOURCE
 
@@ -377,8 +400,9 @@ def ChangeNodeIndices(config_data, old_key_field, new_key_field):
     inst["primary_node"] = GetNewNodeIndex(nodes_by_old_key,
                                            inst["primary_node"],
                                            new_key_field)
-    for disk in inst["disks"]:
-      ChangeDiskNodeIndices(disk)
+
+  for disk in config_data["disks"].values():
+    ChangeDiskNodeIndices(disk)
 
 
 def ChangeInstanceIndices(config_data, old_key_field, new_key_field):
@@ -399,6 +423,27 @@ def UpgradeInstanceIndices(config_data):
   ChangeInstanceIndices(config_data, "name", "uuid")
 
 
+def UpgradeTopLevelDisks(config_data):
+  """Upgrades the disks as config top level citizens."""
+  if "instances" not in config_data:
+    raise Error("Can't find the 'instances' key in the configuration!")
+
+  if "disks" in config_data:
+    # Disks are already top level citizens
+    return
+
+  config_data["disks"] = dict()
+  for iobj in config_data["instances"].values():
+    disk_uuids = []
+    for disk in iobj["disks"]:
+      duuid = disk["uuid"]
+      disk["serial_no"] = 1
+      disk["ctime"] = disk["mtime"] = iobj["ctime"]
+      config_data["disks"][duuid] = disk
+      disk_uuids.append(duuid)
+    iobj["disks"] = disk_uuids
+
+
 def UpgradeAll(config_data):
   config_data["version"] = version.BuildVersion(TARGET_MAJOR, TARGET_MINOR, 0)
   UpgradeRapiUsers()
@@ -408,49 +453,126 @@ def UpgradeAll(config_data):
   UpgradeCluster(config_data)
   UpgradeGroups(config_data)
   UpgradeInstances(config_data)
+  UpgradeTopLevelDisks(config_data)
   UpgradeNodeIndices(config_data)
   UpgradeInstanceIndices(config_data)
 
 
 # DOWNGRADE ------------------------------------------------------------
 
-def DowngradeInstances(config_data):
-  for _, iobj in config_data["instances"].items():
-    if "admin_state_source" in iobj:
-      del iobj["admin_state_source"]
+def DowngradeNodeParams(config_object):
+  if "ndparams" in config_object:
+    if "cpu_speed" in config_object["ndparams"]:
+      del config_object["ndparams"]["cpu_speed"]
+
+
+def DowngradeKvmHvParams(params):
+  """Remove hypervisor parameters added in 2.12"""
+  if "migration_caps" in params:
+    del params["migration_caps"]
+
+  if "disk_aio" in params:
+    del params["disk_aio"]
+
+  if "virtio_net_queues" in params:
+    del params["virtio_net_queues"]
+
+
+def DowngradeClusterHVParams(cluster):
+  """Downgrade newly introduced HV parameters"""
+  if "hvparams" in cluster:
+    if "kvm" in cluster["hvparams"]:
+      DowngradeKvmHvParams(cluster["hvparams"]["kvm"])
+
+
+def DowngradeInstanceHVParams(instance):
+  """Downgrade newly introduced HV parameters"""
+  if "hvparams" in instance:
+    DowngradeKvmHvParams(instance["hvparams"])
 
 
 def DowngradeCluster(config_data):
   cluster = config_data.get("cluster", None)
   if not cluster:
-    raise Error("Cannot find the 'cluster' key in the configuration!")
-  DowngradeNdparams(cluster)
-  if "default_iallocator_params" in cluster:
-    del cluster["default_iallocator_params"]
-  if "candidate_certs" in cluster:
-    del cluster["candidate_certs"]
-  for param in ["gluster", "gluster_storage_dir"]:
-    if param in cluster:
-      del cluster[param]
-  if "max_running_jobs" in cluster:
-    del cluster["max_running_jobs"]
-  if "enabled_user_shutdown" in cluster:
-    del cluster["enabled_user_shutdown"]
+    raise Error("Cannot find the 'cluster' key in the configuration")
 
-  DowngradeInstances(config_data)
+  DowngradeNodeParams(cluster)
+  DowngradeClusterHVParams(cluster)
+
+  if "osparams_private_cluster" in cluster:
+    del cluster["osparams_private_cluster"]
+
+  if "instance_communication_network" in cluster:
+    del cluster["instance_communication_network"]
+
+  if "install_image" in cluster:
+    del cluster["install_image"]
+
+  if "zeroing_image" in cluster:
+    del cluster["zeroing_image"]
+
+  if "compression_tools" in cluster:
+    del cluster["compression_tools"]
+
+  if "max_tracked_jobs" in cluster:
+    del cluster["max_tracked_jobs"]
 
 
 def DowngradeGroups(config_data):
   for group in config_data["nodegroups"].values():
-    DowngradeNdparams(group)
+    DowngradeNodeParams(group)
 
 
-def DowngradeNdparams(group_or_cluster):
-  ssh_port = group_or_cluster["ndparams"].pop("ssh_port", None)
-  if (ssh_port is not None) and (ssh_port != 22):
-    raise Error(("The cluster or some node group has configured SSH port %d."
-                 " Refusing to downgrade as it will most certainly fail."
-                 ) % (ssh_port, ))
+def DowngradeNodes(config_data):
+  for group in config_data["nodes"].values():
+    DowngradeNodeParams(group)
+
+
+def DowngradeInstances(config_data):
+  instances = config_data.get("instances", None)
+  if instances is None:
+    raise Error("Cannot find the 'instances' key in the configuration")
+
+  for (_, iobj) in instances.items():
+    if "osparams_private" in iobj:
+      del iobj["osparams_private"]
+
+    DowngradeInstanceHVParams(iobj)
+
+
+def DowngradeTopLevelDisks(config_data):
+  """Downgrade the disks from config top level citizens."""
+  def RemoveSerialNumber(disk):
+    if "serial_no" in disk:
+      del disk["serial_no"]
+    if "ctime" in disk:
+      del disk["ctime"]
+    if "mtime" in disk:
+      del disk["mtime"]
+    if "children" in disk:
+      for subdisk in disk["children"]:
+        RemoveSerialNumber(subdisk)
+
+  if "instances" not in config_data:
+    raise Error("Can't find the 'instances' key in the configuration!")
+
+  if "disks" not in config_data:
+    # Disks are not top level citizens
+    return
+
+  for iobj in config_data["instances"].values():
+    disks = list()
+    for disk_uuid in iobj["disks"]:
+      disk_obj = config_data["disks"][disk_uuid]
+      RemoveSerialNumber(disk_obj)
+      disks.append(disk_obj)
+      del config_data["disks"][disk_uuid]
+    iobj["disks"] = disks
+
+  for disk_uuid in config_data["disks"].keys():
+    print("Disk %s is not attached to any Instance and will be removed."
+          % disk_uuid)
+  del config_data["disks"]
 
 
 def DowngradeAll(config_data):
@@ -460,15 +582,12 @@ def DowngradeAll(config_data):
                                                 DOWNGRADE_MINOR, 0)
   DowngradeCluster(config_data)
   DowngradeGroups(config_data)
+  DowngradeNodes(config_data)
+  DowngradeTopLevelDisks(config_data)
+  DowngradeInstances(config_data)
 
 
-def main():
-  """Main program.
-
-  """
-  global options, args # pylint: disable=W0603
-
-  # Option parsing
+def _ParseOptions():
   parser = optparse.OptionParser(usage="%prog [--debug|--verbose] [--force]")
   parser.add_option("--dry-run", dest="dry_run",
                     action="store_true",
@@ -493,8 +612,10 @@ def main():
   parser.add_option("--downgrade",
                     help="Downgrade to the previous stable version",
                     action="store_true", dest="downgrade", default=False)
-  (options, args) = parser.parse_args()
+  return parser.parse_args()
 
+
+def _ComposePaths():
   # We need to keep filenames locally because they might be renamed between
   # versions.
   options.data_dir = os.path.abspath(options.data_dir)
@@ -513,19 +634,8 @@ def main():
   options.WATCHER_STATEFILE = options.data_dir + "/watcher.data"
   options.FILE_STORAGE_PATHS_FILE = options.conf_dir + "/file-storage-paths"
 
-  SetupLogging()
 
-  # Option checking
-  if args:
-    raise Error("No arguments expected")
-  if options.downgrade and not options.no_verify:
-    options.no_verify = True
-
-  # Check master name
-  if not (CheckHostname(options.SSCONF_MASTER_NODE) or options.ignore_hostname):
-    logging.error("Aborting due to hostname mismatch")
-    sys.exit(constants.EXIT_FAILURE)
-
+def _AskUser():
   if not options.force:
     if options.downgrade:
       usertext = ("The configuration is going to be DOWNGRADED to version %s.%s"
@@ -542,6 +652,76 @@ def main():
                   " configuration?" % constants.RELEASE_VERSION)
     if not cli.AskUser(usertext):
       sys.exit(constants.EXIT_FAILURE)
+
+
+def _Downgrade(config_major, config_minor, config_version, config_data,
+               config_revision):
+  if not ((config_major == TARGET_MAJOR and config_minor == TARGET_MINOR) or
+          (config_major == DOWNGRADE_MAJOR and
+           config_minor == DOWNGRADE_MINOR)):
+    raise Error("Downgrade supported only from the latest version (%s.%s),"
+                " found %s (%s.%s.%s) instead" %
+                (TARGET_MAJOR, TARGET_MINOR, config_version, config_major,
+                 config_minor, config_revision))
+  DowngradeAll(config_data)
+
+
+def _TestLoadingConfigFile():
+  # test loading the config file
+  all_ok = True
+  if not (options.dry_run or options.no_verify):
+    logging.info("Testing the new config file...")
+    cfg = config.ConfigWriter(cfg_file=options.CONFIG_DATA_PATH,
+                              accept_foreign=options.ignore_hostname,
+                              offline=True)
+    # if we reached this, it's all fine
+    vrfy = cfg.VerifyConfig()
+    if vrfy:
+      logging.error("Errors after conversion:")
+      for item in vrfy:
+        logging.error(" - %s", item)
+      all_ok = False
+    else:
+      logging.info("File loaded successfully after upgrading")
+    del cfg
+
+  if options.downgrade:
+    action = "downgraded"
+    out_ver = "%s.%s" % (DOWNGRADE_MAJOR, DOWNGRADE_MINOR)
+  else:
+    action = "upgraded"
+    out_ver = constants.RELEASE_VERSION
+  if all_ok:
+    cli.ToStderr("Configuration successfully %s to version %s.",
+                 action, out_ver)
+  else:
+    cli.ToStderr("Configuration %s to version %s, but there are errors."
+                 "\nPlease review the file.", action, out_ver)
+
+
+def main():
+  """Main program.
+
+  """
+  global options, args # pylint: disable=W0603
+
+  (options, args) = _ParseOptions()
+  _ComposePaths()
+
+  SetupLogging()
+
+  # Option checking
+  if args:
+    raise Error("No arguments expected")
+  if options.downgrade and not options.no_verify:
+    options.no_verify = True
+
+  # Check master name
+  if not (CheckHostname(options.SSCONF_MASTER_NODE) or options.ignore_hostname):
+    logging.error("Aborting due to hostname mismatch")
+    sys.exit(constants.EXIT_FAILURE)
+
+  _AskUser()
 
   # Check whether it's a Ganeti configuration directory
   if not (os.path.isfile(options.CONFIG_DATA_PATH) and
@@ -572,17 +752,11 @@ def main():
 
   # Downgrade to the previous stable version
   if options.downgrade:
-    if not ((config_major == TARGET_MAJOR and config_minor == TARGET_MINOR) or
-            (config_major == DOWNGRADE_MAJOR and
-             config_minor == DOWNGRADE_MINOR)):
-      raise Error("Downgrade supported only from the latest version (%s.%s),"
-                  " found %s (%s.%s.%s) instead" %
-                  (TARGET_MAJOR, TARGET_MINOR, config_version, config_major,
-                   config_minor, config_revision))
-    DowngradeAll(config_data)
+    _Downgrade(config_major, config_minor, config_version, config_data,
+               config_revision)
 
-  # Upgrade from 2.{0..10} to 2.11
-  elif config_major == 2 and config_minor in range(0, 11):
+  # Upgrade from 2.{0..10} to 2.12
+  elif config_major == 2 and config_minor in range(0, 12):
     if config_revision != 0:
       logging.warning("Config revision is %s, not 0", config_revision)
     UpgradeAll(config_data)
@@ -617,36 +791,7 @@ def main():
                      " inconsistent state and needs manual intervention.")
     raise
 
-  # test loading the config file
-  all_ok = True
-  if not (options.dry_run or options.no_verify):
-    logging.info("Testing the new config file...")
-    cfg = config.ConfigWriter(cfg_file=options.CONFIG_DATA_PATH,
-                              accept_foreign=options.ignore_hostname,
-                              offline=True)
-    # if we reached this, it's all fine
-    vrfy = cfg.VerifyConfig()
-    if vrfy:
-      logging.error("Errors after conversion:")
-      for item in vrfy:
-        logging.error(" - %s", item)
-      all_ok = False
-    else:
-      logging.info("File loaded successfully after upgrading")
-    del cfg
-
-  if options.downgrade:
-    action = "downgraded"
-    out_ver = "%s.%s" % (DOWNGRADE_MAJOR, DOWNGRADE_MINOR)
-  else:
-    action = "upgraded"
-    out_ver = constants.RELEASE_VERSION
-  if all_ok:
-    cli.ToStderr("Configuration successfully %s to version %s.",
-                 action, out_ver)
-  else:
-    cli.ToStderr("Configuration %s to version %s, but there are errors."
-                 "\nPlease review the file.", action, out_ver)
+  _TestLoadingConfigFile()
 
 
 if __name__ == "__main__":

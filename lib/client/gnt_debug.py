@@ -47,6 +47,7 @@ from ganeti import utils
 from ganeti import errors
 from ganeti import compat
 from ganeti import ht
+from ganeti import wconfd
 
 
 #: Default fields for L{ListLocks}
@@ -74,6 +75,7 @@ def Delay(opts, args):
                            on_master=opts.on_master,
                            on_nodes=opts.on_nodes,
                            repeat=opts.repeat,
+                           interruptible=opts.interruptible,
                            no_locks=opts.no_locks)
   SubmitOrSend(op, opts)
 
@@ -453,7 +455,7 @@ def TestJobqueue(opts, _):
       "Hello World",
       "A",
       "",
-      "B"
+      "B",
       "Foo|bar|baz",
       utils.TimestampForFilename(),
       ]
@@ -630,6 +632,55 @@ def ListLocks(opts, args): # pylint: disable=W0613
   return 0
 
 
+def Wconfd(opts, args): # pylint: disable=W0613
+  """Send commands to WConfD.
+
+  @param opts: the command line options selected by the user
+  @type args: list
+  @param args: the command to send, followed by the command-specific arguments
+  @rtype: int
+  @return: the desired exit code
+
+  """
+  if args[0] == "echo":
+    if len(args) != 2:
+      ToStderr("Command 'echo' takes only precisely argument.")
+      return 1
+    result = wconfd.Client().Echo(args[1])
+    print "Answer: %s" % (result,)
+  elif args[0] == "listlocks":
+    if len(args) != 2:
+      ToStderr("Command 'listlocks' takes precisely one argument.")
+      return 1
+    wconfdcontext = (int(args[1]),
+                     utils.livelock.GuessLockfileFor("masterd_1"))
+    result = wconfd.Client().ListLocks(wconfdcontext)
+    print "Answer: %s" % (result,)
+  elif args[0] == "listalllocks":
+    if len(args) != 1:
+      ToStderr("Command 'listalllocks' takes no arguments.")
+      return 1
+    result = wconfd.Client().ListAllLocks()
+    print "Answer: %s" % (result,)
+  elif args[0] == "listalllocksowners":
+    if len(args) != 1:
+      ToStderr("Command 'listalllocks' takes no arguments.")
+      return 1
+    result = wconfd.Client().ListAllLocksOwners()
+    print "Answer: %s" % (result,)
+  elif args[0] == "flushconfig":
+    if len(args) != 1:
+      ToStderr("Command 'flushconfig' takes no arguments.")
+      return 1
+    wconfd.Client().FlushConfig()
+    print "Configuration flushed."
+  else:
+    ToStderr("Command '%s' not supported", args[0])
+    return 1
+
+  return 0
+
+
 commands = {
   "delay": (
     Delay, [ArgUnknown(min=1, max=1)],
@@ -639,6 +690,10 @@ commands = {
                 action="append", help="Select nodes to sleep on"),
      cli_option("-r", "--repeat", type="int", default="0", dest="repeat",
                 help="Number of times to repeat the sleep"),
+     cli_option("-i", "--interruptible", default=False, dest="interruptible",
+                action="store_true",
+                help="Allows the opcode to be interrupted by using a domain "
+                     "socket"),
      cli_option("-l", "--no-locks", default=False, dest="no_locks",
                 action="store_true",
                 help="Don't take locks while performing the delay"),
@@ -704,6 +759,9 @@ commands = {
     ListLocks, ARGS_NONE,
     [NOHDR_OPT, SEP_OPT, FIELDS_OPT, INTERVAL_OPT, VERBOSE_OPT],
     "[--interval N]", "Show a list of locks in the master daemon"),
+  "wconfd": (
+    Wconfd, [ArgUnknown(min=1)], [],
+    "<cmd> <args...>", "Directly talk to WConfD"),
   }
 
 #: dictionary with aliases for commands

@@ -174,6 +174,9 @@
 <dt><code>name</code></dt>
 <dd><p>Node name</p>
 </dd>
+<dt><code>ndp/cpu_speed</code></dt>
+<dd><p>The &quot;cpu_speed&quot; node parameter</p>
+</dd>
 <dt><code>ndp/exclusive_storage</code></dt>
 <dd><p>The &quot;exclusive_storage&quot; node parameter</p>
 </dd>

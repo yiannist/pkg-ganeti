@@ -27,6 +27,13 @@ queries has been enabled.
 The daemon will refuse to start if the user and group do not match the
 one defined at build time; this behaviour can be overridden by the
 \f[C]--no-user-checks\f[] option.
+.PP
+The daemon will refuse to start if it cannot verify that the majority of
+cluster nodes believes that it is running on the master node.
+To allow failover in a two-node cluster, this can be overridden by the
+\f[C]--no-voting\f[] option.
+As it this is dangerous, the \f[C]--yes-do-it\f[] option has to be given
+as well.
 .SS ROLE
 .PP
 The role of the query daemon is to answer queries about the (live)

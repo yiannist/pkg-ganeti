@@ -37,12 +37,15 @@ ADD
 | [{-B|\--backend-parameters} *BEPARAMS*]
 | [{-H|\--hypervisor-parameters} *HYPERVISOR* [: option=*value*... ]]
 | [{-O|\--os-parameters} *param*=*value*... ]
+| [--os-parameters-private *param*=*value*... ]
+| [--os-parameters-secret *param*=*value*... ]
 | [\--file-storage-dir *dir\_path*] [\--file-driver {loop \| blktap \| blktap2}]
 | {{-n|\--node} *node[:secondary-node]* \| {-I|\--iallocator} *name*}
 | {{-o|\--os-type} *os-type*}
 | [\--submit] [\--print-job-id]
 | [\--ignore-ipolicy]
 | [\--no-wait-for-sync]
+| [{-c|\--communication=yes|no}]
 | {*instance*}
 
 Creates a new instance on the specified host. The *instance* argument
@@ -585,6 +588,14 @@ disk\_cache
     version of KVM used and disk type (always raw file under Ganeti),
     please refer to the KVM documentation for more details.
 
+disk\_aio
+    Valid for the KVM hypervisor.
+
+    This is an optional parameter that specifies the aio mode
+    for the disks. KVM default is to use the 'threads' mode,
+    so if not explicitly specified, the native mode will not
+    be used. Possible values are: threads or native.
+
 security\_model
     Valid for the KVM hypervisor.
 
@@ -803,6 +814,16 @@ machine\_version
     machine version (due to e.g. outdated drivers). In case it's not set
     the default version supported by your version of kvm is used.
 
+migration\_caps
+    Valid for the KVM hypervisor.
+
+    Enable specific migration capabilities by providing a ":" separated
+    list of supported capabilites. QEMU version 1.7.0 defines
+    x-rdma-pin-all, auto-converge, zero-blocks, and xbzrle. Please note
+    that while a combination of xbzrle and auto-converge might speed up
+    the migration process significantly, the first may cause BSOD on
+    Windows8r2 instances running on drbd.
+
 kvm\_path
     Valid for the KVM hypervisor.
 
@@ -821,12 +842,43 @@ vnet\_hdr
 
     It is set to ``true`` by default.
 
+virtio\_net\_queues
+    Valid for the KVM hypervisor.
+
+    Set a number of queues (file descriptors) for tap device to
+    parallelize packets sending or receiving. Tap devices will be
+    created with MULTI_QUEUE (IFF_MULTI_QUEUE) support. This only
+    works with KVM paravirtual nics (virtio-net) and the maximum
+    number of queues is limited to ``8``. Tehnically this is an
+    extension of ``vnet_hdr`` which must be enabled for multiqueue
+    support.
+
+    If set to ``1`` queue, it effectively disables multiqueue support
+    on the tap and virio-net devices.
+
+    For instances it is necessary to manually set number of queues (on
+    Linux using: ``ethtool -L ethX combined $queues``).
+
+    It is set to ``1`` by default.
+
 The ``-O (--os-parameters)`` option allows customisation of the OS
 parameters. The actual parameter names and values depend on the OS being
 used, but the syntax is the same key=value. For example, setting a
 hypothetical ``dhcp`` parameter to yes can be achieved by::
 
     gnt-instance add -O dhcp=yes ...
+
+You can also specify OS parameters that should not be logged but reused
+at the next reinstall with ``--os-parameters-private`` and OS parameters
+that should not be logged or saved to configuration with
+``--os-parameters-secret``. Bear in mind that:
+
+  * Launching the daemons in debug mode will cause debug logging to
+    happen, which leaks private and secret parameters to the log files.
+    Do not use the debug mode in production. Deamons will emit a warning
+    on startup if they are in debug mode.
+  * You will have to pass again all ``--os-parameters-secret`` parameters
+    should you want to reinstall this instance.
 
 The ``-I (--iallocator)`` option specifies the instance allocator plugin
 to use (``.`` means the default allocator). If you pass in this option
@@ -906,6 +958,10 @@ blktap2
 
 If ``--ignore-ipolicy`` is given any instance policy violations occuring
 during this operation are ignored.
+
+The ``-c`` and ``--communication`` specify whether to enable/disable
+instance communication, which is a communication mechanism between the
+instance and the host.
 
 See **ganeti**\(7) for a description of ``--submit`` and other common
 options.
@@ -1170,6 +1226,7 @@ MODIFY
 | [\--new-primary=*node*]
 | [\--os-type=*OS* [\--force-variant]]
 | [{-O|\--os-parameters} *param*=*value*... ]
+| [--os-parameters-private *param*=*value*... ]
 | [\--offline \| \--online]
 | [\--submit] [\--print-job-id]
 | [\--ignore-ipolicy]
@@ -1279,7 +1336,10 @@ REINSTALL
 | **reinstall** [{-o|\--os-type} *os-type*] [\--select-os] [-f *force*]
 | [\--force-multiple]
 | [\--instance \| \--node \| \--primary \| \--secondary \| \--all]
-| [{-O|\--os-parameters} *OS\_PARAMETERS*] [\--submit] [\--print-job-id]
+| [{-O|\--os-parameters} *OS\_PARAMETERS*]
+| [--os-parameters-private} *OS\_PARAMETERS*]
+| [--os-parameters-secret} *OS\_PARAMETERS*]
+| [\--submit] [\--print-job-id]
 | {*instance*...}
 
 Reinstalls the operating system on the given instance(s). The
@@ -1945,8 +2005,8 @@ long time for big disks (similar to replace-disks for a drbd
 instance).
 
 The ``--compress`` option is used to specify which compression mode
-is used during the move. Valid values are 'none' (the default) and
-'gzip'.
+is used during the move. Valid values are 'none' (the default) and any
+values specified in the 'compression_tools' cluster parameter.
 
 The ``--shutdown-timeout`` is used to specify how much time to wait
 before forcing the shutdown (e.g. ``xm destroy`` in XEN, killing the

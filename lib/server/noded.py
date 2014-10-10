@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2010, 2011, 2012 Google Inc.
+# Copyright (C) 2006, 2007, 2010, 2011, 2012, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -231,6 +231,15 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     disks_s, pause = params
     disks = [objects.Disk.FromDict(bdev_s) for bdev_s in disks_s]
     return backend.BlockdevPauseResumeSync(disks, pause)
+
+  @staticmethod
+  def perspective_blockdev_image(params):
+    """Image a block device.
+
+    """
+    bdev_s, image, size = params
+    bdev = objects.Disk.FromDict(bdev_s)
+    return backend.BlockdevImage(bdev, image, size)
 
   @staticmethod
   def perspective_blockdev_wipe(params):
@@ -641,6 +650,14 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     return backend.HotplugSupported(instance)
 
   @staticmethod
+  def perspective_instance_metadata_modify(params):
+    """Modify instance metadata.
+
+    """
+    instance = params[0]
+    return backend.ModifyInstanceMetadata(instance)
+
+  @staticmethod
   def perspective_migration_info(params):
     """Gather information about an instance to be migrated.
 
@@ -910,6 +927,16 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     return backend.UploadFile(*(params[0]))
 
   @staticmethod
+  def perspective_upload_file_single(params):
+    """Upload a file.
+
+    Note that the backend implementation imposes strict rules on which
+    files are accepted.
+
+    """
+    return backend.UploadFile(*params)
+
+  @staticmethod
   def perspective_master_node_name(params):
     """Returns the master node name.
 
@@ -960,6 +987,14 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     (until, ) = params
     return backend.SetWatcherPause(until)
 
+  @staticmethod
+  def perspective_get_file_info(params):
+    """Get info on whether a file exists and its properties.
+
+    """
+    (path, ) = params
+    return backend.GetFileInfo(path)
+
   # os -----------------------
 
   @staticmethod
@@ -970,21 +1005,21 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     return backend.DiagnoseOS()
 
   @staticmethod
-  def perspective_os_get(params):
-    """Query information about a given OS.
-
-    """
-    name = params[0]
-    os_obj = backend.OSFromDisk(name)
-    return os_obj.ToDict()
-
-  @staticmethod
   def perspective_os_validate(params):
     """Run a given OS' validation routine.
 
     """
-    required, name, checks, params = params
-    return backend.ValidateOS(required, name, checks, params)
+    required, name, checks, params, force_variant = params
+    return backend.ValidateOS(required, name, checks, params, force_variant)
+
+  @staticmethod
+  def perspective_os_export(params):
+    """Export an OS definition into an instance specific package.
+
+    """
+    instance = objects.Instance.FromDict(params[0])
+    override_env = params[1]
+    return backend.ExportOS(instance, override_env)
 
   # extstorage -----------------------
 
@@ -1315,4 +1350,5 @@ def Main():
   daemon.GenericMain(constants.NODED, parser, CheckNoded, PrepNoded, ExecNoded,
                      default_ssl_cert=pathutils.NODED_CERT_FILE,
                      default_ssl_key=pathutils.NODED_CERT_FILE,
-                     console_logging=True)
+                     console_logging=True,
+                     warn_breach=True)

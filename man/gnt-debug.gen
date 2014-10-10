@@ -46,7 +46,8 @@ this framework, see the HTML or PDF documentation.
 DELAY
 ~~~~~
 
-**delay** [\--debug] [\--no-master] [-n *NODE*...] {*duration*}
+**delay** [\--debug] [\--no-master] [\--interruptible] [-n *NODE*...]
+{*duration*}
 
 Run a test opcode (a sleep) on the master and on selected nodes
 (via an RPC call). This serves no other purpose but to execute a
@@ -55,6 +56,11 @@ test operation.
 The ``-n`` option can be given multiple times to select the nodes
 for the RPC call. By default, the delay will also be executed on
 the master, unless the ``--no-master`` option is passed.
+
+The ``--interruptible`` option allows a running delay opcode to be
+interrupted by communicating with a special domain socket. If any data
+is sent to the socket, the delay opcode terminates. If this option is
+used, no RPCs are performed, but locks are still acquired.
 
 The *delay* argument will be interpreted as a floating point
 number.
@@ -128,6 +134,37 @@ the entire list of fields.
 
 Use ``--interval`` to repeat the listing. A delay specified by the
 option value in seconds is inserted.
+
+WCONFD
+~~~~~~
+
+| **wconfd** echo *text*
+
+Tests the WConf daemon by invoking its ``echo`` function.
+
+A given text is sent to WConfd through RPC, echoed back by WConfd and
+printed to the console.
+
+| **wconfd** listlocks *jid*
+
+A request to list the locks owned by the given job id is
+sent to WConfd and the answer is displayed.
+
+| **wconfd** listalllocks
+
+A request to list all locks in use, directly or indirectly, is
+sent to WConfd and the answer is displayed.
+
+| **wconfd** listalllocks
+
+A request to list all locks in use, directly or indirectly, together
+with their respective direct owners is sent to WConfd and the answer
+is displayed.
+
+| **wconfd** flushconfig
+
+A request to ensure that the configuration is fully distributed to the
+master candidates.
 
 .. vim: set textwidth=72 :
 .. Local Variables:

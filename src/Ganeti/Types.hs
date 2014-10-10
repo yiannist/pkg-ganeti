@@ -11,7 +11,7 @@ representation should go into 'Ganeti.HTools.Types'.
 
 {-
 
-Copyright (C) 2012, 2013 Google Inc.
+Copyright (C) 2012, 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -121,6 +121,7 @@ module Ganeti.Types
   , JobIdDep(..)
   , JobDependency(..)
   , absoluteJobDependency
+  , getJobIdFromDependency
   , OpSubmitPriority(..)
   , opSubmitPriorityToRaw
   , parseSubmitPriority
@@ -166,12 +167,12 @@ module Ganeti.Types
   , RpcTimeout(..)
   , rpcTimeoutFromRaw -- FIXME: no used anywhere
   , rpcTimeoutToRaw
-  , ImportExportCompression(..)
-  , importExportCompressionToRaw
   , HotplugTarget(..)
   , hotplugTargetToRaw
   , HotplugAction(..)
   , hotplugActionToRaw
+  , Private(..)
+  , showPrivateJSObject
   ) where
 
 import Control.Monad (liftM)
@@ -416,7 +417,7 @@ $(THH.declareLADT ''String "CVErrorCode"
   ])
 $(THH.makeJSONInstance ''CVErrorCode)
 
--- | Dynamic device modification, just add\/remove version.
+-- | Dynamic device modification, just add/remove version.
 $(THH.declareLADT ''String "DdmSimple"
      [ ("DdmSimpleAdd",    "add")
      , ("DdmSimpleRemove", "remove")
@@ -656,7 +657,7 @@ $(THH.makeJSONInstance ''FinalizedJobStatus)
 
 -- | The Ganeti job type.
 newtype JobId = JobId { fromJobId :: Int }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 -- | Builds a job ID.
 makeJobId :: (Monad m) => Int -> m JobId
@@ -702,7 +703,7 @@ instance JSON.JSON JobIdDep where
 absoluteJobIdDep :: (Monad m) => JobIdDep -> JobId -> m JobIdDep
 absoluteJobIdDep (JobDepAbsolute jid) _ = return $ JobDepAbsolute jid
 absoluteJobIdDep (JobDepRelative rjid) jid =
-  liftM JobDepAbsolute . makeJobId $ fromJobId jid + fromNegative rjid 
+  liftM JobDepAbsolute . makeJobId $ fromJobId jid + fromNegative rjid
 
 -- | Job Dependency type.
 data JobDependency = JobDependency JobIdDep [FinalizedJobStatus]
@@ -715,7 +716,13 @@ instance JSON JobDependency where
 -- | From job dependency and job id compute an absolute job dependency.
 absoluteJobDependency :: (Monad m) => JobDependency -> JobId -> m JobDependency
 absoluteJobDependency (JobDependency jdep fstats) jid =
-  liftM (flip JobDependency fstats) $ absoluteJobIdDep jdep jid 
+  liftM (flip JobDependency fstats) $ absoluteJobIdDep jdep jid
+
+-- | From a job dependency get the absolute job id it depends on,
+-- if given absolutely.
+getJobIdFromDependency :: JobDependency -> [JobId]
+getJobIdFromDependency (JobDependency (JobDepAbsolute jid) _) = [jid]
+getJobIdFromDependency _ = []
 
 -- | Valid opcode priorities for submit.
 $(THH.declareIADT "OpSubmitPriority"
@@ -755,6 +762,7 @@ $(THH.declareLADT ''String "ELogType"
   [ ("ELogMessage",      "message")
   , ("ELogRemoteImport", "remote-import")
   , ("ELogJqueueTest",   "jqueue-test")
+  , ("ELogDelayTest",    "delay-test")
   ])
 $(THH.makeJSONInstance ''ELogType)
 
@@ -771,6 +779,7 @@ $(THH.declareLADT ''String "VType"
   , ("VTypeBool",        "bool")
   , ("VTypeSize",        "size")
   , ("VTypeInt",         "int")
+  , ("VTypeFloat",       "float")
   ])
 $(THH.makeJSONInstance ''VType)
 
@@ -884,17 +893,6 @@ $(THH.declareILADT "RpcTimeout"
   , ("OneDay",    86400)    -- 1 day
   ])
 
-$(THH.declareLADT ''String "ImportExportCompression"
-  [ -- No compression
-    ("None", "none")
-    -- gzip compression
-  , ("GZip", "gzip")
-  ])
-$(THH.makeJSONInstance ''ImportExportCompression)
-
-instance THH.PyValue ImportExportCompression where
-  showValue = THH.showValue . importExportCompressionToRaw
-
 -- | Hotplug action.
 
 $(THH.declareLADT ''String "HotplugAction"
@@ -911,3 +909,36 @@ $(THH.declareLADT ''String "HotplugTarget"
   , ("HTNic",  "hotnic")
   ])
 $(THH.makeJSONInstance ''HotplugTarget)
+
+-- * Private type and instances
+
+-- | A container for values that should be happy to be manipulated yet
+-- refuses to be shown unless explicitly requested.
+newtype Private a = Private { getPrivate :: a }
+  deriving Eq
+
+instance (Show a, JSON.JSON a) => JSON.JSON (Private a) where
+  readJSON = liftM Private . JSON.readJSON
+  showJSON (Private x) = JSON.showJSON x
+
+-- | "Show" the value of the field.
+--
+-- It would be better not to implement this at all.
+-- Alas, Show OpCode requires Show Private.
+instance Show a => Show (Private a) where
+  show _ = "<redacted>"
+
+instance THH.PyValue a => THH.PyValue (Private a) where
+  showValue (Private x) = "Private(" ++ THH.showValue x ++ ")"
+
+instance Functor Private where
+  fmap f (Private x) = Private $ f x
+
+instance Monad Private where
+  (Private x) >>= f = f x
+  return = Private
+
+showPrivateJSObject :: (JSON.JSON a) =>
+                       [(String, a)] -> JSON.JSObject (Private JSON.JSValue)
+showPrivateJSObject value = JSON.toJSObject $ map f value
+  where f (k, v) = (k, Private $ JSON.showJSON v)

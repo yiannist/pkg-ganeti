@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti CPU Pinning &mdash; Ganeti 2.11.6 documentation</title>
+    <title>Ganeti CPU Pinning &mdash; Ganeti 2.12.0 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.11.6',
+        VERSION:     '2.12.0',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,9 +25,9 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.11.6 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.12.0 documentation" href="index.html" />
     <link rel="next" title="Design for adding UUID and name to devices" href="design-device-uuid-name.html" />
-    <link rel="prev" title="Unit tests for cmdlib / LogicalUnit’s" href="design-cmdlib-unittests.html" /> 
+    <link rel="prev" title="Taking relative CPU speed into account" href="design-cpu-speed.html" /> 
   </head>
   <body>
     <div class="related">
@@ -37,9 +37,9 @@
           <a href="design-device-uuid-name.html" title="Design for adding UUID and name to devices"
              accesskey="N">next</a></li>
         <li class="right" >
-          <a href="design-cmdlib-unittests.html" title="Unit tests for cmdlib / LogicalUnit’s"
+          <a href="design-cpu-speed.html" title="Taking relative CPU speed into account"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.6 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -224,10 +224,13 @@ physical CPU. See man page for <em class="manpage">sched_setaffinity(2)</em> for
 details.</p>
 <p>For example, to run a specific thread-id on CPUs 1 or 3 the mask is
 0x0000000A.</p>
-<p>We will control process and thread affinity using the python affinity
-package (<a class="reference external" href="http://pypi.python.org/pypi/affinity">http://pypi.python.org/pypi/affinity</a>). This package is a Python
-wrapper around the two affinity system calls, and has no other
-requirements.</p>
+<p>As of 2.12, the psutil python package
+(<a class="reference external" href="https://github.com/giampaolo/psutil">https://github.com/giampaolo/psutil</a>) will be used to control process
+and thread affinity. The affinity python package
+(<a class="reference external" href="http://pypi.python.org/pypi/affinity">http://pypi.python.org/pypi/affinity</a>) was used before, but it was not
+invoking the two underlying system calls appropriately, using a cast
+instead of the CPU_SET macro, causing failures for masks referencing
+more than 63 CPUs.</p>
 </div>
 <div class="section" id="alternative-design-options">
 <h2>Alternative Design Options<a class="headerlink" href="#alternative-design-options" title="Permalink to this headline">¶</a></h2>
@@ -266,8 +269,8 @@ frequent, there&#8217;s no real advantage.</li>
 </ul>
 
   <h4>Previous topic</h4>
-  <p class="topless"><a href="design-cmdlib-unittests.html"
-                        title="previous chapter">Unit tests for cmdlib / LogicalUnit&#8217;s</a></p>
+  <p class="topless"><a href="design-cpu-speed.html"
+                        title="previous chapter">Taking relative CPU speed into account</a></p>
   <h4>Next topic</h4>
   <p class="topless"><a href="design-device-uuid-name.html"
                         title="next chapter">Design for adding UUID and name to devices</a></p>
@@ -300,9 +303,9 @@ frequent, there&#8217;s no real advantage.</li>
           <a href="design-device-uuid-name.html" title="Design for adding UUID and name to devices"
              >next</a></li>
         <li class="right" >
-          <a href="design-cmdlib-unittests.html" title="Unit tests for cmdlib / LogicalUnit’s"
+          <a href="design-cpu-speed.html" title="Taking relative CPU speed into account"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.11.6 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

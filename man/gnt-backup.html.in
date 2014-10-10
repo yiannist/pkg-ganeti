@@ -35,12 +35,13 @@
 <p>The <strong>gnt-backup</strong> is used for importing and exporting instances and their configuration from a Ganeti system. It is useful for backing up instances and also to migrate them between clusters.</p>
 <h1 id="commands"><a href="#TOC">COMMANDS</a></h1>
 <h2 id="export"><a href="#TOC">EXPORT</a></h2>
-<p><strong>export</strong> {-n <em>node</em>}<br />[--shutdown-timeout=<em>N</em>] [--noshutdown] [--remove-instance]<br />[--ignore-remove-failures] [--submit] [--print-job-id]<br />[--transport-compression=<em>compression-mode</em>]<br />{<em>instance</em>}</p>
+<p><strong>export</strong> {-n <em>node</em>}<br />[--shutdown-timeout=<em>N</em>] [--noshutdown] [--remove-instance]<br />[--ignore-remove-failures] [--submit] [--print-job-id]<br />[--transport-compression=<em>compression-mode</em>]<br />[--zero-free-space] [--zeroing-timeout-fixed]<br />[--zeroing-timeout-per-mib]<br />{<em>instance</em>}</p>
 <p>Exports an instance to the target node. All the instance data and its configuration will be exported under the <code>@CUSTOM_EXPORT_DIR@/$instance</code> directory on the target node.</p>
-<p>The <code>--transport-compression</code> option is used to specify which compression mode is used to try and speed up moves during the export. Valid values are 'none' (the default) and 'gzip'.</p>
+<p>The <code>--transport-compression</code> option is used to specify which compression mode is used to try and speed up moves during the export. Valid values are 'none', and any values defined in the 'compression_tools' cluster parameter.</p>
 <p>The <code>--shutdown-timeout</code> is used to specify how much time to wait before forcing the shutdown (xm destroy in xen, killing the kvm process, for kvm). By default two minutes are given to each instance to stop.</p>
 <p>The <code>--noshutdown</code> option will create a snapshot disk of the instance without shutting it down first. While this is faster and involves no downtime, it cannot be guaranteed that the instance data will be in a consistent state in the exported dump.</p>
 <p>The <code>--remove</code> option can be used to remove the instance after it was exported. This is useful to make one last backup before removing the instance.</p>
+<p>The <code>--zero-free-space</code> option can be used to zero the free space of the instance prior to exporting it, saving space if compression is used. The <code>--zeroing-timeout-fixed</code> and <code>--zeroing-timeout-per-mib</code> options control the timeout, the former determining the minimum time to wait, and the latter how much longer to wait per MiB of data the instance has.</p>
 <p>The exit code of the command is 0 if all disks were backed up successfully, 1 if no data was backed up or if the configuration export failed, and 2 if just some of the disks failed to backup. The exact details of the failures will be shown during the command execution (and will be stored in the job log). It is recommended that for any non-zero exit code, the backup is considered invalid, and retried.</p>
 <p>See <strong>ganeti</strong>(7) for a description of <code>--submit</code> and other common options.</p>
 <p>Example:</p>

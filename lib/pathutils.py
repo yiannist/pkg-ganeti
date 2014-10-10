@@ -95,6 +95,8 @@ INSTANCE_REASON_DIR = RUN_DIR + "/instance-reason"
 #: User-id pool lock directory (used user IDs have a corresponding lock file in
 #: this directory)
 UIDPOOL_LOCKDIR = RUN_DIR + "/uid-pool"
+LIVELOCK_DIR = RUN_DIR + "/livelocks"
+LUXID_MESSAGE_DIR = RUN_DIR + "/luxidmessages"
 
 SSCONF_LOCK_FILE = LOCK_DIR + "/ganeti-ssconf.lock"
 
@@ -109,6 +111,7 @@ RAPI_USERS_FILE = DATA_DIR + "/rapi/users"
 QUEUE_DIR = DATA_DIR + "/queue"
 INTENT_TO_UPGRADE = DATA_DIR + "/intent-to-upgrade"
 CONF_DIR = SYSCONFDIR + "/ganeti"
+XEN_IFUP_OS = CONF_DIR + "/xen-ifup-os"
 USER_SCRIPTS_DIR = CONF_DIR + "/scripts"
 VNC_PASSWORD_FILE = CONF_DIR + "/vnc-cluster-password"
 HOOKS_BASE_DIR = CONF_DIR + "/hooks"
@@ -147,6 +150,8 @@ EXTERNAL_MASTER_SETUP_SCRIPT = USER_SCRIPTS_DIR + "/master-ip-setup"
 MASTER_SOCKET = SOCKET_DIR + "/ganeti-master"
 #: LUXI socket used for queries only
 QUERY_SOCKET = SOCKET_DIR + "/ganeti-query"
+#: WConfD socket
+WCONFD_SOCKET = SOCKET_DIR + "/ganeti-wconfd"
 
 LOG_OS_DIR = LOG_DIR + "/os"
 LOG_ES_DIR = LOG_DIR + "/extstorage"

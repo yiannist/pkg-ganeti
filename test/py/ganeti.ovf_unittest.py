@@ -182,6 +182,7 @@ ARGS_VBOX = dict(ARGS_EXPORT_DIR, **{
   "os": "lenny-image",
   "hypervisor": ("xen-pvm", {}),
   "osparams":{},
+  "osparams_private":{},
   "disks": [],
 })
 ARGS_COMPLETE = dict(ARGS_VBOX, **{
@@ -197,6 +198,7 @@ ARGS_BROKEN = dict(ARGS_EXPORT_DIR , **{
   "name": "test-instance",
   "os": "lenny-image",
   "osparams": {},
+  "osparams_private":{},
 })
 
 EXP_ARGS_COMPRESSED = dict(ARGS_EXPORT_DIR, **{

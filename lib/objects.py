@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -56,6 +56,7 @@ from ganeti import constants
 from ganeti import netutils
 from ganeti import outils
 from ganeti import utils
+from ganeti import serializer
 
 from socket import AF_INET
 
@@ -232,7 +233,7 @@ class ConfigObject(outils.ValidatedSlots):
 
     """
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Convert to a dict holding only standard python types.
 
     The generic routine just dumps all of this object's attributes in
@@ -240,6 +241,15 @@ class ConfigObject(outils.ValidatedSlots):
     ConfigObjects themselves (e.g. the nics list in an Instance), in
     which case the object should subclass the function in order to
     make sure all objects returned are only standard python types.
+
+    Private fields can be included or not with the _with_private switch.
+    The actual implementation of this switch is left for those subclassses
+    with private fields to implement.
+
+    @type _with_private: bool
+    @param _with_private: if True, the object will leak its private fields in
+                          the dictionary representation. If False, the values
+                          will be replaced with None.
 
     """
     result = {}
@@ -352,13 +362,13 @@ class TaggableObject(ConfigObject):
     except KeyError:
       raise errors.TagError("Tag not found")
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Taggable-object-specific conversion to standard python types.
 
     This replaces the tags set with a list.
 
     """
-    bo = super(TaggableObject, self).ToDict()
+    bo = super(TaggableObject, self).ToDict(_with_private=_with_private)
 
     tags = bo.get("tags", None)
     if isinstance(tags, set):
@@ -404,19 +414,20 @@ class ConfigData(ConfigObject):
     "nodegroups",
     "instances",
     "networks",
+    "disks",
     "serial_no",
     ] + _TIMESTAMPS
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Custom function for top-level config data.
 
-    This just replaces the list of instances, nodes and the cluster
-    with standard python types.
+    This just replaces the list of nodes, instances, nodegroups,
+    networks, disks and the cluster with standard python types.
 
     """
-    mydict = super(ConfigData, self).ToDict()
+    mydict = super(ConfigData, self).ToDict(_with_private=_with_private)
     mydict["cluster"] = mydict["cluster"].ToDict()
-    for key in "nodes", "instances", "nodegroups", "networks":
+    for key in "nodes", "instances", "nodegroups", "networks", "disks":
       mydict[key] = outils.ContainerToDicts(mydict[key])
 
     return mydict
@@ -434,6 +445,7 @@ class ConfigData(ConfigObject):
     obj.nodegroups = \
       outils.ContainerFromDicts(obj.nodegroups, dict, NodeGroup)
     obj.networks = outils.ContainerFromDicts(obj.networks, dict, Network)
+    obj.disks = outils.ContainerFromDicts(obj.disks, dict, Disk)
     return obj
 
   def HasAnyDiskOfType(self, dev_type):
@@ -445,10 +457,9 @@ class ConfigData(ConfigObject):
     @return: boolean indicating if a disk of the given type was found or not
 
     """
-    for instance in self.instances.values():
-      for disk in instance.disks:
-        if disk.IsBasedOnDiskType(dev_type):
-          return True
+    for disk in self.disks.values():
+      if disk.IsBasedOnDiskType(dev_type):
+        return True
     return False
 
   def UpgradeConfig(self):
@@ -474,6 +485,8 @@ class ConfigData(ConfigObject):
       self.networks = {}
     for network in self.networks.values():
       network.UpgradeConfig()
+    for disk in self.disks.values():
+      disk.UpgradeConfig()
 
   def _UpgradeEnabledDiskTemplates(self):
     """Upgrade the cluster's enabled disk templates by inspecting the currently
@@ -526,11 +539,39 @@ class NIC(ConfigObject):
 
 class Disk(ConfigObject):
   """Config object representing a block device."""
-  __slots__ = (["name", "dev_type", "logical_id", "children", "iv_name",
-                "size", "mode", "params", "spindles", "pci"] + _UUID +
-               # dynamic_params is special. It depends on the node this instance
-               # is sent to, and should not be persisted.
-               ["dynamic_params"])
+  __slots__ = [
+    "name",
+    "dev_type",
+    "logical_id",
+    "children",
+    "iv_name",
+    "size",
+    "mode",
+    "params",
+    "spindles",
+    "pci",
+    "serial_no",
+    # dynamic_params is special. It depends on the node this instance
+    # is sent to, and should not be persisted.
+    "dynamic_params"
+    ] + _UUID + _TIMESTAMPS
+
+  def _ComputeAllNodes(self):
+    """Compute the list of all nodes covered by a device and its children."""
+    def _Helper(nodes, device):
+      """Recursively compute nodes given a top device."""
+      if device.dev_type in constants.DTS_DRBD:
+        nodes.extend(device.logical_id[:2])
+      if device.children:
+        for child in device.children:
+          _Helper(nodes, child)
+
+    all_nodes = list()
+    _Helper(all_nodes, self)
+    return tuple(set(all_nodes))
+
+  all_nodes = property(_ComputeAllNodes, None, None,
+                       "List of names of all the nodes of a disk")
 
   def CreateOnSecondary(self):
     """Test if this device needs to be created on a secondary node."""
@@ -765,7 +806,8 @@ class Disk(ConfigObject):
     self.dynamic_params = dyn_disk_params
 
   # pylint: disable=W0221
-  def ToDict(self, include_dynamic_params=False):
+  def ToDict(self, include_dynamic_params=False,
+             _with_private=False):
     """Disk-specific conversion to standard python types.
 
     This replaces the children lists of objects with lists of
@@ -854,6 +896,12 @@ class Disk(ConfigObject):
       self.params = {}
 
     # add here config upgrade for this disk
+    if self.serial_no is None:
+      self.serial_no = 1
+    if self.mtime is None:
+      self.mtime = time.time()
+    if self.ctime is None:
+      self.ctime = time.time()
 
     # map of legacy device types (mapping differing LD constants to new
     # DT constants)
@@ -1072,118 +1120,63 @@ class InstancePolicy(ConfigObject):
                                       " '%s', error: %s" % (key, value, err))
 
 
+def GetOSImage(osparams):
+  """Gets the OS image value from the OS parameters.
+
+  @type osparams: L{dict} or NoneType
+  @param osparams: OS parameters or None
+
+  @rtype: string or NoneType
+  @return:
+    value of OS image contained in OS parameters, or None if the OS
+    parameters are None or the OS parameters do not contain an OS
+    image
+
+  """
+  if osparams is None:
+    return None
+  else:
+    return osparams.get("os-image", None)
+
+
+def PutOSImage(osparams, os_image):
+  """Update OS image value in the OS parameters
+
+  @type osparams: L{dict}
+  @param osparams: OS parameters
+
+  @type os_image: string
+  @param os_image: OS image
+
+  @rtype: NoneType
+  @return: None
+
+  """
+  osparams["os-image"] = os_image
+
+
 class Instance(TaggableObject):
   """Config object representing an instance."""
   __slots__ = [
     "name",
     "primary_node",
+    "secondary_nodes",
     "os",
     "hypervisor",
     "hvparams",
     "beparams",
     "osparams",
+    "osparams_private",
     "admin_state",
     "admin_state_source",
     "nics",
     "disks",
+    "disks_info",
     "disk_template",
     "disks_active",
     "network_port",
     "serial_no",
     ] + _TIMESTAMPS + _UUID
-
-  def _ComputeSecondaryNodes(self):
-    """Compute the list of secondary nodes.
-
-    This is a simple wrapper over _ComputeAllNodes.
-
-    """
-    all_nodes = set(self._ComputeAllNodes())
-    all_nodes.discard(self.primary_node)
-    return tuple(all_nodes)
-
-  secondary_nodes = property(_ComputeSecondaryNodes, None, None,
-                             "List of names of secondary nodes")
-
-  def _ComputeAllNodes(self):
-    """Compute the list of all nodes.
-
-    Since the data is already there (in the drbd disks), keeping it as
-    a separate normal attribute is redundant and if not properly
-    synchronised can cause problems. Thus it's better to compute it
-    dynamically.
-
-    """
-    def _Helper(nodes, device):
-      """Recursively computes nodes given a top device."""
-      if device.dev_type in constants.DTS_DRBD:
-        nodea, nodeb = device.logical_id[:2]
-        nodes.add(nodea)
-        nodes.add(nodeb)
-      if device.children:
-        for child in device.children:
-          _Helper(nodes, child)
-
-    all_nodes = set()
-    for device in self.disks:
-      _Helper(all_nodes, device)
-    # ensure that the primary node is always the first
-    all_nodes.discard(self.primary_node)
-    return (self.primary_node, ) + tuple(all_nodes)
-
-  all_nodes = property(_ComputeAllNodes, None, None,
-                       "List of names of all the nodes of the instance")
-
-  def MapLVsByNode(self, lvmap=None, devs=None, node_uuid=None):
-    """Provide a mapping of nodes to LVs this instance owns.
-
-    This function figures out what logical volumes should belong on
-    which nodes, recursing through a device tree.
-
-    @type lvmap: dict
-    @param lvmap: optional dictionary to receive the
-        'node' : ['lv', ...] data.
-    @type devs: list of L{Disk}
-    @param devs: disks to get the LV name for. If None, all disk of this
-        instance are used.
-    @type node_uuid: string
-    @param node_uuid: UUID of the node to get the LV names for. If None, the
-        primary node of this instance is used.
-    @return: None if lvmap arg is given, otherwise, a dictionary of
-        the form { 'node_uuid' : ['volume1', 'volume2', ...], ... };
-        volumeN is of the form "vg_name/lv_name", compatible with
-        GetVolumeList()
-
-    """
-    if node_uuid is None:
-      node_uuid = self.primary_node
-
-    if lvmap is None:
-      lvmap = {
-        node_uuid: [],
-        }
-      ret = lvmap
-    else:
-      if not node_uuid in lvmap:
-        lvmap[node_uuid] = []
-      ret = None
-
-    if not devs:
-      devs = self.disks
-
-    for dev in devs:
-      if dev.dev_type == constants.DT_PLAIN:
-        lvmap[node_uuid].append(dev.logical_id[0] + "/" + dev.logical_id[1])
-
-      elif dev.dev_type in constants.DTS_DRBD:
-        if dev.children:
-          self.MapLVsByNode(lvmap, dev.children, dev.logical_id[0])
-          self.MapLVsByNode(lvmap, dev.children, dev.logical_id[1])
-
-      elif dev.children:
-        self.MapLVsByNode(lvmap, dev.children, node_uuid)
-
-    return ret
 
   def FindDisk(self, idx):
     """Find a disk given having a specified index.
@@ -1192,8 +1185,8 @@ class Instance(TaggableObject):
 
     @type idx: int
     @param idx: the disk index
-    @rtype: L{Disk}
-    @return: the corresponding disk
+    @rtype: string
+    @return: the corresponding disk's uuid
     @raise errors.OpPrereqError: when the given index is not valid
 
     """
@@ -1208,16 +1201,19 @@ class Instance(TaggableObject):
                                  " 0 to %d" % (idx, len(self.disks) - 1),
                                  errors.ECODE_INVAL)
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Instance-specific conversion to standard python types.
 
     This replaces the children lists of objects with lists of standard
     python types.
 
     """
-    bo = super(Instance, self).ToDict()
+    bo = super(Instance, self).ToDict(_with_private=_with_private)
 
-    for attr in "nics", "disks":
+    if _with_private:
+      bo["osparams_private"] = self.osparams_private.Unprivate()
+
+    for attr in "nics", :
       alist = bo.get(attr, None)
       if alist:
         nlist = outils.ContainerToDicts(alist)
@@ -1240,7 +1236,13 @@ class Instance(TaggableObject):
       del val["admin_up"]
     obj = super(Instance, cls).FromDict(val)
     obj.nics = outils.ContainerFromDicts(obj.nics, list, NIC)
-    obj.disks = outils.ContainerFromDicts(obj.disks, list, Disk)
+
+    # attribute 'disks_info' is only present when deserializing from a RPC
+    # call in the backend
+    disks_info = getattr(obj, "disks_info", None)
+    if disks_info:
+      obj.disks_info = outils.ContainerFromDicts(disks_info, list, Disk)
+
     return obj
 
   def UpgradeConfig(self):
@@ -1251,8 +1253,8 @@ class Instance(TaggableObject):
       self.admin_state_source = constants.ADMIN_SOURCE
     for nic in self.nics:
       nic.UpgradeConfig()
-    for disk in self.disks:
-      disk.UpgradeConfig()
+    if self.disks is None:
+      self.disks = []
     if self.hvparams:
       for key in constants.HVC_GLOBALS:
         try:
@@ -1261,6 +1263,8 @@ class Instance(TaggableObject):
           pass
     if self.osparams is None:
       self.osparams = {}
+    if self.osparams_private is None:
+      self.osparams_private = serializer.PrivateDict()
     UpgradeBeParams(self.beparams)
     if self.disks_active is None:
       self.disks_active = self.admin_state == constants.ADMINST_UP
@@ -1282,6 +1286,7 @@ class OS(ConfigObject):
     "path",
     "api_versions",
     "create_script",
+    "create_script_untrusted",
     "export_script",
     "import_script",
     "rename_script",
@@ -1324,6 +1329,15 @@ class OS(ConfigObject):
 
     """
     return cls.SplitNameVariant(name)[1]
+
+  def IsTrusted(self):
+    """Returns whether this OS is trusted.
+
+    @rtype: bool
+    @return: L{True} if this OS is trusted, L{False} otherwise
+
+    """
+    return not self.create_script_untrusted
 
 
 class ExtStorage(ConfigObject):
@@ -1430,11 +1444,11 @@ class Node(TaggableObject):
     if self.powered is None:
       self.powered = True
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Custom function for serializing.
 
     """
-    data = super(Node, self).ToDict()
+    data = super(Node, self).ToDict(_with_private=_with_private)
 
     hv_state = data.get("hv_state", None)
     if hv_state is not None:
@@ -1482,14 +1496,14 @@ class NodeGroup(TaggableObject):
     "networks",
     ] + _TIMESTAMPS + _UUID
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Custom function for nodegroup.
 
     This discards the members object, which gets recalculated and is only kept
     in memory.
 
     """
-    mydict = super(NodeGroup, self).ToDict()
+    mydict = super(NodeGroup, self).ToDict(_with_private=_with_private)
     del mydict["members"]
     return mydict
 
@@ -1585,6 +1599,7 @@ class Cluster(TaggableObject):
     "os_hvp",
     "beparams",
     "osparams",
+    "osparams_private_cluster",
     "nicparams",
     "ndparams",
     "diskparams",
@@ -1604,6 +1619,11 @@ class Cluster(TaggableObject):
     "enabled_disk_templates",
     "candidate_certs",
     "max_running_jobs",
+    "max_tracked_jobs",
+    "install_image",
+    "instance_communication_network",
+    "zeroing_image",
+    "compression_tools",
     "enabled_user_shutdown",
     ] + _TIMESTAMPS + _UUID
 
@@ -1627,9 +1647,11 @@ class Cluster(TaggableObject):
     if self.os_hvp is None:
       self.os_hvp = {}
 
-    # osparams added before 2.2
     if self.osparams is None:
       self.osparams = {}
+    # osparams_private_cluster added in 2.12
+    if self.osparams_private_cluster is None:
+      self.osparams_private_cluster = {}
 
     self.ndparams = UpgradeNDParams(self.ndparams)
 
@@ -1737,6 +1759,18 @@ class Cluster(TaggableObject):
     if self.max_running_jobs is None:
       self.max_running_jobs = constants.LUXID_MAXIMAL_RUNNING_JOBS_DEFAULT
 
+    if self.max_tracked_jobs is None:
+      self.max_tracked_jobs = constants.LUXID_MAXIMAL_TRACKED_JOBS_DEFAULT
+
+    if self.instance_communication_network is None:
+      self.instance_communication_network = ""
+
+    if self.install_image is None:
+      self.install_image = ""
+
+    if self.compression_tools is None:
+      self.compression_tools = constants.IEC_DEFAULT_TOOLS
+
     if self.enabled_user_shutdown is None:
       self.enabled_user_shutdown = False
 
@@ -1749,11 +1783,17 @@ class Cluster(TaggableObject):
     """
     return self.enabled_hypervisors[0]
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Custom function for cluster.
 
     """
-    mydict = super(Cluster, self).ToDict()
+    mydict = super(Cluster, self).ToDict(_with_private=_with_private)
+
+    # Explicitly save private parameters.
+    if _with_private:
+      for os in mydict["osparams_private_cluster"]:
+        mydict["osparams_private_cluster"][os] = \
+          self.osparams_private_cluster[os].Unprivate()
 
     if self.tcpudp_port_pool is None:
       tcpudp_port_pool = []
@@ -1885,25 +1925,92 @@ class Cluster(TaggableObject):
     """
     return FillDict(self.nicparams.get(constants.PP_DEFAULT, {}), nicparams)
 
-  def SimpleFillOS(self, os_name, os_params):
+  def SimpleFillOS(self, os_name,
+                    os_params_public,
+                    os_params_private=None,
+                    os_params_secret=None):
     """Fill an instance's osparams dict with cluster defaults.
 
     @type os_name: string
     @param os_name: the OS name to use
-    @type os_params: dict
-    @param os_params: the dict to fill with default values
+    @type os_params_public: dict
+    @param os_params_public: the dict to fill with default values
+    @type os_params_private: dict
+    @param os_params_private: the dict with private fields to fill
+                              with default values. Not passing this field
+                              results in no private fields being added to the
+                              return value. Private fields will be wrapped in
+                              L{Private} objects.
+    @type os_params_secret: dict
+    @param os_params_secret: the dict with secret fields to fill
+                             with default values. Not passing this field
+                             results in no secret fields being added to the
+                             return value. Private fields will be wrapped in
+                             L{Private} objects.
     @rtype: dict
     @return: a copy of the instance's osparams with missing keys filled from
-        the cluster defaults
+        the cluster defaults. Private and secret parameters are not included
+        unless the respective optional parameters are supplied.
 
     """
-    name_only = os_name.split("+", 1)[0]
-    # base OS
-    result = self.osparams.get(name_only, {})
-    # OS with variant
-    result = FillDict(result, self.osparams.get(os_name, {}))
-    # specified params
-    return FillDict(result, os_params)
+    if os_name is None:
+      name_only = None
+    else:
+      name_only = OS.GetName(os_name)
+
+    defaults_base_public = self.osparams.get(name_only, {})
+    defaults_public = FillDict(defaults_base_public,
+                               self.osparams.get(os_name, {}))
+    params_public = FillDict(defaults_public, os_params_public)
+
+    if os_params_private is not None:
+      defaults_base_private = self.osparams_private_cluster.get(name_only, {})
+      defaults_private = FillDict(defaults_base_private,
+                                  self.osparams_private_cluster.get(os_name,
+                                                                    {}))
+      params_private = FillDict(defaults_private, os_params_private)
+    else:
+      params_private = {}
+
+    if os_params_secret is not None:
+      # There can't be default secret settings, so there's nothing to be done.
+      params_secret = os_params_secret
+    else:
+      params_secret = {}
+
+    # Enforce that the set of keys be distinct:
+    duplicate_keys = utils.GetRepeatedKeys(params_public,
+                                           params_private,
+                                           params_secret)
+    if not duplicate_keys:
+
+      # Actually update them:
+      params_public.update(params_private)
+      params_public.update(params_secret)
+
+      return params_public
+
+    else:
+
+      def formatter(keys):
+        return utils.CommaJoin(sorted(map(repr, keys))) if keys else "(none)"
+
+      #Lose the values.
+      params_public = set(params_public)
+      params_private = set(params_private)
+      params_secret = set(params_secret)
+
+      msg = """Cannot assign multiple values to OS parameters.
+
+      Conflicting OS parameters that would have been set by this operation:
+      - at public visibility:  {public}
+      - at private visibility: {private}
+      - at secret visibility:  {secret}
+      """.format(dupes=formatter(duplicate_keys),
+                 public=formatter(params_public & duplicate_keys),
+                 private=formatter(params_private & duplicate_keys),
+                 secret=formatter(params_secret & duplicate_keys))
+      raise errors.OpPrereqError(msg)
 
   @staticmethod
   def SimpleFillHvState(hv_state):
@@ -2019,7 +2126,7 @@ class ImportExportOptions(ConfigObject):
 
   @ivar key_name: X509 key name (None for cluster certificate)
   @ivar ca_pem: Remote peer CA in PEM format (None for cluster certificate)
-  @ivar compress: Compression method (one of L{constants.IEC_ALL})
+  @ivar compress: Compression tool to use
   @ivar magic: Used to ensure the connection goes to the right disk
   @ivar ipv6: Whether to use IPv6
   @ivar connect_timeout: Number of seconds for establishing connection
@@ -2091,7 +2198,7 @@ class _QueryResponseBase(ConfigObject):
     "fields",
     ]
 
-  def ToDict(self):
+  def ToDict(self, _with_private=False):
     """Custom function for serializing.
 
     """
