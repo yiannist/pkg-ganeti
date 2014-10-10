@@ -149,10 +149,9 @@ def DisconnectNetwork(opts, args):
 
   """
   cl = GetClient()
-  qcl = GetClient(query=True)
 
   (network, ) = args[:1]
-  groups = _GetDefaultGroups(qcl, args[1:])
+  groups = _GetDefaultGroups(cl, args[1:])
 
   # TODO: Change logic to support "--submit"
   for group in groups:
@@ -182,7 +181,7 @@ def ListNetworks(opts, args):
     "tags": (",".join, False),
     }
 
-  cl = GetClient(query=True)
+  cl = GetClient()
   return GenericList(constants.QR_NETWORK, desired_fields, args, None,
                      opts.separator, not opts.no_headers,
                      verbose=opts.verbose, format_override=fmtoverride,
@@ -199,7 +198,7 @@ def ListNetworkFields(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
 
   return GenericListFields(constants.QR_NETWORK, args, opts.separator,
                            not opts.no_headers, cl=cl)
@@ -216,7 +215,7 @@ def ShowNetworkConfig(_, args):
   @return: the desired exit code
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
   result = cl.QueryNetworks(fields=["name", "network", "gateway",
                                     "network6", "gateway6",
                                     "mac_prefix",

@@ -709,6 +709,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_PVM,
         os="linux1",
         primary_node="node1-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_PLAIN,
         disks=[],
         disks_active=True,
@@ -721,6 +722,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node5-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DISKLESS,
         disks=[],
         disks_active=True,
@@ -737,6 +739,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_KVM,
         os="busybox",
         primary_node="node6-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DRBD8,
         disks=[],
         disks_active=False,
@@ -756,6 +759,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_PVM,
         os="linux1",
         primary_node="nodeoff2-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DRBD8,
         disks=[],
         disks_active=True,
@@ -784,6 +788,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="nodebad2-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DISKLESS,
         disks=[],
         disks_active=True,
@@ -800,6 +805,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node7-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DISKLESS,
         disks=[],
         disks_active=False,
@@ -818,6 +824,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node6-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DISKLESS,
         disks=[],
         disks_active=False,
@@ -831,6 +838,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node6-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DISKLESS,
         disks=[],
         disks_active=False,
@@ -847,6 +855,7 @@ class TestInstanceQuery(unittest.TestCase):
         hypervisor=constants.HT_XEN_HVM,
         os="deb99",
         primary_node="node6-uuid",
+        secondary_nodes=[],
         disk_template=constants.DT_DISKLESS,
         disks=[],
         disks_active=False,
@@ -1185,6 +1194,25 @@ class TestOsQuery(unittest.TestCase):
     variants = ["v00", "plain", "v3", "var0", "v33", "v20"]
     api_versions = [10, 0, 15, 5]
     parameters = ["zpar3", "apar9"]
+    os_hvps = {
+      "os+variant1": {
+        "kvm": {
+          "acpi": False,
+          "migration_downtime": 35,}
+        },
+      "os+variant2": {
+        "xen": {
+          "acpi": "noirq",
+          "console": "com1",}
+        },
+      }
+    osparameters = {
+      "os+variant3": {
+        "img_id": "Debian",
+        "img_passwd": "1234",
+        "img_format": "diskdump",
+        },
+      }
 
     assert variants != sorted(variants) and variants != utils.NiceSort(variants)
     assert (api_versions != sorted(api_versions) and
@@ -1195,17 +1223,19 @@ class TestOsQuery(unittest.TestCase):
     data = [
       query.OsInfo(name="debian", valid=False, hidden=False, blacklisted=False,
                    variants=set(), api_versions=set(), parameters=set(),
-                   node_status={ "some": "status", }),
+                   node_status={ "some": "status", }, os_hvp={}, osparams={}),
       query.OsInfo(name="dos", valid=True, hidden=False, blacklisted=True,
                    variants=set(variants),
                    api_versions=set(api_versions),
                    parameters=set(parameters),
-                   node_status={ "some": "other", "status": None, }),
+                   node_status={ "some": "other", "status": None, },
+                   os_hvp=os_hvps, osparams=osparameters),
       ]
 
 
     q = self._Create(["name", "valid", "hidden", "blacklisted", "variants",
-                      "api_versions", "parameters", "node_status"])
+                      "api_versions", "parameters", "node_status", "os_hvp",
+                      "osparams"])
     self.assertEqual(q.RequestedData(), set([]))
     self.assertEqual(q.Query(data),
                      [[(constants.RS_NORMAL, "debian"),
@@ -1215,7 +1245,9 @@ class TestOsQuery(unittest.TestCase):
                        (constants.RS_NORMAL, []),
                        (constants.RS_NORMAL, []),
                        (constants.RS_NORMAL, []),
-                       (constants.RS_NORMAL, {"some": "status"})],
+                       (constants.RS_NORMAL, {"some": "status"}),
+                       (constants.RS_NORMAL, {}),
+                       (constants.RS_NORMAL, {})],
                       [(constants.RS_NORMAL, "dos"),
                        (constants.RS_NORMAL, True),
                        (constants.RS_NORMAL, False),
@@ -1225,7 +1257,9 @@ class TestOsQuery(unittest.TestCase):
                        (constants.RS_NORMAL, [0, 5, 10, 15]),
                        (constants.RS_NORMAL, ["apar9", "zpar3"]),
                        (constants.RS_NORMAL,
-                        { "some": "other", "status": None, })
+                        { "some": "other", "status": None, }),
+                       (constants.RS_NORMAL, os_hvps),
+                       (constants.RS_NORMAL, osparameters)
                        ]])
 
 

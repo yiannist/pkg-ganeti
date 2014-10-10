@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -65,25 +65,26 @@ from ganeti.cmdlib.common import ShareAll, RunPostHook, \
   CheckOSParams, CheckHVParams, AdjustCandidatePool, CheckNodePVs, \
   ComputeIPolicyInstanceViolation, AnnotateDiskParams, SupportsOob, \
   CheckIpolicyVsDiskTemplates, CheckDiskAccessModeValidity, \
+  CheckDiskAccessModeConsistency, CreateNewClientCert, \
+  AddInstanceCommunicationNetworkOp, ConnectInstanceCommunicationNetworkOp, \
+  CheckImageValidity, \
   CheckDiskAccessModeConsistency, CreateNewClientCert, EnsureKvmdOnNodes
 
 import ganeti.masterd.instance
 
 
 def _UpdateMasterClientCert(
-    lu, master_uuid, cluster, feedback_fn,
+    lu, cfg, master_uuid,
     client_cert=pathutils.NODED_CLIENT_CERT_FILE,
     client_cert_tmp=pathutils.NODED_CLIENT_CERT_FILE_TMP):
   """Renews the master's client certificate and propagates the config.
 
   @type lu: C{LogicalUnit}
   @param lu: the logical unit holding the config
+  @type cfg: C{config.ConfigWriter}
+  @param cfg: the cluster's configuration
   @type master_uuid: string
   @param master_uuid: the master node's UUID
-  @type cluster: C{objects.Cluster}
-  @param cluster: the cluster's configuration
-  @type feedback_fn: function
-  @param feedback_fn: feedback functions for config updates
   @type client_cert: string
   @param client_cert: the path of the client certificate
   @type client_cert_tmp: string
@@ -93,11 +94,9 @@ def _UpdateMasterClientCert(
 
   """
   client_digest = CreateNewClientCert(lu, master_uuid, filename=client_cert_tmp)
-  utils.AddNodeToCandidateCerts(master_uuid, client_digest,
-                                cluster.candidate_certs)
+  cfg.AddNodeToCandidateCerts(master_uuid, client_digest)
   # This triggers an update of the config and distribution of it with the old
   # SSL certificate
-  lu.cfg.Update(cluster, feedback_fn)
 
   utils.RemoveFile(client_cert)
   utils.RenameFile(client_cert_tmp, client_cert)
@@ -113,42 +112,31 @@ class LUClusterRenewCrypto(NoHooksLU):
   """
   def Exec(self, feedback_fn):
     master_uuid = self.cfg.GetMasterNode()
-    cluster = self.cfg.GetClusterInfo()
 
     server_digest = utils.GetCertificateDigest(
       cert_filename=pathutils.NODED_CERT_FILE)
-    utils.AddNodeToCandidateCerts("%s-SERVER" % master_uuid,
-                                  server_digest,
-                                  cluster.candidate_certs)
+    self.cfg.AddNodeToCandidateCerts("%s-SERVER" % master_uuid,
+                                     server_digest)
     try:
       old_master_digest = utils.GetCertificateDigest(
         cert_filename=pathutils.NODED_CLIENT_CERT_FILE)
-      utils.AddNodeToCandidateCerts("%s-OLDMASTER" % master_uuid,
-                                    old_master_digest,
-                                    cluster.candidate_certs)
+      self.cfg.AddNodeToCandidateCerts("%s-OLDMASTER" % master_uuid,
+                                       old_master_digest)
     except IOError:
       logging.info("No old certificate available.")
 
-    new_master_digest = _UpdateMasterClientCert(self, master_uuid, cluster,
-                                                feedback_fn)
+    new_master_digest = _UpdateMasterClientCert(self, self.cfg, master_uuid)
 
-    utils.AddNodeToCandidateCerts(master_uuid,
-                                  new_master_digest,
-                                  cluster.candidate_certs)
+    self.cfg.AddNodeToCandidateCerts(master_uuid, new_master_digest)
     nodes = self.cfg.GetAllNodesInfo()
     for (node_uuid, node_info) in nodes.items():
       if node_uuid != master_uuid:
         new_digest = CreateNewClientCert(self, node_uuid)
         if node_info.master_candidate:
-          utils.AddNodeToCandidateCerts(node_uuid,
-                                        new_digest,
-                                        cluster.candidate_certs)
-    utils.RemoveNodeFromCandidateCerts("%s-SERVER" % master_uuid,
-                                       cluster.candidate_certs)
-    utils.RemoveNodeFromCandidateCerts("%s-OLDMASTER" % master_uuid,
-                                       cluster.candidate_certs)
+          self.cfg.AddNodeToCandidateCerts(node_uuid, new_digest)
+    self.cfg.RemoveNodeFromCandidateCerts("%s-SERVER" % master_uuid)
+    self.cfg.RemoveNodeFromCandidateCerts("%s-OLDMASTER" % master_uuid)
     # Trigger another update of the config now with the new master cert
-    self.cfg.Update(cluster, feedback_fn)
 
 
 class LUClusterActivateMasterIp(NoHooksLU):
@@ -309,8 +297,7 @@ class LUClusterPostInit(LogicalUnit):
                  self.master_ndparams.get(constants.ND_OVS_LINK, None))
       result.Raise("Could not successully configure Open vSwitch")
 
-    cluster = self.cfg.GetClusterInfo()
-    _UpdateMasterClientCert(self, self.master_uuid, cluster, feedback_fn)
+    _UpdateMasterClientCert(self, self.cfg, self.master_uuid)
 
     return True
 
@@ -339,12 +326,6 @@ class ClusterQuery(QueryBase):
     """Computes the list of nodes and their attributes.
 
     """
-    # Locking is not used
-    assert not (compat.any(lu.glm.is_owned(level)
-                           for level in locking.LEVELS
-                           if level != locking.LEVEL_CLUSTER) or
-                self.do_locking or self.use_locking)
-
     if query.CQ_CONFIG in self.requested_data:
       cluster = lu.cfg.GetClusterInfo()
       nodes = lu.cfg.GetAllNodesInfo()
@@ -422,6 +403,8 @@ class LUClusterQuery(NoHooksLU):
       "diskparams": cluster.diskparams,
       "candidate_pool_size": cluster.candidate_pool_size,
       "max_running_jobs": cluster.max_running_jobs,
+      "max_tracked_jobs": cluster.max_tracked_jobs,
+      "mac_prefix": cluster.mac_prefix,
       "master_netdev": cluster.master_netdev,
       "master_netmask": cluster.master_netmask,
       "use_external_mip_script": cluster.use_external_mip_script,
@@ -443,6 +426,9 @@ class LUClusterQuery(NoHooksLU):
       "hidden_os": cluster.hidden_os,
       "blacklisted_os": cluster.blacklisted_os,
       "enabled_disk_templates": cluster.enabled_disk_templates,
+      "install_image": cluster.install_image,
+      "instance_communication_network": cluster.instance_communication_network,
+      "compression_tools": cluster.compression_tools,
       "enabled_user_shutdown": cluster.enabled_user_shutdown,
       }
 
@@ -637,11 +623,11 @@ class LUClusterRepairDiskSizes(NoHooksLU):
       pnode = instance.primary_node
       if pnode not in per_node_disks:
         per_node_disks[pnode] = []
-      for idx, disk in enumerate(instance.disks):
+      for idx, disk in enumerate(self.cfg.GetInstanceDisks(instance.uuid)):
         per_node_disks[pnode].append((instance, idx, disk))
 
     assert not (frozenset(per_node_disks.keys()) -
-                self.owned_locks(locking.LEVEL_NODE_RES)), \
+                frozenset(self.owned_locks(locking.LEVEL_NODE_RES))), \
       "Not owning correct locks"
     assert not self.owned_locks(locking.LEVEL_NODE)
 
@@ -689,7 +675,7 @@ class LUClusterRepairDiskSizes(NoHooksLU):
                        " correcting: recorded %d, actual %d", idx,
                        instance.name, disk.size, size)
           disk.size = size
-          self.cfg.Update(instance, feedback_fn)
+          self.cfg.Update(disk, feedback_fn)
           changed.append((instance.name, idx, "size", size))
         if es_flags[node_uuid]:
           if spindles is None:
@@ -701,10 +687,10 @@ class LUClusterRepairDiskSizes(NoHooksLU):
                          " correcting: recorded %s, actual %s",
                          idx, instance.name, disk.spindles, spindles)
             disk.spindles = spindles
-            self.cfg.Update(instance, feedback_fn)
+            self.cfg.Update(disk, feedback_fn)
             changed.append((instance.name, idx, "spindles", disk.spindles))
         if self._EnsureChildSizes(disk):
-          self.cfg.Update(instance, feedback_fn)
+          self.cfg.Update(disk, feedback_fn)
           changed.append((instance.name, idx, "size", disk.size))
     return changed
 
@@ -713,9 +699,9 @@ def _ValidateNetmask(cfg, netmask):
   """Checks if a netmask is valid.
 
   @type cfg: L{config.ConfigWriter}
-  @param cfg: The cluster configuration
+  @param cfg: cluster configuration
   @type netmask: int
-  @param netmask: the netmask to be verified
+  @param netmask: netmask to be verified
   @raise errors.OpPrereqError: if the validation fails
 
   """
@@ -793,6 +779,33 @@ def CheckSharedFileStoragePathVsEnabledDiskTemplates(
       constants.DT_SHARED_FILE)
 
 
+def CheckCompressionTools(tools):
+  """Check whether the provided compression tools look like executables.
+
+  @type tools: list of string
+  @param tools: The tools provided as opcode input
+
+  """
+  regex = re.compile('^[-_a-zA-Z0-9]+$')
+  illegal_tools = [t for t in tools if not regex.match(t)]
+
+  if illegal_tools:
+    raise errors.OpPrereqError(
+      "The tools '%s' contain illegal characters: only alphanumeric values,"
+      " dashes, and underscores are allowed" % ", ".join(illegal_tools)
+    )
+
+  if constants.IEC_GZIP not in tools:
+    raise errors.OpPrereqError("For compatibility reasons, the %s utility must"
+                               " be present among the compression tools" %
+                               constants.IEC_GZIP)
+
+  if constants.IEC_NONE in tools:
+    raise errors.OpPrereqError("%s is a reserved value used for no compression,"
+                               " and cannot be used as the name of a tool" %
+                               constants.IEC_NONE)
+
+
 class LUClusterSetParams(LogicalUnit):
   """Change the parameters of the cluster.
 
@@ -814,6 +827,10 @@ class LUClusterSetParams(LogicalUnit):
     if self.op.remove_uids:
       uidpool.CheckUidPool(self.op.remove_uids)
 
+    if self.op.mac_prefix:
+      self.op.mac_prefix = \
+          utils.NormalizeAndValidateThreeOctetMacPrefix(self.op.mac_prefix)
+
     if self.op.master_netmask is not None:
       _ValidateNetmask(self.cfg, self.op.master_netmask)
 
@@ -826,6 +843,10 @@ class LUClusterSetParams(LogicalUnit):
       except errors.OpPrereqError, err:
         raise errors.OpPrereqError("While verify diskparams options: %s" % err,
                                    errors.ECODE_INVAL)
+
+    if self.op.install_image is not None:
+      CheckImageValidity(self.op.install_image,
+                         "Install image must be an absolute path or a URL")
 
   def ExpandNames(self):
     # FIXME: in the future maybe other cluster params won't require checking on
@@ -966,9 +987,10 @@ class LUClusterSetParams(LogicalUnit):
       all_instances = self.cfg.GetAllInstancesInfo().values()
       violations = set()
       for group in self.cfg.GetAllNodeGroupsInfo().values():
-        instances = frozenset([inst for inst in all_instances
-                               if compat.any(nuuid in group.members
-                                             for nuuid in inst.all_nodes)])
+        instances = frozenset(
+          [inst for inst in all_instances
+           if compat.any(nuuid in group.members
+           for nuuid in self.cfg.GetInstanceNodes(inst.uuid))])
         new_ipolicy = objects.FillIPolicy(self.new_ipolicy, group.ipolicy)
         ipol = masterd.instance.CalculateGroupIPolicy(cluster, group)
         new = ComputeNewInstanceViolations(ipol, new_ipolicy, instances,
@@ -1059,6 +1081,44 @@ class LUClusterSetParams(LogicalUnit):
         raise errors.OpPrereqError(
             "Cannot disable disk template '%s', because there is at least one"
             " instance using it." % disk_template)
+
+  @staticmethod
+  def _CheckInstanceCommunicationNetwork(network, warning_fn):
+    """Check whether an existing network is configured for instance
+    communication.
+
+    Checks whether an existing network is configured with the
+    parameters that are advisable for instance communication, and
+    otherwise issue security warnings.
+
+    @type network: L{ganeti.objects.Network}
+    @param network: L{ganeti.objects.Network} object whose
+                    configuration is being checked
+    @type warning_fn: function
+    @param warning_fn: function used to print warnings
+    @rtype: None
+    @return: None
+
+    """
+    def _MaybeWarn(err, val, default):
+      if val != default:
+        warning_fn("Supplied instance communication network '%s' %s '%s',"
+                   " this might pose a security risk (default is '%s').",
+                   network.name, err, val, default)
+
+    if network.network is None:
+      raise errors.OpPrereqError("Supplied instance communication network '%s'"
+                                 " must have an IPv4 network address.",
+                                 network.name)
+
+    _MaybeWarn("has an IPv4 gateway", network.gateway, None)
+    _MaybeWarn("has a non-standard IPv4 network address", network.network,
+               constants.INSTANCE_COMMUNICATION_NETWORK4)
+    _MaybeWarn("has an IPv6 gateway", network.gateway6, None)
+    _MaybeWarn("has a non-standard IPv6 network address", network.network6,
+               constants.INSTANCE_COMMUNICATION_NETWORK6)
+    _MaybeWarn("has a non-standard MAC prefix", network.mac_prefix,
+               constants.INSTANCE_COMMUNICATION_MAC_PREFIX)
 
   def CheckPrereq(self):
     """Check prerequisites.
@@ -1191,22 +1251,7 @@ class LUClusterSetParams(LogicalUnit):
               self.new_os_hvp[os_name][hv_name].update(hv_dict)
 
     # os parameters
-    self.new_osp = objects.FillDict(cluster.osparams, {})
-    if self.op.osparams:
-      for os_name, osp in self.op.osparams.items():
-        if os_name not in self.new_osp:
-          self.new_osp[os_name] = {}
-
-        self.new_osp[os_name] = GetUpdatedParams(self.new_osp[os_name], osp,
-                                                 use_none=True)
-
-        if not self.new_osp[os_name]:
-          # we removed all parameters
-          del self.new_osp[os_name]
-        else:
-          # check the parameter validity (remote check)
-          CheckOSParams(self, False, [self.cfg.GetMasterNode()],
-                        os_name, self.new_osp[os_name])
+    self._BuildOSParams(cluster)
 
     # changes to the hypervisor list
     if self.op.enabled_hypervisors is not None:
@@ -1256,6 +1301,54 @@ class LUClusterSetParams(LogicalUnit):
         raise errors.OpPrereqError("Invalid default iallocator script '%s'"
                                    " specified" % self.op.default_iallocator,
                                    errors.ECODE_INVAL)
+
+    if self.op.instance_communication_network:
+      network_name = self.op.instance_communication_network
+
+      try:
+        network_uuid = self.cfg.LookupNetwork(network_name)
+      except errors.OpPrereqError:
+        network_uuid = None
+
+      if network_uuid is not None:
+        network = self.cfg.GetNetwork(network_uuid)
+        self._CheckInstanceCommunicationNetwork(network, self.LogWarning)
+
+    if self.op.compression_tools:
+      CheckCompressionTools(self.op.compression_tools)
+
+  def _BuildOSParams(self, cluster):
+    "Calculate the new OS parameters for this operation."
+
+    def _GetNewParams(source, new_params):
+      "Wrapper around GetUpdatedParams."
+      if new_params is None:
+        return source
+      result = objects.FillDict(source, {}) # deep copy of source
+      for os_name in new_params:
+        result[os_name] = GetUpdatedParams(result.get(os_name, {}),
+                                           new_params[os_name],
+                                           use_none=True)
+        if not result[os_name]:
+          del result[os_name] # we removed all parameters
+      return result
+
+    self.new_osp = _GetNewParams(cluster.osparams,
+                                 self.op.osparams)
+    self.new_osp_private = _GetNewParams(cluster.osparams_private_cluster,
+                                         self.op.osparams_private_cluster)
+
+    # Remove os validity check
+    changed_oses = (set(self.new_osp.keys()) | set(self.new_osp_private.keys()))
+    for os_name in changed_oses:
+      os_params = cluster.SimpleFillOS(
+        os_name,
+        self.new_osp.get(os_name, {}),
+        os_params_private=self.new_osp_private.get(os_name, {})
+      )
+      # check the parameter validity (remote check)
+      CheckOSParams(self, False, [self.cfg.GetMasterNode()],
+                    os_name, os_params, False)
 
   def _CheckDiskTemplateConsistency(self):
     """Check whether the disk templates that are going to be disabled
@@ -1328,18 +1421,135 @@ class LUClusterSetParams(LogicalUnit):
         feedback_fn("Cluster DRBD helper already in desired state,"
                     " not changing")
 
+  @staticmethod
+  def _EnsureInstanceCommunicationNetwork(cfg, network_name):
+    """Ensure that the instance communication network exists and is
+    connected to all groups.
+
+    The instance communication network given by L{network_name} it is
+    created, if necessary, via the opcode 'OpNetworkAdd'.  Also, the
+    instance communication network is connected to all existing node
+    groups, if necessary, via the opcode 'OpNetworkConnect'.
+
+    @type cfg: L{config.ConfigWriter}
+    @param cfg: cluster configuration
+
+    @type network_name: string
+    @param network_name: instance communication network name
+
+    @rtype: L{ganeti.cmdlib.ResultWithJobs} or L{None}
+    @return: L{ganeti.cmdlib.ResultWithJobs} if the instance
+             communication needs to be created or it needs to be
+             connected to a group, otherwise L{None}
+
+    """
+    jobs = []
+
+    try:
+      network_uuid = cfg.LookupNetwork(network_name)
+      network_exists = True
+    except errors.OpPrereqError:
+      network_exists = False
+
+    if not network_exists:
+      jobs.append(AddInstanceCommunicationNetworkOp(network_name))
+
+    for group_uuid in cfg.GetNodeGroupList():
+      group = cfg.GetNodeGroup(group_uuid)
+
+      if network_exists:
+        network_connected = network_uuid in group.networks
+      else:
+        # The network was created asynchronously by the previous
+        # opcode and, therefore, we don't have access to its
+        # network_uuid.  As a result, we assume that the network is
+        # not connected to any group yet.
+        network_connected = False
+
+      if not network_connected:
+        op = ConnectInstanceCommunicationNetworkOp(group_uuid, network_name)
+        jobs.append(op)
+
+    if jobs:
+      return ResultWithJobs([jobs])
+    else:
+      return None
+
+  @staticmethod
+  def _ModifyInstanceCommunicationNetwork(cfg, network_name, feedback_fn):
+    """Update the instance communication network stored in the cluster
+    configuration.
+
+    Compares the user-supplied instance communication network against
+    the one stored in the Ganeti cluster configuration.  If there is a
+    change, the instance communication network may be possibly created
+    and connected to all groups (see
+    L{LUClusterSetParams._EnsureInstanceCommunicationNetwork}).
+
+    @type cfg: L{config.ConfigWriter}
+    @param cfg: cluster configuration
+
+    @type network_name: string
+    @param network_name: instance communication network name
+
+    @type feedback_fn: function
+    @param feedback_fn: see L{ganeti.cmdlist.base.LogicalUnit}
+
+    @rtype: L{LUClusterSetParams._EnsureInstanceCommunicationNetwork} or L{None}
+    @return: see L{LUClusterSetParams._EnsureInstanceCommunicationNetwork}
+
+    """
+    config_network_name = cfg.GetInstanceCommunicationNetwork()
+
+    if network_name == config_network_name:
+      feedback_fn("Instance communication network already is '%s', nothing to"
+                  " do." % network_name)
+    else:
+      try:
+        cfg.LookupNetwork(config_network_name)
+        feedback_fn("Previous instance communication network '%s'"
+                    " should be removed manually." % config_network_name)
+      except errors.OpPrereqError:
+        pass
+
+      if network_name:
+        feedback_fn("Changing instance communication network to '%s', only new"
+                    " instances will be affected."
+                    % network_name)
+      else:
+        feedback_fn("Disabling instance communication network, only new"
+                    " instances will be affected.")
+
+      cfg.SetInstanceCommunicationNetwork(network_name)
+
+      if network_name:
+        return LUClusterSetParams._EnsureInstanceCommunicationNetwork(
+          cfg,
+          network_name)
+      else:
+        return None
+
   def Exec(self, feedback_fn):
     """Change the parameters of the cluster.
 
     """
+    # re-read the fresh configuration
+    self.cluster = self.cfg.GetClusterInfo()
     if self.op.enabled_disk_templates:
       self.cluster.enabled_disk_templates = \
         list(self.op.enabled_disk_templates)
+    # save the changes
+    self.cfg.Update(self.cluster, feedback_fn)
 
     self._SetVgName(feedback_fn)
+
+    self.cluster = self.cfg.GetClusterInfo()
     self._SetFileStorageDir(feedback_fn)
-    self._SetSharedFileStorageDir(feedback_fn)
+    self.cfg.Update(self.cluster, feedback_fn)
     self._SetDrbdHelper(feedback_fn)
+
+    # re-read the fresh configuration again
+    self.cluster = self.cfg.GetClusterInfo()
 
     ensure_kvmd = False
 
@@ -1359,6 +1569,8 @@ class LUClusterSetParams(LogicalUnit):
       self.cluster.ipolicy = self.new_ipolicy
     if self.op.osparams:
       self.cluster.osparams = self.new_osp
+    if self.op.osparams_private_cluster:
+      self.cluster.osparams_private_cluster = self.new_osp_private
     if self.op.ndparams:
       self.cluster.ndparams = self.new_ndparams
     if self.op.diskparams:
@@ -1371,10 +1583,13 @@ class LUClusterSetParams(LogicalUnit):
     if self.op.candidate_pool_size is not None:
       self.cluster.candidate_pool_size = self.op.candidate_pool_size
       # we need to update the pool size here, otherwise the save will fail
-      AdjustCandidatePool(self, [], feedback_fn)
+      AdjustCandidatePool(self, [])
 
     if self.op.max_running_jobs is not None:
       self.cluster.max_running_jobs = self.op.max_running_jobs
+
+    if self.op.max_tracked_jobs is not None:
+      self.cluster.max_tracked_jobs = self.op.max_tracked_jobs
 
     if self.op.maintain_node_health is not None:
       if self.op.maintain_node_health and not constants.ENABLE_CONFD:
@@ -1437,6 +1652,9 @@ class LUClusterSetParams(LogicalUnit):
     if self.op.blacklisted_os:
       helper_os("blacklisted_os", self.op.blacklisted_os, "blacklisted")
 
+    if self.op.mac_prefix:
+      self.cluster.mac_prefix = self.op.mac_prefix
+
     if self.op.master_netdev:
       master_params = self.cfg.GetMasterNetworkParameters()
       ems = self.cfg.GetUseExternalMipScript()
@@ -1465,6 +1683,14 @@ class LUClusterSetParams(LogicalUnit):
       result.Warn("Could not change the master IP netmask", feedback_fn)
       self.cluster.master_netmask = self.op.master_netmask
 
+    if self.op.install_image:
+      self.cluster.install_image = self.op.install_image
+
+    if self.op.zeroing_image is not None:
+      CheckImageValidity(self.op.zeroing_image,
+                         "Zeroing image must be an absolute path or a URL")
+      self.cluster.zeroing_image = self.op.zeroing_image
+
     self.cfg.Update(self.cluster, feedback_fn)
 
     if self.op.master_netdev:
@@ -1483,6 +1709,16 @@ class LUClusterSetParams(LogicalUnit):
     # uses 'Ssconf'.
     if ensure_kvmd:
       EnsureKvmdOnNodes(self, feedback_fn)
+
+    if self.op.compression_tools is not None:
+      self.cfg.SetCompressionTools(self.op.compression_tools)
+
+    network_name = self.op.instance_communication_network
+    if network_name is not None:
+      return self._ModifyInstanceCommunicationNetwork(self.cfg,
+                                                      network_name, feedback_fn)
+    else:
+      return None
 
 
 class LUClusterVerify(NoHooksLU):
@@ -1819,7 +2055,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
         # Important: access only the instances whose lock is owned
         instance = self.cfg.GetInstanceInfoByName(inst_name)
         if instance.disk_template in constants.DTS_INT_MIRROR:
-          nodes.update(instance.secondary_nodes)
+          nodes.update(self.cfg.GetInstanceSecondaryNodes(instance.uuid))
 
       self.needed_locks[locking.LEVEL_NODE] = nodes
 
@@ -1868,7 +2104,8 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
 
     for inst in self.my_inst_info.values():
       if inst.disk_template in constants.DTS_INT_MIRROR:
-        for nuuid in inst.all_nodes:
+        inst_nodes = self.cfg.GetInstanceNodes(inst.uuid)
+        for nuuid in inst_nodes:
           if self.all_node_info[nuuid].group != self.group_uuid:
             extra_lv_nodes.add(nuuid)
 
@@ -2024,8 +2261,9 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     for node_uuid, ndata in node_verify_infos.items():
       nresult = ndata.payload
       if nresult:
-        version = nresult.get(constants.NV_DRBDVERSION, "Missing DRBD version")
-        node_versions[node_uuid] = version
+        version = nresult.get(constants.NV_DRBDVERSION, None)
+        if version:
+          node_versions[node_uuid] = version
 
     if len(set(node_versions.values())) > 1:
       for node_uuid, version in sorted(node_versions.items()):
@@ -2154,7 +2392,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     groupinfo = self.cfg.GetAllNodeGroupsInfo()
 
     node_vol_should = {}
-    instance.MapLVsByNode(node_vol_should)
+    self.cfg.GetInstanceLVsByNode(instance.uuid, lvmap=node_vol_should)
 
     cluster = self.cfg.GetClusterInfo()
     ipolicy = ganeti.masterd.instance.CalculateGroupIPolicy(cluster,
@@ -2215,13 +2453,15 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                   "instance %s, connection to primary node failed",
                   instance.name)
 
-    self._ErrorIf(len(instance.secondary_nodes) > 1,
+    secondary_nodes = self.cfg.GetInstanceSecondaryNodes(instance.uuid)
+    self._ErrorIf(len(secondary_nodes) > 1,
                   constants.CV_EINSTANCELAYOUT, instance.name,
                   "instance has multiple secondary nodes: %s",
-                  utils.CommaJoin(instance.secondary_nodes),
+                  utils.CommaJoin(secondary_nodes),
                   code=self.ETYPE_WARNING)
 
-    es_flags = rpc.GetExclusiveStorageForNodes(self.cfg, instance.all_nodes)
+    inst_nodes = self.cfg.GetInstanceNodes(instance.uuid)
+    es_flags = rpc.GetExclusiveStorageForNodes(self.cfg, inst_nodes)
     if any(es_flags.values()):
       if instance.disk_template not in constants.DTS_EXCL_STORAGE:
         # Disk template not compatible with exclusive_storage: no instance
@@ -2234,7 +2474,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                     " that have exclusive storage set: %s",
                     instance.disk_template,
                     utils.CommaJoin(self.cfg.GetNodeNames(es_nodes)))
-      for (idx, disk) in enumerate(instance.disks):
+      for (idx, disk) in enumerate(self.cfg.GetInstanceDisks(instance.uuid)):
         self._ErrorIf(disk.spindles is None,
                       constants.CV_EINSTANCEMISSINGCFGPARAMETER, instance.name,
                       "number of spindles not configured for disk %s while"
@@ -2242,7 +2482,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                       " gnt-cluster repair-disk-sizes", idx)
 
     if instance.disk_template in constants.DTS_INT_MIRROR:
-      instance_nodes = utils.NiceSort(instance.all_nodes)
+      instance_nodes = utils.NiceSort(inst_nodes)
       instance_groups = {}
 
       for node_uuid in instance_nodes:
@@ -2264,7 +2504,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                     code=self.ETYPE_WARNING)
 
     inst_nodes_offline = []
-    for snode in instance.secondary_nodes:
+    for snode in secondary_nodes:
       s_img = node_image[snode]
       self._ErrorIf(s_img.rpc_fail and not s_img.offline, constants.CV_ENODERPC,
                     self.cfg.GetNodeName(snode),
@@ -2279,7 +2519,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                   instance.name, "instance has offline secondary node(s) %s",
                   utils.CommaJoin(self.cfg.GetNodeNames(inst_nodes_offline)))
     # ... or ghost/non-vm_capable nodes
-    for node_uuid in instance.all_nodes:
+    for node_uuid in inst_nodes:
       self._ErrorIf(node_image[node_uuid].ghost, constants.CV_EINSTANCEBADNODE,
                     instance.name, "instance lives on ghost node %s",
                     self.cfg.GetNodeName(node_uuid))
@@ -2622,7 +2862,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     """
     remote_os = nresult.get(constants.NV_OSLIST, None)
     test = (not isinstance(remote_os, list) or
-            not compat.all(isinstance(v, list) and len(v) == 7
+            not compat.all(isinstance(v, list) and len(v) == 8
                            for v in remote_os))
 
     self._ErrorIf(test, constants.CV_ENODEOS, ninfo.name,
@@ -2636,7 +2876,8 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     os_dict = {}
 
     for (name, os_path, status, diagnose,
-         variants, parameters, api_ver) in nresult[constants.NV_OSLIST]:
+         variants, parameters, api_ver,
+         trusted) in nresult[constants.NV_OSLIST]:
 
       if name not in os_dict:
         os_dict[name] = []
@@ -2645,7 +2886,8 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       # JSON lacking a real tuple type, fix it:
       parameters = [tuple(v) for v in parameters]
       os_dict[name].append((os_path, status, diagnose,
-                            set(variants), set(parameters), set(api_ver)))
+                            set(variants), set(parameters), set(api_ver),
+                            trusted))
 
     nimg.oslist = os_dict
 
@@ -2663,7 +2905,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     beautify_params = lambda l: ["%s: %s" % (k, v) for (k, v) in l]
     for os_name, os_data in nimg.oslist.items():
       assert os_data, "Empty OS status for OS %s?!" % os_name
-      f_path, f_status, f_diag, f_var, f_param, f_api = os_data[0]
+      f_path, f_status, f_diag, f_var, f_param, f_api, f_trusted = os_data[0]
       self._ErrorIf(not f_status, constants.CV_ENODEOS, ninfo.name,
                     "Invalid OS %s (located at %s): %s",
                     os_name, f_path, f_diag)
@@ -2679,7 +2921,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       if test:
         continue
       assert base.oslist[os_name], "Base node has empty OS status?"
-      _, b_status, _, b_var, b_param, b_api = base.oslist[os_name][0]
+      _, b_status, _, b_var, b_param, b_api, b_trusted = base.oslist[os_name][0]
       if not b_status:
         # base OS is invalid, skipping
         continue
@@ -2692,6 +2934,11 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                       " [%s] vs. [%s]", kind, os_name,
                       self.cfg.GetNodeName(base.uuid),
                       utils.CommaJoin(sorted(a)), utils.CommaJoin(sorted(b)))
+      for kind, a, b in [("trusted", f_trusted, b_trusted)]:
+        self._ErrorIf(a != b, constants.CV_ENODEOS, ninfo.name,
+                      "OS %s for %s differs from reference node %s:"
+                      " %s vs. %s", kind, os_name,
+                      self.cfg.GetNodeName(base.uuid), a, b)
 
     # check any missing OSes
     missing = set(base.oslist.keys()).difference(nimg.oslist.keys())
@@ -2912,7 +3159,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
                                 if instanceinfo[uuid].disk_template == diskless)
       disks = [(inst_uuid, disk)
                for inst_uuid in node_inst_uuids
-               for disk in instanceinfo[inst_uuid].disks]
+               for disk in self.cfg.GetInstanceDisks(inst_uuid)]
 
       if not disks:
         nodisk_instances.update(uuid for uuid in node_inst_uuids
@@ -2979,7 +3226,8 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       instdisk[inst_uuid] = {}
 
     assert compat.all(len(statuses) == len(instanceinfo[inst].disks) and
-                      len(nuuids) <= len(instanceinfo[inst].all_nodes) and
+                      len(nuuids) <= len(
+                        self.cfg.GetInstanceNodes(instanceinfo[inst].uuid)) and
                       compat.all(isinstance(s, (tuple, list)) and
                                  len(s) == 2 for s in statuses)
                       for inst, nuuids in instdisk.items()
@@ -3115,7 +3363,7 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       constants.NV_TIME: None,
       constants.NV_MASTERIP: (self.cfg.GetMasterNodeName(), master_ip),
       constants.NV_OSLIST: None,
-      constants.NV_VMNODES: self.cfg.GetNonVmCapableNodeList(),
+      constants.NV_NONVMNODES: self.cfg.GetNonVmCapableNodeNameList(),
       constants.NV_USERSCRIPTS: user_scripts,
       constants.NV_CLIENT_CERT: None,
       }
@@ -3179,18 +3427,19 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
       if instance.admin_state == constants.ADMINST_OFFLINE:
         i_offline += 1
 
-      for nuuid in instance.all_nodes:
+      inst_nodes = self.cfg.GetInstanceNodes(instance.uuid)
+      for nuuid in inst_nodes:
         if nuuid not in node_image:
           gnode = self.NodeImage(uuid=nuuid)
           gnode.ghost = (nuuid not in self.all_node_info)
           node_image[nuuid] = gnode
 
-      instance.MapLVsByNode(node_vol_should)
+      self.cfg.GetInstanceLVsByNode(instance.uuid, lvmap=node_vol_should)
 
       pnode = instance.primary_node
       node_image[pnode].pinst.append(instance.uuid)
 
-      for snode in instance.secondary_nodes:
+      for snode in self.cfg.GetInstanceSecondaryNodes(instance.uuid):
         nimg = node_image[snode]
         nimg.sinst.append(instance.uuid)
         if pnode not in nimg.sbp:
@@ -3212,29 +3461,84 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     # At this point, we have the in-memory data structures complete,
     # except for the runtime information, which we'll gather next
 
-    # Due to the way our RPC system works, exact response times cannot be
-    # guaranteed (e.g. a broken node could run into a timeout). By keeping the
-    # time before and after executing the request, we can at least have a time
-    # window.
-    nvinfo_starttime = time.time()
-    all_nvinfo = self.rpc.call_node_verify(self.my_node_uuids,
-                                           node_verify_param,
-                                           self.cfg.GetClusterName(),
-                                           self.cfg.GetClusterInfo().hvparams,
-                                           node_group_uuids,
-                                           groups_config)
-    nvinfo_endtime = time.time()
+    # NOTE: Here we lock the configuration for the duration of RPC calls,
+    # which means that the cluster configuration changes are blocked during
+    # this period.
+    # This is something that should be done only exceptionally and only for
+    # justified cases!
+    # In this case, we need the lock as we can only verify the integrity of
+    # configuration files on MCs only if we know nobody else is modifying it.
+    # FIXME: The check for integrity of config.data should be moved to
+    # WConfD, which is the only one who can otherwise ensure nobody
+    # will modify the configuration during the check.
+    with self.cfg.GetConfigManager(shared=True):
+      feedback_fn("* Gathering information about nodes (%s nodes)" %
+                  len(self.my_node_uuids))
+      # Force the configuration to be fully distributed before doing any tests
+      self.cfg.FlushConfig()
+      # Due to the way our RPC system works, exact response times cannot be
+      # guaranteed (e.g. a broken node could run into a timeout). By keeping
+      # the time before and after executing the request, we can at least have
+      # a time window.
+      nvinfo_starttime = time.time()
+      # Get lock on the configuration so that nobody modifies it concurrently.
+      # Otherwise it can be modified by other jobs, failing the consistency
+      # test.
+      # NOTE: This is an exceptional situation, we should otherwise avoid
+      # locking the configuration for something but very fast, pure operations.
+      cluster_name = self.cfg.GetClusterName()
+      hvparams = self.cfg.GetClusterInfo().hvparams
+      all_nvinfo = self.rpc.call_node_verify(self.my_node_uuids,
+                                             node_verify_param,
+                                             cluster_name,
+                                             hvparams,
+                                             node_group_uuids,
+                                             groups_config)
+      nvinfo_endtime = time.time()
 
-    if self.extra_lv_nodes and vg_name is not None:
-      extra_lv_nvinfo = \
-          self.rpc.call_node_verify(self.extra_lv_nodes,
-                                    {constants.NV_LVLIST: vg_name},
-                                    self.cfg.GetClusterName(),
-                                    self.cfg.GetClusterInfo().hvparams,
-                                    node_group_uuids,
-                                    groups_config)
-    else:
-      extra_lv_nvinfo = {}
+      if self.extra_lv_nodes and vg_name is not None:
+        feedback_fn("* Gathering information about extra nodes (%s nodes)" %
+                    len(self.extra_lv_nodes))
+        extra_lv_nvinfo = \
+            self.rpc.call_node_verify(self.extra_lv_nodes,
+                                      {constants.NV_LVLIST: vg_name},
+                                      self.cfg.GetClusterName(),
+                                      self.cfg.GetClusterInfo().hvparams,
+                                      node_group_uuids,
+                                      groups_config)
+      else:
+        extra_lv_nvinfo = {}
+
+      # If not all nodes are being checked, we need to make sure the master
+      # node and a non-checked vm_capable node are in the list.
+      absent_node_uuids = set(self.all_node_info).difference(self.my_node_info)
+      if absent_node_uuids:
+        vf_nvinfo = all_nvinfo.copy()
+        vf_node_info = list(self.my_node_info.values())
+        additional_node_uuids = []
+        if master_node_uuid not in self.my_node_info:
+          additional_node_uuids.append(master_node_uuid)
+          vf_node_info.append(self.all_node_info[master_node_uuid])
+        # Add the first vm_capable node we find which is not included,
+        # excluding the master node (which we already have)
+        for node_uuid in absent_node_uuids:
+          nodeinfo = self.all_node_info[node_uuid]
+          if (nodeinfo.vm_capable and not nodeinfo.offline and
+              node_uuid != master_node_uuid):
+            additional_node_uuids.append(node_uuid)
+            vf_node_info.append(self.all_node_info[node_uuid])
+            break
+        key = constants.NV_FILELIST
+
+        feedback_fn("* Gathering information about the master node")
+        vf_nvinfo.update(self.rpc.call_node_verify(
+           additional_node_uuids, {key: node_verify_param[key]},
+           self.cfg.GetClusterName(), self.cfg.GetClusterInfo().hvparams,
+           node_group_uuids,
+           groups_config))
+      else:
+        vf_nvinfo = all_nvinfo
+        vf_node_info = self.my_node_info.values()
 
     all_drbd_map = self.cfg.ComputeDRBDMap()
 
@@ -3246,34 +3550,6 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     feedback_fn("* Verifying configuration file consistency")
 
     self._VerifyClientCertificates(self.my_node_info.values(), all_nvinfo)
-    # If not all nodes are being checked, we need to make sure the master node
-    # and a non-checked vm_capable node are in the list.
-    absent_node_uuids = set(self.all_node_info).difference(self.my_node_info)
-    if absent_node_uuids:
-      vf_nvinfo = all_nvinfo.copy()
-      vf_node_info = list(self.my_node_info.values())
-      additional_node_uuids = []
-      if master_node_uuid not in self.my_node_info:
-        additional_node_uuids.append(master_node_uuid)
-        vf_node_info.append(self.all_node_info[master_node_uuid])
-      # Add the first vm_capable node we find which is not included,
-      # excluding the master node (which we already have)
-      for node_uuid in absent_node_uuids:
-        nodeinfo = self.all_node_info[node_uuid]
-        if (nodeinfo.vm_capable and not nodeinfo.offline and
-            node_uuid != master_node_uuid):
-          additional_node_uuids.append(node_uuid)
-          vf_node_info.append(self.all_node_info[node_uuid])
-          break
-      key = constants.NV_FILELIST
-      vf_nvinfo.update(self.rpc.call_node_verify(
-         additional_node_uuids, {key: node_verify_param[key]},
-         self.cfg.GetClusterName(), self.cfg.GetClusterInfo().hvparams,
-         node_group_uuids,
-         groups_config))
-    else:
-      vf_nvinfo = all_nvinfo
-      vf_node_info = self.my_node_info.values()
 
     self._VerifyFiles(vf_node_info, master_node_uuid, vf_nvinfo, filemap)
 
@@ -3382,10 +3658,10 @@ class LUClusterVerifyGroup(LogicalUnit, _VerifyErrors):
     # is secondary for an instance whose primary is in another group. To avoid
     # them, we find these instances and add their volumes to node_vol_should.
     for instance in self.all_inst_info.values():
-      for secondary in instance.secondary_nodes:
+      for secondary in self.cfg.GetInstanceSecondaryNodes(instance.uuid):
         if (secondary in self.my_node_info
             and instance.name not in self.my_inst_info):
-          instance.MapLVsByNode(node_vol_should)
+          self.cfg.GetInstanceLVsByNode(instance.uuid, lvmap=node_vol_should)
           break
 
     self._VerifyOrphanVolumes(node_vol_should, node_image, reserved)

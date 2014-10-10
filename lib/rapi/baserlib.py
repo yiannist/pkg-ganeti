@@ -45,7 +45,6 @@ from ganeti import http
 from ganeti import errors
 from ganeti import compat
 from ganeti import constants
-from ganeti import pathutils
 from ganeti import utils
 
 
@@ -61,13 +60,46 @@ _SUPPORTED_METHODS = compat.UniqueFrozenset([
   ])
 
 
+class OpcodeAttributes(object):
+  """Acts as a structure containing the per-method attribute names.
+
+  """
+  __slots__ = [
+    "method",
+    "opcode",
+    "rename",
+    "aliases",
+    "forbidden",
+    "get_input",
+    ]
+
+  def __init__(self, method_name):
+    """Initializes the opcode attributes for the given method name.
+
+    """
+    self.method = method_name
+    self.opcode = "%s_OPCODE" % method_name
+    self.rename = "%s_RENAME" % method_name
+    self.aliases = "%s_ALIASES" % method_name
+    self.forbidden = "%s_FORBIDDEN" % method_name
+    self.get_input = "Get%sOpInput" % method_name.capitalize()
+
+  def GetModifiers(self):
+    """Returns the names of all the attributes that replace or modify a method.
+
+    """
+    return [self.opcode, self.rename, self.aliases, self.forbidden,
+            self.get_input]
+
+  def GetAll(self):
+    return [self.method] + self.GetModifiers()
+
+
 def _BuildOpcodeAttributes():
   """Builds list of attributes used for per-handler opcodes.
 
   """
-  return [(method, "%s_OPCODE" % method, "%s_RENAME" % method,
-           "%s_ALIASES" % method, "Get%sOpInput" % method.capitalize())
-          for method in _SUPPORTED_METHODS]
+  return [OpcodeAttributes(method) for method in _SUPPORTED_METHODS]
 
 
 OPCODE_ATTRS = _BuildOpcodeAttributes()
@@ -366,22 +398,13 @@ class ResourceBase(object):
     """
     return bool(self._checkIntVariable("dry-run"))
 
-  def GetClient(self, query=False):
+  def GetClient(self):
     """Wrapper for L{luxi.Client} with HTTP-specific error handling.
 
-    @param query: this signifies that the client will only be used for
-        queries; if the build-time parameter enable-split-queries is
-        enabled, then the client will be connected to the query socket
-        instead of the masterd socket
-
     """
-    if query:
-      address = pathutils.QUERY_SOCKET
-    else:
-      address = None
     # Could be a function, pylint: disable=R0201
     try:
-      return self._client_cls(address=address)
+      return self._client_cls()
     except rpcerr.NoMasterError, err:
       raise http.HttpBadGateway("Can't connect to master daemon: %s" % err)
     except rpcerr.PermissionError:
@@ -421,8 +444,8 @@ def GetResourceOpcodes(cls):
   """Returns all opcodes used by a resource.
 
   """
-  return frozenset(filter(None, (getattr(cls, op_attr, None)
-                                 for (_, op_attr, _, _, _) in OPCODE_ATTRS)))
+  return frozenset(filter(None, (getattr(cls, method_attrs.opcode, None)
+                                 for method_attrs in OPCODE_ATTRS)))
 
 
 def GetHandlerAccess(handler, method):
@@ -452,6 +475,80 @@ def GetHandler(get_fn, aliases):
   return result
 
 
+# Constant used to denote that a parameter cannot be set
+ALL_VALUES_FORBIDDEN = "all_values_forbidden"
+
+
+def ProduceForbiddenParamDict(class_name, method_name, param_list):
+  """Turns a list of parameter names and possibly values into a dictionary.
+
+  @type class_name: string
+  @param class_name: The name of the handler class
+  @type method_name: string
+  @param method_name: The name of the HTTP method
+  @type param_list: list of string or tuple of (string, list of any)
+  @param param_list: A list of forbidden parameters, specified in the RAPI
+                     handler class
+
+  @return: The dictionary of forbidden param names to values or
+           ALL_VALUES_FORBIDDEN
+
+  """
+  # A simple error-raising function
+  def _RaiseError(message):
+    raise errors.ProgrammerError(
+      "While examining the %s_FORBIDDEN field of class %s: %s" %
+      (method_name, class_name, message)
+    )
+
+  param_dict = {}
+  for value in param_list:
+    if isinstance(value, basestring):
+      param_dict[value] = ALL_VALUES_FORBIDDEN
+    elif isinstance(value, tuple):
+      if len(value) != 2:
+        _RaiseError("Tuples of only length 2 allowed")
+      param_name, forbidden_values = value
+      param_dict[param_name] = forbidden_values
+    else:
+      _RaiseError("Only strings or tuples allowed, found %s" % value)
+
+  return param_dict
+
+
+def InspectParams(params_dict, forbidden_params, rename_dict):
+  """Inspects a dictionary of params, looking for forbidden values.
+
+  @type params_dict: dict of string to anything
+  @param params_dict: A dictionary of supplied parameters
+  @type forbidden_params: dict of string to string or list of any
+  @param forbidden_params: The forbidden parameters, with a list of forbidden
+                           values or the constant ALL_VALUES_FORBIDDEN
+                           signifying that all values are forbidden
+  @type rename_dict: None or dict of string to string
+  @param rename_dict: The list of parameter renamings used by the method
+
+  @raise http.HttpForbidden: If a forbidden param has been set
+
+  """
+  for param in params_dict:
+    # Check for possible renames to ensure nothing slips through
+    if rename_dict is not None and param in rename_dict:
+      param = rename_dict[param]
+
+    # Now see if there are restrictions on this parameter
+    if param in forbidden_params:
+      forbidden_values = forbidden_params[param]
+      if forbidden_values == ALL_VALUES_FORBIDDEN:
+        raise http.HttpForbidden("The parameter %s cannot be set via RAPI" %
+                                 param)
+
+      param_value = params_dict[param]
+      if param_value in forbidden_values:
+        raise http.HttpForbidden("The parameter %s cannot be set to the value"
+                                 " %s via RAPI" % (param, param_value))
+
+
 class _MetaOpcodeResource(type):
   """Meta class for RAPI resources.
 
@@ -463,7 +560,8 @@ class _MetaOpcodeResource(type):
     # Access to private attributes of a client class, pylint: disable=W0212
     obj = type.__call__(mcs, *args, **kwargs)
 
-    for (method, op_attr, rename_attr, aliases_attr, fn_attr) in OPCODE_ATTRS:
+    for m_attrs in OPCODE_ATTRS:
+      method, op_attr, rename_attr, aliases_attr, _, fn_attr = m_attrs.GetAll()
       if hasattr(obj, method):
         # If the method handler is already defined, "*_RENAME" or
         # "Get*OpInput" shouldn't be (they're only used by the automatically
@@ -492,6 +590,19 @@ class _MetaOpcodeResource(type):
                                  getattr(obj, rename_attr, None),
                                  getattr(obj, fn_attr, obj._GetDefaultData)))
 
+      # Finally, the method (generated or not) should be wrapped to handle
+      # forbidden values
+      if hasattr(obj, m_attrs.forbidden):
+        forbidden_dict = ProduceForbiddenParamDict(
+          obj.__class__.__name__, method, getattr(obj, m_attrs.forbidden)
+        )
+        setattr(
+          obj, method, compat.partial(obj._ForbiddenHandler,
+                                      getattr(obj, method),
+                                      forbidden_dict,
+                                      getattr(obj, m_attrs.rename, None))
+        )
+
     return obj
 
 
@@ -515,6 +626,9 @@ class OpcodeResource(ResourceBase):
     automatically generate a GET handler submitting the opcode
   @cvar GET_RENAME: Set this to rename parameters in the GET handler (see
     L{baserlib.FillOpcode})
+  @cvar GET_FORBIDDEN: Set this to disable listed parameters and optionally
+    specific values from being set through the GET handler (see
+    L{baserlib.InspectParams})
   @cvar GET_ALIASES: Set this to duplicate return values in GET results (see
     L{baserlib.GetHandler})
   @ivar GetGetOpInput: Define this to override the default method for
@@ -524,6 +638,9 @@ class OpcodeResource(ResourceBase):
     automatically generate a PUT handler submitting the opcode
   @cvar PUT_RENAME: Set this to rename parameters in the PUT handler (see
     L{baserlib.FillOpcode})
+  @cvar PUT_FORBIDDEN: Set this to disable listed parameters and optionally
+    specific values from being set through the PUT handler (see
+    L{baserlib.InspectParams})
   @ivar GetPutOpInput: Define this to override the default method for
     getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
 
@@ -531,6 +648,9 @@ class OpcodeResource(ResourceBase):
     automatically generate a POST handler submitting the opcode
   @cvar POST_RENAME: Set this to rename parameters in the POST handler (see
     L{baserlib.FillOpcode})
+  @cvar POST_FORBIDDEN: Set this to disable listed parameters and optionally
+    specific values from being set through the POST handler (see
+    L{baserlib.InspectParams})
   @ivar GetPostOpInput: Define this to override the default method for
     getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
 
@@ -538,11 +658,22 @@ class OpcodeResource(ResourceBase):
     automatically generate a DELETE handler submitting the opcode
   @cvar DELETE_RENAME: Set this to rename parameters in the DELETE handler (see
     L{baserlib.FillOpcode})
+  @cvar DELETE_FORBIDDEN: Set this to disable listed parameters and optionally
+    specific values from being set through the DELETE handler (see
+    L{baserlib.InspectParams})
   @ivar GetDeleteOpInput: Define this to override the default method for
     getting opcode parameters (see L{baserlib.OpcodeResource._GetDefaultData})
 
   """
   __metaclass__ = _MetaOpcodeResource
+
+  def _ForbiddenHandler(self, method_fn, forbidden_params, rename_dict):
+    """Examines provided parameters for forbidden values.
+
+    """
+    InspectParams(self.queryargs, forbidden_params, rename_dict)
+    InspectParams(self.request_body, forbidden_params, rename_dict)
+    return method_fn()
 
   def _GetDefaultData(self):
     return (self.request_body, None)

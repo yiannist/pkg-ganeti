@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,7 +47,7 @@ from ganeti.cmdlib.common import MergeAndVerifyHvState, \
   ComputeNewInstanceViolations, GetDefaultIAllocator, ShareAll, \
   CheckInstancesNodeGroups, LoadNodeEvacResult, MapInstanceLvsToNodes, \
   CheckIpolicyVsDiskTemplates, CheckDiskAccessModeValidity, \
-  CheckDiskAccessModeConsistency
+  CheckDiskAccessModeConsistency, ConnectInstanceCommunicationNetworkOp
 
 import ganeti.masterd.instance
 
@@ -144,6 +144,40 @@ class LUGroupAdd(LogicalUnit):
     mn = self.cfg.GetMasterNode()
     return ([mn], [mn])
 
+  @staticmethod
+  def _ConnectInstanceCommunicationNetwork(cfg, group_uuid, network_name):
+    """Connect a node group to the instance communication network.
+
+    The group is connected to the instance communication network via
+    the Opcode 'OpNetworkConnect'.
+
+    @type cfg: L{ganeti.config.ConfigWriter}
+    @param cfg: Ganeti configuration
+
+    @type group_uuid: string
+    @param group_uuid: UUID of the group to connect
+
+    @type network_name: string
+    @param network_name: name of the network to connect to
+
+    @rtype: L{ganeti.cmdlib.ResultWithJobs} or L{None}
+    @return: L{ganeti.cmdlib.ResultWithJobs} if the group needs to be
+             connected, otherwise (the group is already connected)
+             L{None}
+
+    """
+    try:
+      cfg.LookupNetwork(network_name)
+      network_exists = True
+    except errors.OpPrereqError:
+      network_exists = False
+
+    if network_exists:
+      op = ConnectInstanceCommunicationNetworkOp(group_uuid, network_name)
+      return ResultWithJobs([[op]])
+    else:
+      return None
+
   def Exec(self, feedback_fn):
     """Add the node group to the cluster.
 
@@ -158,7 +192,12 @@ class LUGroupAdd(LogicalUnit):
                                   disk_state_static=self.new_disk_state)
 
     self.cfg.AddNodeGroup(group_obj, self.proc.GetECId(), check_uuid=False)
-    del self.remove_locks[locking.LEVEL_NODEGROUP]
+
+    network_name = self.cfg.GetClusterInfo().instance_communication_network
+    if network_name:
+      return self._ConnectInstanceCommunicationNetwork(self.cfg,
+                                                       self.group_uuid,
+                                                       network_name)
 
 
 class LUGroupAssignNodes(NoHooksLU):
@@ -246,8 +285,7 @@ class LUGroupAssignNodes(NoHooksLU):
 
     self.cfg.AssignGroupNodes(mods)
 
-  @staticmethod
-  def CheckAssignmentForSplitInstances(changes, node_data, instance_data):
+  def CheckAssignmentForSplitInstances(self, changes, node_data, instance_data):
     """Check for split instances after a node assignment.
 
     This method considers a series of node assignments as an atomic operation,
@@ -280,12 +318,13 @@ class LUGroupAssignNodes(NoHooksLU):
       if inst.disk_template not in constants.DTS_INT_MIRROR:
         continue
 
+      inst_nodes = self.cfg.GetInstanceNodes(inst.uuid)
       if len(set(node_data[node_uuid].group
-                 for node_uuid in inst.all_nodes)) > 1:
+                 for node_uuid in inst_nodes)) > 1:
         previously_split_instances.add(inst.uuid)
 
       if len(set(changed_nodes.get(node_uuid, node_data[node_uuid].group)
-                 for node_uuid in inst.all_nodes)) > 1:
+                 for node_uuid in inst_nodes)) > 1:
         all_split_instances.add(inst.uuid)
 
     return (list(all_split_instances - previously_split_instances),
@@ -539,8 +578,6 @@ class LUGroupRemove(LogicalUnit):
     except errors.ConfigurationError:
       raise errors.OpExecError("Group '%s' with UUID %s disappeared" %
                                (self.op.group_name, self.group_uuid))
-
-    self.remove_locks[locking.LEVEL_NODEGROUP] = self.group_uuid
 
 
 class LUGroupRename(LogicalUnit):
@@ -872,6 +909,7 @@ class LUGroupVerifyDisks(NoHooksLU):
   def _VerifyInstanceLvs(self, node_errors, offline_disk_instance_names,
                          missing_disks):
     node_lv_to_inst = MapInstanceLvsToNodes(
+      self.cfg,
       [inst for inst in self.instances.values() if inst.disks_active])
     if node_lv_to_inst:
       node_uuids = utils.NiceSort(set(self.owned_locks(locking.LEVEL_NODE)) &
@@ -906,12 +944,14 @@ class LUGroupVerifyDisks(NoHooksLU):
       if not inst.disks_active or inst.disk_template != constants.DT_DRBD8:
         continue
 
+      secondary_nodes = self.cfg.GetInstanceSecondaryNodes(inst.uuid)
       for node_uuid in itertools.chain([inst.primary_node],
-                                       inst.secondary_nodes):
+                                       secondary_nodes):
         node_to_inst.setdefault(node_uuid, []).append(inst)
 
     for (node_uuid, insts) in node_to_inst.items():
-      node_disks = [(inst.disks, inst) for inst in insts]
+      node_disks = [(self.cfg.GetInstanceDisks(inst.uuid), inst)
+                    for inst in insts]
       node_res = self.rpc.call_drbd_needs_activation(node_uuid, node_disks)
       msg = node_res.fail_msg
       if msg:
@@ -922,7 +962,8 @@ class LUGroupVerifyDisks(NoHooksLU):
 
       faulty_disk_uuids = set(node_res.payload)
       for inst in self.instances.values():
-        inst_disk_uuids = set([disk.uuid for disk in inst.disks])
+        disks = self.cfg.GetInstanceDisks(inst.uuid)
+        inst_disk_uuids = set([disk.uuid for disk in disks])
         if inst_disk_uuids.intersection(faulty_disk_uuids):
           offline_disk_instance_names.add(inst.name)
 

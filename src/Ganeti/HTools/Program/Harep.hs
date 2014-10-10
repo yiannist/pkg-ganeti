@@ -316,6 +316,8 @@ detectBroken nl inst =
                                  , opInstanceUuid = Nothing
                                  , opOsType = Nothing
                                  , opTempOsParams = Nothing
+                                 , opOsparamsPrivate = Nothing
+                                 , opOsparamsSecret = Nothing
                                  , opForceVariant = False
                                  }
            ])
@@ -368,6 +370,8 @@ detectBroken nl inst =
                                  , opInstanceUuid = Nothing
                                  , opOsType = Nothing
                                  , opTempOsParams = Nothing
+                                 , opOsparamsPrivate = Nothing
+                                 , opOsparamsSecret = Nothing
                                  , opForceVariant = False
                                  }
            ])
@@ -432,6 +436,7 @@ doRepair client delay instData (rtype, opcodes) =
                             , opDelayOnNodes = []
                             , opDelayOnNodeUuids = Nothing
                             , opDelayRepeat = fromJust $ mkNonNegative 0
+                            , opDelayInterruptible = False
                             , opDelayNoLocks = False
                             } : opcodes
               else
@@ -463,7 +468,7 @@ main opts args = do
   unless (null args) $
     exitErr "this program doesn't take any arguments."
 
-  luxiDef <- Path.defaultMasterSocket
+  luxiDef <- Path.defaultQuerySocket
   let master = fromMaybe luxiDef $ optLuxi opts
       opts' = opts { optLuxi = Just master }
 

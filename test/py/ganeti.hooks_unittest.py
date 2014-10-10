@@ -255,7 +255,8 @@ class TestHooksMaster(unittest.TestCase):
     self.context = FakeContext()
     # WARNING: here we pass None as RpcRunner instance since we know
     # our usage via HooksMaster will not use lu.rpc
-    self.lu = FakeLU(FakeProc(), self.op, self.context, None)
+    self.lu = FakeLU(FakeProc(), self.op, self.context, FakeConfig(),
+                     None, (123, "/foo/bar"), None)
 
   def testTotalFalse(self):
     """Test complete rpc failure"""
@@ -527,7 +528,10 @@ class TestHooksRunnerEnv(unittest.TestCase):
 
     self.op = opcodes.OpTestDummy(result=False, messages=[], fail=False)
     self.lu = FakeEnvWithCustomPostHookNodesLU(FakeProc(), self.op,
-                                               FakeContext(), None)
+                                               FakeContext(), FakeConfig(),
+                                               None,
+                                               (123, "/foo/bar"),
+                                               None)
 
   def _HooksRpc(self, *args):
     self._rpcs.append(args)

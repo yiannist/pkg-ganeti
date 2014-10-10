@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,9 @@
 """Common functions used by multiple logical units."""
 
 import copy
+import math
 import os
+import urllib2
 
 from ganeti import compat
 from ganeti import constants
@@ -42,6 +44,7 @@ from ganeti import objects
 from ganeti import opcodes
 from ganeti import pathutils
 import ganeti.rpc.node as rpc
+from ganeti.serializer import Private
 from ganeti import ssconf
 from ganeti import utils
 
@@ -50,11 +53,6 @@ from ganeti import utils
 INSTANCE_DOWN = [constants.ADMINST_DOWN]
 INSTANCE_ONLINE = [constants.ADMINST_DOWN, constants.ADMINST_UP]
 INSTANCE_NOT_RUNNING = [constants.ADMINST_DOWN, constants.ADMINST_OFFLINE]
-
-#: Instance status in which an instance can be marked as offline/online
-CAN_CHANGE_INSTANCE_OFFLINE = (frozenset(INSTANCE_DOWN) | frozenset([
-  constants.ADMINST_OFFLINE,
-  ]))
 
 
 def _ExpandItemName(expand_fn, name, kind):
@@ -373,7 +371,7 @@ def MergeAndVerifyDiskState(op_input, obj_input):
   return None
 
 
-def CheckOSParams(lu, required, node_uuids, osname, osparams):
+def CheckOSParams(lu, required, node_uuids, osname, osparams, force_variant):
   """OS parameters validation.
 
   @type lu: L{LogicalUnit}
@@ -384,24 +382,67 @@ def CheckOSParams(lu, required, node_uuids, osname, osparams):
   @type node_uuids: list
   @param node_uuids: the list of nodes on which we should check
   @type osname: string
-  @param osname: the name of the hypervisor we should use
+  @param osname: the name of the OS we should use
   @type osparams: dict
   @param osparams: the parameters which we need to check
   @raise errors.OpPrereqError: if the parameters are not valid
 
   """
   node_uuids = _FilterVmNodes(lu, node_uuids)
-  result = lu.rpc.call_os_validate(node_uuids, required, osname,
-                                   [constants.OS_VALIDATE_PARAMETERS],
-                                   osparams)
-  for node_uuid, nres in result.items():
-    # we don't check for offline cases since this should be run only
-    # against the master node and/or an instance's nodes
-    nres.Raise("OS Parameters validation failed on node %s" %
-               lu.cfg.GetNodeName(node_uuid))
-    if not nres.payload:
-      lu.LogInfo("OS %s not found on node %s, validation skipped",
-                 osname, lu.cfg.GetNodeName(node_uuid))
+
+  # Last chance to unwrap private elements.
+  for key in osparams:
+    if isinstance(osparams[key], Private):
+      osparams[key] = osparams[key].Get()
+
+  if osname:
+    result = lu.rpc.call_os_validate(node_uuids, required, osname,
+                                     [constants.OS_VALIDATE_PARAMETERS],
+                                     osparams, force_variant)
+    for node_uuid, nres in result.items():
+      # we don't check for offline cases since this should be run only
+      # against the master node and/or an instance's nodes
+      nres.Raise("OS Parameters validation failed on node %s" %
+                 lu.cfg.GetNodeName(node_uuid))
+      if not nres.payload:
+        lu.LogInfo("OS %s not found on node %s, validation skipped",
+                   osname, lu.cfg.GetNodeName(node_uuid))
+
+
+def CheckImageValidity(image, error_message):
+  """Checks if a given image description is either a valid file path or a URL.
+
+  @type image: string
+  @param image: An absolute path or URL, the assumed location of a disk image.
+  @type error_message: string
+  @param error_message: The error message to show if the image is not valid.
+
+  @raise errors.OpPrereqError: If the validation fails.
+
+  """
+  if image is not None and not (utils.IsUrl(image) or os.path.isabs(image)):
+    raise errors.OpPrereqError(error_message)
+
+
+def CheckOSImage(op):
+  """Checks if the OS image in the OS parameters of an opcode is
+  valid.
+
+  This function can also be used in LUs as they carry an opcode.
+
+  @type op: L{opcodes.OpCode}
+  @param op: opcode containing the OS params
+
+  @rtype: string or NoneType
+  @return:
+    None if the OS parameters in the opcode do not contain the OS
+    image, otherwise the OS image value contained in the OS parameters
+  @raise errors.OpPrereqError: if OS image is not a URL or an absolute path
+
+  """
+  os_image = objects.GetOSImage(op.osparams)
+  CheckImageValidity(os_image, "OS image must be an absolute path or a URL")
+  return os_image
 
 
 def CheckHVParams(lu, node_uuids, hvname, hvparams):
@@ -435,7 +476,7 @@ def CheckHVParams(lu, node_uuids, hvname, hvparams):
                lu.cfg.GetNodeName(node_uuid))
 
 
-def AdjustCandidatePool(lu, exceptions, feedback_fn):
+def AdjustCandidatePool(lu, exceptions):
   """Adjust the candidate pool after node operations.
 
   """
@@ -445,9 +486,7 @@ def AdjustCandidatePool(lu, exceptions, feedback_fn):
                utils.CommaJoin(node.name for node in mod_list))
     for node in mod_list:
       lu.context.ReaddNode(node)
-      cluster = lu.cfg.GetClusterInfo()
-      AddNodeCertToCandidateCerts(lu, node.uuid, cluster)
-      lu.cfg.Update(cluster, feedback_fn)
+      AddNodeCertToCandidateCerts(lu, lu.cfg, node.uuid)
   mc_now, mc_max, _ = lu.cfg.GetMasterCandidateStats(exceptions)
   if mc_now > mc_max:
     lu.LogInfo("Note: more nodes are candidates (%d) than desired (%d)" %
@@ -581,11 +620,13 @@ def ComputeIPolicyInstanceViolation(ipolicy, instance, cfg,
   be_full = cfg.GetClusterInfo().FillBE(instance)
   mem_size = be_full[constants.BE_MAXMEM]
   cpu_count = be_full[constants.BE_VCPUS]
-  es_flags = rpc.GetExclusiveStorageForNodes(cfg, instance.all_nodes)
+  inst_nodes = cfg.GetInstanceNodes(instance.uuid)
+  es_flags = rpc.GetExclusiveStorageForNodes(cfg, inst_nodes)
+  disks = cfg.GetInstanceDisks(instance.uuid)
   if any(es_flags.values()):
     # With exclusive storage use the actual spindles
     try:
-      spindle_use = sum([disk.spindles for disk in instance.disks])
+      spindle_use = sum([disk.spindles for disk in disks])
     except TypeError:
       ret.append("Number of spindles not configured for disks of instance %s"
                  " while exclusive storage is enabled, try running gnt-cluster"
@@ -594,8 +635,8 @@ def ComputeIPolicyInstanceViolation(ipolicy, instance, cfg,
       spindle_use = None
   else:
     spindle_use = be_full[constants.BE_SPINDLE_USE]
-  disk_count = len(instance.disks)
-  disk_sizes = [disk.size for disk in instance.disks]
+  disk_count = len(disks)
+  disk_sizes = [disk.size for disk in disks]
   nic_count = len(instance.nics)
   disk_template = instance.disk_template
 
@@ -729,7 +770,7 @@ def AnnotateDiskParams(instance, devs, cfg):
   @param devs: The root devices (not any of its children!)
   @param cfg: The config object
   @returns The annotated disk copies
-  @see L{rpc.node.AnnotateDiskParams}
+  @see L{ganeti.rpc.node.AnnotateDiskParams}
 
   """
   return rpc.AnnotateDiskParams(devs, cfg.GetInstanceDiskParams(instance))
@@ -823,7 +864,8 @@ def CheckInstancesNodeGroups(cfg, instances, owned_groups, owned_node_uuids,
 
   """
   for (uuid, inst) in instances.items():
-    assert owned_node_uuids.issuperset(inst.all_nodes), \
+    inst_nodes = cfg.GetInstanceNodes(inst.uuid)
+    assert owned_node_uuids.issuperset(inst_nodes), \
       "Instance %s's nodes changed while we kept the lock" % inst.name
 
     inst_groups = CheckInstanceNodeGroups(cfg, uuid, owned_groups)
@@ -918,18 +960,21 @@ def _SetOpEarlyRelease(early_release, op):
   return op
 
 
-def MapInstanceLvsToNodes(instances):
+def MapInstanceLvsToNodes(cfg, instances):
   """Creates a map from (node, volume) to instance name.
 
+  @type cfg: L{config.ConfigWriter}
+  @param cfg: The cluster configuration
   @type instances: list of L{objects.Instance}
   @rtype: dict; tuple of (node uuid, volume name) as key, L{objects.Instance}
           object as value
 
   """
-  return dict(((node_uuid, vol), inst)
-              for inst in instances
-              for (node_uuid, vols) in inst.MapLVsByNode().items()
-              for vol in vols)
+  return dict(
+    ((node_uuid, vol), inst)
+     for inst in instances
+     for (node_uuid, vols) in cfg.GetInstanceLVsByNode(inst.uuid).items()
+     for vol in vols)
 
 
 def CheckParamsNotGlobal(params, glob_pars, kind, bad_levels, good_levels):
@@ -975,6 +1020,35 @@ def IsExclusiveStorageEnabledNode(cfg, node):
   return cfg.GetNdParams(node)[constants.ND_EXCLUSIVE_STORAGE]
 
 
+def IsInstanceRunning(lu, instance, prereq=True):
+  """Given an instance object, checks if the instance is running.
+
+  This function asks the backend whether the instance is running and
+  user shutdown instances are considered not to be running.
+
+  @type lu: L{LogicalUnit}
+  @param lu: LU on behalf of which we make the check
+
+  @type instance: L{objects.Instance}
+  @param instance: instance to check whether it is running
+
+  @rtype: bool
+  @return: 'True' if the instance is running, 'False' otherwise
+
+  """
+  hvparams = lu.cfg.GetClusterInfo().FillHV(instance)
+  result = lu.rpc.call_instance_info(instance.primary_node, instance.name,
+                                     instance.hypervisor, hvparams)
+  # TODO: This 'prepreq=True' is a problem if this function is called
+  #       within the 'Exec' method of a LU.
+  result.Raise("Can't retrieve instance information for instance '%s'" %
+               instance.name, prereq=prereq, ecode=errors.ECODE_ENVIRON)
+
+  return result.payload and \
+      "state" in result.payload and \
+      (result.payload["state"] != hypervisor.hv_base.HvInstanceState.SHUTDOWN)
+
+
 def CheckInstanceState(lu, instance, req_states, msg=None):
   """Ensure that an instance is in one of the required states.
 
@@ -994,14 +1068,9 @@ def CheckInstanceState(lu, instance, req_states, msg=None):
 
   if constants.ADMINST_UP not in req_states:
     pnode_uuid = instance.primary_node
+    # Replicating the offline check
     if not lu.cfg.GetNodeInfo(pnode_uuid).offline:
-      all_hvparams = lu.cfg.GetClusterInfo().hvparams
-      ins_l = lu.rpc.call_instance_list(
-                [pnode_uuid], [instance.hypervisor], all_hvparams)[pnode_uuid]
-      ins_l.Raise("Can't contact node %s for instance information" %
-                  lu.cfg.GetNodeName(pnode_uuid),
-                  prereq=True, ecode=errors.ECODE_ENVIRON)
-      if instance.name in ins_l.payload:
+      if IsInstanceRunning(lu, instance):
         raise errors.OpPrereqError("Instance %s is running, %s" %
                                    (instance.name, msg), errors.ECODE_STATE)
     else:
@@ -1048,8 +1117,9 @@ def CheckIAllocatorOrNode(lu, iallocator_slot, node_slot):
 def FindFaultyInstanceDisks(cfg, rpc_runner, instance, node_uuid, prereq):
   faulty = []
 
+  disks = cfg.GetInstanceDisks(instance.uuid)
   result = rpc_runner.call_blockdev_getmirrorstatus(
-             node_uuid, (instance.disks, instance))
+             node_uuid, (disks, instance))
   result.Raise("Failed to get disk status from node %s" %
                cfg.GetNodeName(node_uuid),
                prereq=prereq, ecode=errors.ECODE_ENVIRON)
@@ -1234,13 +1304,15 @@ def IsValidDiskAccessModeCombination(hv, disk_template, mode):
   return False
 
 
-def AddNodeCertToCandidateCerts(lu, node_uuid, cluster):
+def AddNodeCertToCandidateCerts(lu, cfg, node_uuid):
   """Add the node's client SSL certificate digest to the candidate certs.
 
+  @type lu: L{LogicalUnit}
+  @param lu: the logical unit
+  @type cfg: L{ConfigWriter}
+  @param cfg: the configuration client to use
   @type node_uuid: string
   @param node_uuid: the node's UUID
-  @type cluster: C{object.Cluster}
-  @param cluster: the cluster's configuration
 
   """
   result = lu.rpc.call_node_crypto_tokens(
@@ -1252,19 +1324,19 @@ def AddNodeCertToCandidateCerts(lu, node_uuid, cluster):
   ((crypto_type, digest), ) = result.payload
   assert crypto_type == constants.CRYPTO_TYPE_SSL_DIGEST
 
-  utils.AddNodeToCandidateCerts(node_uuid, digest, cluster.candidate_certs)
+  cfg.AddNodeToCandidateCerts(node_uuid, digest)
 
 
-def RemoveNodeCertFromCandidateCerts(node_uuid, cluster):
+def RemoveNodeCertFromCandidateCerts(cfg, node_uuid):
   """Removes the node's certificate from the candidate certificates list.
 
+  @type cfg: C{config.ConfigWriter}
+  @param cfg: the cluster's configuration
   @type node_uuid: string
   @param node_uuid: the node's UUID
-  @type cluster: C{objects.Cluster}
-  @param cluster: the cluster's configuration
 
   """
-  utils.RemoveNodeFromCandidateCerts(node_uuid, cluster.candidate_certs)
+  cfg.RemoveNodeFromCandidateCerts(node_uuid)
 
 
 def CreateNewClientCert(lu, node_uuid, filename=None):
@@ -1292,6 +1364,106 @@ def CreateNewClientCert(lu, node_uuid, filename=None):
   ((crypto_type, new_digest), ) = result.payload
   assert crypto_type == constants.CRYPTO_TYPE_SSL_DIGEST
   return new_digest
+
+
+def AddInstanceCommunicationNetworkOp(network):
+  """Create an OpCode that adds the instance communication network.
+
+  This OpCode contains the configuration necessary for the instance
+  communication network.
+
+  @type network: string
+  @param network: name or UUID of the instance communication network
+
+  @rtype: L{ganeti.opcodes.OpCode}
+  @return: OpCode that creates the instance communication network
+
+  """
+  return opcodes.OpNetworkAdd(
+    network_name=network,
+    gateway=None,
+    network=constants.INSTANCE_COMMUNICATION_NETWORK4,
+    gateway6=None,
+    network6=constants.INSTANCE_COMMUNICATION_NETWORK6,
+    mac_prefix=constants.INSTANCE_COMMUNICATION_MAC_PREFIX,
+    add_reserved_ips=None,
+    conflicts_check=True,
+    tags=[])
+
+
+def ConnectInstanceCommunicationNetworkOp(group_uuid, network):
+  """Create an OpCode that connects a group to the instance
+  communication network.
+
+  This OpCode contains the configuration necessary for the instance
+  communication network.
+
+  @type group_uuid: string
+  @param group_uuid: UUID of the group to connect
+
+  @type network: string
+  @param network: name or UUID of the network to connect to, i.e., the
+                  instance communication network
+
+  @rtype: L{ganeti.opcodes.OpCode}
+  @return: OpCode that connects the group to the instance
+           communication network
+
+  """
+  return opcodes.OpNetworkConnect(
+    group_name=group_uuid,
+    network_name=network,
+    network_mode=constants.INSTANCE_COMMUNICATION_NETWORK_MODE,
+    network_link=constants.INSTANCE_COMMUNICATION_NETWORK_LINK,
+    conflicts_check=True)
+
+
+def DetermineImageSize(lu, image, node_uuid):
+  """Determines the size of the specified image.
+
+  @type image: string
+  @param image: absolute filepath or URL of the image
+
+  @type node_uuid: string
+  @param node_uuid: if L{image} is a filepath, this is the UUID of the
+    node where the image is located
+
+  @rtype: int
+  @return: size of the image in MB, rounded up
+  @raise OpExecError: if the image does not exist
+
+  """
+  # Check if we are dealing with a URL first
+  class _HeadRequest(urllib2.Request):
+    def get_method(self):
+      return "HEAD"
+
+  if utils.IsUrl(image):
+    try:
+      response = urllib2.urlopen(_HeadRequest(image))
+    except urllib2.URLError:
+      raise errors.OpExecError("Could not retrieve image from given url '%s'" %
+                               image)
+
+    content_length_str = response.info().getheader('content-length')
+
+    if not content_length_str:
+      raise errors.OpExecError("Could not determine image size from given url"
+                               " '%s'" % image)
+
+    byte_size = int(content_length_str)
+  else:
+    # We end up here if a file path is used
+    result = lu.rpc.call_get_file_info(node_uuid, image)
+    result.Raise("Could not determine size of file '%s'" % image)
+
+    success, attributes = result.payload
+    if not success:
+      raise errors.OpExecError("Could not open file '%s'" % image)
+    byte_size = attributes[constants.STAT_SIZE]
+
+  # Finally, the conversion
+  return math.ceil(byte_size / 1024. / 1024.)
 
 
 def EnsureKvmdOnNodes(lu, feedback_fn, nodes=None):

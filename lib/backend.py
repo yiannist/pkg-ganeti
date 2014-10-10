@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -46,21 +46,24 @@
 # C0302: This module has become too big and should be split up
 
 
+import base64
+import errno
+import logging
 import os
 import os.path
-import shutil
-import time
-import stat
-import errno
-import re
+import pycurl
 import random
-import logging
-import tempfile
-import zlib
-import base64
+import re
+import shutil
 import signal
+import socket
+import stat
+import tempfile
+import time
+import zlib
 
 from ganeti import errors
+from ganeti import http
 from ganeti import utils
 from ganeti import ssh
 from ganeti import hypervisor
@@ -81,6 +84,8 @@ from ganeti import ht
 from ganeti.storage.base import BlockDev
 from ganeti.storage.drbd import DRBD8
 from ganeti import hooksmaster
+from ganeti.rpc import transport
+from ganeti.rpc.errors import NoMasterError, TimeoutError
 
 
 _BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
@@ -146,6 +151,10 @@ def _StoreInstReasonTrail(instance_name, trail):
 
   @type instance_name: string
   @param instance_name: The name of the instance
+
+  @type trail: list of reasons
+  @param trail: reason trail
+
   @rtype: None
 
   """
@@ -986,7 +995,7 @@ def VerifyNode(what, cluster_name, all_hvparams, node_groups, groups_cfg):
   result = {}
   my_name = netutils.Hostname.GetSysName()
   port = netutils.GetDaemonPort(constants.NODED)
-  vm_capable = my_name not in what.get(constants.NV_VMNODES, [])
+  vm_capable = my_name not in what.get(constants.NV_NONVMNODES, [])
 
   _VerifyHypervisors(what, vm_capable, result, all_hvparams)
   _VerifyHvparams(what, vm_capable, result)
@@ -1540,7 +1549,7 @@ def GetInstanceMigratable(instance):
   if iname not in hyper.ListInstances(hvparams=instance.hvparams):
     _Fail("Instance %s is not running", iname)
 
-  for idx in range(len(instance.disks)):
+  for idx in range(len(instance.disks_info)):
     link_name = _GetBlockDevSymlinkPath(iname, idx)
     if not os.path.islink(link_name):
       logging.warning("Instance %s is missing symlink %s for disk %d",
@@ -1826,7 +1835,7 @@ def _GatherAndLinkBlockDevs(instance):
 
   """
   block_devices = []
-  for idx, disk in enumerate(instance.disks):
+  for idx, disk in enumerate(instance.disks_info):
     device = _RecursiveFindBD(disk)
     if device is None:
       raise errors.BlockDeviceError("Block device '%s' is not set up." %
@@ -1885,7 +1894,7 @@ def StartInstance(instance, startup_paused, reason, store_reason=True):
   except errors.BlockDeviceError, err:
     _Fail("Block device error: %s", err, exc=True)
   except errors.HypervisorError, err:
-    _RemoveBlockDevLinks(instance.name, instance.disks)
+    _RemoveBlockDevLinks(instance.name, instance.disks_info)
     _Fail("Hypervisor error: %s", err, exc=True)
 
 
@@ -1959,7 +1968,7 @@ def InstanceShutdown(instance, timeout, reason, store_reason=True):
   except errors.HypervisorError, err:
     logging.warning("Failed to execute post-shutdown cleanup step: %s", err)
 
-  _RemoveBlockDevLinks(instance.name, instance.disks)
+  _RemoveBlockDevLinks(instance.name, instance.disks_info)
 
 
 def InstanceReboot(instance, reboot_type, shutdown_timeout, reason):
@@ -2070,7 +2079,7 @@ def AcceptInstance(instance, info, target):
     hyper.AcceptInstance(instance, info, target)
   except errors.HypervisorError, err:
     if instance.disk_template in constants.DTS_EXT_MIRROR:
-      _RemoveBlockDevLinks(instance.name, instance.disks)
+      _RemoveBlockDevLinks(instance.name, instance.disks_info)
     _Fail("Failed to accept instance: %s", err, exc=True)
 
 
@@ -2203,6 +2212,52 @@ def HotplugSupported(instance):
     _Fail("Hotplug is not supported: %s", err)
 
 
+def ModifyInstanceMetadata(metadata):
+  """Sends instance data to the metadata daemon.
+
+  Uses the Luxi transport layer to communicate with the metadata
+  daemon configuration server.  It starts the metadata daemon if it is
+  not running.
+  The daemon must be enabled during at configuration time.
+
+  @type metadata: dict
+  @param metadata: instance metadata obtained by calling
+                   L{objects.Instance.ToDict} on an instance object
+
+  """
+  if not constants.ENABLE_METAD:
+    raise errors.ProgrammerError("The metadata deamon is disabled, yet"
+                                 " ModifyInstanceMetadata has been called")
+
+  if not utils.IsDaemonAlive(constants.METAD):
+    result = utils.RunCmd([pathutils.DAEMON_UTIL, "start", constants.METAD])
+    if result.failed:
+      raise errors.HypervisorError("Failed to start metadata daemon")
+
+  def _Connect():
+    return transport.Transport(pathutils.SOCKET_DIR + "/ganeti-metad")
+
+  retries = 5
+
+  while True:
+    try:
+      trans = utils.Retry(_Connect, 1.0, constants.LUXI_DEF_CTMO)
+      break
+    except utils.RetryTimeout:
+      raise TimeoutError("Connection to metadata daemon timed out")
+    except (socket.error, NoMasterError), err:
+      if retries == 0:
+        raise TimeoutError("Failed to connect to metadata daemon: %s" % err)
+      else:
+        retries -= 1
+
+  data = serializer.DumpJson(metadata,
+                             private_encoder=serializer.EncodeWithPrivateFields)
+
+  trans.Send(data)
+  trans.Close()
+
+
 def BlockdevCreate(disk, size, owner, on_primary, info, excl_stor):
   """Creates a block device for an instance.
 
@@ -2268,12 +2323,26 @@ def BlockdevCreate(disk, size, owner, on_primary, info, excl_stor):
   return device.unique_id
 
 
-def _WipeDevice(path, offset, size):
-  """This function actually wipes the device.
+def _DumpDevice(source_path, target_path, offset, size, truncate):
+  """This function images/wipes the device using a local file.
 
-  @param path: The path to the device to wipe
-  @param offset: The offset in MiB in the file
-  @param size: The size in MiB to write
+  @type source_path: string
+  @param source_path: path of the image or data source (e.g., "/dev/zero")
+
+  @type target_path: string
+  @param target_path: path of the device to image/wipe
+
+  @type offset: int
+  @param offset: offset in MiB in the output file
+
+  @type size: int
+  @param size: maximum size in MiB to write (data source might be smaller)
+
+  @type truncate: bool
+  @param truncate: whether the file should be truncated
+
+  @return: None
+  @raise RPCFail: in case of failure
 
   """
   # Internal sizes are always in Mebibytes; if the following "dd" command
@@ -2281,14 +2350,70 @@ def _WipeDevice(path, offset, size):
   # function must be adjusted accordingly before being passed to "dd".
   block_size = 1024 * 1024
 
-  cmd = [constants.DD_CMD, "if=/dev/zero", "seek=%d" % offset,
-         "bs=%s" % block_size, "oflag=direct", "of=%s" % path,
+  cmd = [constants.DD_CMD, "if=%s" % source_path, "seek=%d" % offset,
+         "bs=%s" % block_size, "oflag=direct", "of=%s" % target_path,
          "count=%d" % size]
+
+  if not truncate:
+    cmd.append("conv=notrunc")
+
   result = utils.RunCmd(cmd)
 
   if result.failed:
-    _Fail("Wipe command '%s' exited with error: %s; output: %s", result.cmd,
+    _Fail("Dump command '%s' exited with error: %s; output: %s", result.cmd,
           result.fail_reason, result.output)
+
+
+def _DownloadAndDumpDevice(source_url, target_path, size):
+  """This function images a device using a downloaded image file.
+
+  @type source_url: string
+  @param source_url: URL of image to dump to disk
+
+  @type target_path: string
+  @param target_path: path of the device to image
+
+  @type size: int
+  @param size: maximum size in MiB to write (data source might be smaller)
+
+  @rtype: NoneType
+  @return: None
+  @raise RPCFail: in case of download or write failures
+
+  """
+  class DDParams(object):
+    def __init__(self, current_size, total_size):
+      self.current_size = current_size
+      self.total_size = total_size
+      self.image_size_error = False
+
+  def dd_write(ddparams, out):
+    if ddparams.current_size < ddparams.total_size:
+      ddparams.current_size += len(out)
+      target_file.write(out)
+    else:
+      ddparams.image_size_error = True
+      return -1
+
+  target_file = open(target_path, "r+")
+  ddparams = DDParams(0, 1024 * 1024 * size)
+
+  curl = pycurl.Curl()
+  curl.setopt(pycurl.VERBOSE, True)
+  curl.setopt(pycurl.NOSIGNAL, True)
+  curl.setopt(pycurl.USERAGENT, http.HTTP_GANETI_VERSION)
+  curl.setopt(pycurl.URL, source_url)
+  curl.setopt(pycurl.WRITEFUNCTION, lambda out: dd_write(ddparams, out))
+
+  try:
+    curl.perform()
+  except pycurl.error:
+    if ddparams.image_size_error:
+      _Fail("Disk image larger than the disk")
+    else:
+      raise
+
+  target_file.close()
 
 
 def BlockdevWipe(disk, offset, size):
@@ -2308,19 +2433,56 @@ def BlockdevWipe(disk, offset, size):
     rdev = None
 
   if not rdev:
-    _Fail("Cannot execute wipe for device %s: device not found", disk.iv_name)
-
-  # Do cross verify some of the parameters
+    _Fail("Cannot wipe device %s: device not found", disk.iv_name)
   if offset < 0:
     _Fail("Negative offset")
   if size < 0:
     _Fail("Negative size")
   if offset > rdev.size:
-    _Fail("Offset is bigger than device size")
+    _Fail("Wipe offset is bigger than device size")
   if (offset + size) > rdev.size:
-    _Fail("The provided offset and size to wipe is bigger than device size")
+    _Fail("Wipe offset and size are bigger than device size")
 
-  _WipeDevice(rdev.dev_path, offset, size)
+  _DumpDevice("/dev/zero", rdev.dev_path, offset, size, True)
+
+
+def BlockdevImage(disk, image, size):
+  """Images a block device either by dumping a local file or
+  downloading a URL.
+
+  @type disk: L{objects.Disk}
+  @param disk: the disk object we want to image
+
+  @type image: string
+  @param image: file path to the disk image be dumped
+
+  @type size: int
+  @param size: The size in MiB to write
+
+  @rtype: NoneType
+  @return: None
+  @raise RPCFail: in case of failure
+
+  """
+  if not (utils.IsUrl(image) or os.path.exists(image)):
+    _Fail("Image '%s' not found", image)
+
+  try:
+    rdev = _RecursiveFindBD(disk)
+  except errors.BlockDeviceError:
+    rdev = None
+
+  if not rdev:
+    _Fail("Cannot image device %s: device not found", disk.iv_name)
+  if size < 0:
+    _Fail("Negative size")
+  if size > rdev.size:
+    _Fail("Image size is bigger than device size")
+
+  if utils.IsUrl(image):
+    _DownloadAndDumpDevice(image, rdev.dev_path, size)
+  else:
+    _DumpDevice(image, rdev.dev_path, 0, size, False)
 
 
 def BlockdevPauseResumeSync(disks, pause):
@@ -2791,7 +2953,7 @@ def _OSOndiskAPIVersion(os_dir):
   @param os_dir: the directory in which we should look for the OS
   @rtype: tuple
   @return: tuple (status, data) with status denoting the validity and
-      data holding either the vaid versions or an error message
+      data holding either the valid versions or an error message
 
   """
   api_file = utils.PathJoin(os_dir, constants.OS_API_FILE)
@@ -2860,11 +3022,13 @@ def DiagnoseOS(top_dirs=None):
           variants = os_inst.supported_variants
           parameters = os_inst.supported_parameters
           api_versions = os_inst.api_versions
+          trusted = False if os_inst.create_script_untrusted else True
         else:
           diagnose = os_inst
           variants = parameters = api_versions = []
+          trusted = True
         result.append((name, os_path, status, diagnose, variants,
-                       parameters, api_versions))
+                       parameters, api_versions, trusted))
 
   return result
 
@@ -2905,6 +3069,9 @@ def _TryOSFromDisk(name, base_dir=None):
   # an optional one
   os_files = dict.fromkeys(constants.OS_SCRIPTS, True)
 
+  os_files[constants.OS_SCRIPT_CREATE] = False
+  os_files[constants.OS_SCRIPT_CREATE_UNTRUSTED] = False
+
   if max(api_versions) >= constants.OS_API_V15:
     os_files[constants.OS_VARIANTS_FILE] = False
 
@@ -2934,6 +3101,15 @@ def _TryOSFromDisk(name, base_dir=None):
         return False, ("File '%s' under path '%s' is not executable" %
                        (filename, os_dir))
 
+  if not constants.OS_SCRIPT_CREATE in os_files and \
+        not constants.OS_SCRIPT_CREATE_UNTRUSTED in os_files:
+    return False, ("A create script (trusted or untrusted) under path '%s'"
+                   " must exist" % os_dir)
+
+  create_script = os_files.get(constants.OS_SCRIPT_CREATE, None)
+  create_script_untrusted = os_files.get(constants.OS_SCRIPT_CREATE_UNTRUSTED,
+                                         None)
+
   variants = []
   if constants.OS_VARIANTS_FILE in os_files:
     variants_file = os_files[constants.OS_VARIANTS_FILE]
@@ -2957,7 +3133,8 @@ def _TryOSFromDisk(name, base_dir=None):
     parameters = [v.split(None, 1) for v in parameters]
 
   os_obj = objects.OS(name=name, path=os_dir,
-                      create_script=os_files[constants.OS_SCRIPT_CREATE],
+                      create_script=create_script,
+                      create_script_untrusted=create_script_untrusted,
                       export_script=os_files[constants.OS_SCRIPT_EXPORT],
                       import_script=os_files[constants.OS_SCRIPT_IMPORT],
                       rename_script=os_files[constants.OS_SCRIPT_RENAME],
@@ -3031,7 +3208,7 @@ def OSCoreEnv(os_name, inst_os, os_params, debug=0):
 
   # OS params
   for pname, pvalue in os_params.items():
-    result["OSP_%s" % pname.upper()] = pvalue
+    result["OSP_%s" % pname.upper().replace("-", "_")] = pvalue
 
   # Set a default path otherwise programs called by OS scripts (or
   # even hooks called from OS scripts) might break, and we don't want
@@ -3062,13 +3239,13 @@ def OSEnvironment(instance, inst_os, debug=0):
     result["INSTANCE_%s" % attr.upper()] = str(getattr(instance, attr))
 
   result["HYPERVISOR"] = instance.hypervisor
-  result["DISK_COUNT"] = "%d" % len(instance.disks)
+  result["DISK_COUNT"] = "%d" % len(instance.disks_info)
   result["NIC_COUNT"] = "%d" % len(instance.nics)
   result["INSTANCE_SECONDARY_NODES"] = \
       ("%s" % " ".join(instance.secondary_nodes))
 
   # Disks
-  for idx, disk in enumerate(instance.disks):
+  for idx, disk in enumerate(instance.disks_info):
     real_disk = _OpenRealBD(disk)
     result["DISK_%d_PATH" % idx] = real_disk.dev_path
     result["DISK_%d_ACCESS" % idx] = disk.mode
@@ -3331,6 +3508,10 @@ def FinalizeExport(instance, snap_disks):
   config.add_section(constants.INISECT_OSP)
   for name, value in instance.osparams.items():
     config.set(constants.INISECT_OSP, name, str(value))
+
+  config.add_section(constants.INISECT_OSP_PRIVATE)
+  for name, value in instance.osparams_private.items():
+    config.set(constants.INISECT_OSP_PRIVATE, name, str(value.Get()))
 
   utils.WriteFile(utils.PathJoin(destdir, constants.EXPORT_CONF_FILE),
                   data=config.Dumps())
@@ -3659,8 +3840,38 @@ def _CheckOSPList(os_obj, parameters):
           " by the OS %s: %s" % (os_obj.name, utils.CommaJoin(delta)))
 
 
-def ValidateOS(required, osname, checks, osparams):
-  """Validate the given OS' parameters.
+def _CheckOSVariant(os_obj, name):
+  """Check whether an OS name conforms to the os variants specification.
+
+  @type os_obj: L{objects.OS}
+  @param os_obj: OS object to check
+
+  @type name: string
+  @param name: OS name passed by the user, to check for validity
+
+  @rtype: NoneType
+  @return: None
+  @raise RPCFail: if OS variant is not valid
+
+  """
+  variant = objects.OS.GetVariant(name)
+
+  if not os_obj.supported_variants:
+    if variant:
+      _Fail("OS '%s' does not support variants ('%s' passed)" %
+            (os_obj.name, variant))
+    else:
+      return
+
+  if not variant:
+    _Fail("OS name '%s' must include a variant" % name)
+
+  if variant not in os_obj.supported_variants:
+    _Fail("OS '%s' does not support variant '%s'" % (os_obj.name, variant))
+
+
+def ValidateOS(required, osname, checks, osparams, force_variant):
+  """Validate the given OS parameters.
 
   @type required: boolean
   @param required: whether absence of the OS should translate into
@@ -3670,7 +3881,8 @@ def ValidateOS(required, osname, checks, osparams):
   @type checks: list
   @param checks: list of the checks to run (currently only 'parameters')
   @type osparams: dict
-  @param osparams: dictionary with OS parameters
+  @param osparams: dictionary with OS parameters, some of which may be
+                   private.
   @rtype: boolean
   @return: True if the validation passed, or False if the OS was not
       found and L{required} was false
@@ -3689,6 +3901,9 @@ def ValidateOS(required, osname, checks, osparams):
     else:
       return False
 
+  if not force_variant:
+    _CheckOSVariant(tbv, osname)
+
   if max(tbv.api_versions) < constants.OS_API_V20:
     return True
 
@@ -3705,6 +3920,61 @@ def ValidateOS(required, osname, checks, osparams):
           result.fail_reason, result.output, log=False)
 
   return True
+
+
+def ExportOS(instance, override_env):
+  """Creates a GZIPed tarball with an OS definition and environment.
+
+  The archive contains a file with the environment variables needed by
+  the OS scripts.
+
+  @type instance: L{objects.Instance}
+  @param instance: instance for which the OS definition is exported
+
+  @type override_env: dict of string to string
+  @param override_env: if supplied, it overrides the environment on a
+                       key-by-key basis that is part of the archive
+
+  @rtype: string
+  @return: filepath of the archive
+
+  """
+  assert instance
+  assert instance.os
+
+  temp_dir = tempfile.mkdtemp()
+  inst_os = OSFromDisk(instance.os)
+
+  result = utils.RunCmd(["ln", "-s", inst_os.path,
+                         utils.PathJoin(temp_dir, "os")])
+  if result.failed:
+    _Fail("Failed to copy OS package '%s' to '%s': %s, output '%s'",
+          inst_os, temp_dir, result.fail_reason, result.output)
+
+  env = OSEnvironment(instance, inst_os)
+  env.update(override_env)
+
+  with open(utils.PathJoin(temp_dir, "environment"), "w") as f:
+    for var in env:
+      f.write(var + "=" + env[var] + "\n")
+
+  (fd, os_package) = tempfile.mkstemp(suffix=".tgz")
+  os.close(fd)
+
+  result = utils.RunCmd(["tar", "--dereference", "-czv",
+                         "-f", os_package,
+                         "-C", temp_dir,
+                         "."])
+  if result.failed:
+    _Fail("Failed to create OS archive '%s': %s, output '%s'",
+          os_package, result.fail_reason, result.output)
+
+  result = utils.RunCmd(["rm", "-rf", temp_dir])
+  if result.failed:
+    _Fail("Failed to remove copy of OS package '%s' in '%s': %s, output '%s'",
+          inst_os, temp_dir, result.fail_reason, result.output)
+
+  return os_package
 
 
 def DemoteFromMC():
@@ -4519,6 +4789,30 @@ def ConfigureOVS(ovs_name, ovs_link):
       _Fail("Failed to connect openvswitch to  interface %s. Script return"
             " value: %s, output: '%s'" % (ovs_link, result.exit_code,
             result.output), log=True)
+
+
+def GetFileInfo(file_path):
+  """ Checks if a file exists and returns information related to it.
+
+  Currently returned information:
+    - file size: int, size in bytes
+
+  @type file_path: string
+  @param file_path: Name of file to examine.
+
+  @rtype: tuple of bool, dict
+  @return: Whether the file exists, and a dictionary of information about the
+           file gathered by os.stat.
+
+  """
+  try:
+    stat_info = os.stat(file_path)
+    values_dict = {
+      constants.STAT_SIZE: stat_info.st_size,
+    }
+    return True, values_dict
+  except IOError:
+    return False, {}
 
 
 class HooksRunner(object):

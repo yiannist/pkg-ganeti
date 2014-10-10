@@ -47,18 +47,22 @@ module Ganeti.Daemon
   , oPort
   , oBindAddress
   , oSyslogUsage
+  , oForceNode
+  , oNoVoting
+  , oYesDoIt
   , parseArgs
   , parseAddress
   , cleanupSocket
-  , getFQDN
   , describeError
   , genericMain
+  , getFQDN
   ) where
 
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
 import Data.Maybe (fromMaybe, listToMaybe)
+import Text.Printf
 import Data.Word
 import GHC.IO.Handle (hDuplicateTo)
 import Network.BSD (getHostName)
@@ -108,6 +112,9 @@ data DaemonOptions = DaemonOptions
   , optNoUserChecks :: Bool           -- ^ Ignore user checks
   , optBindAddress  :: Maybe String   -- ^ Override for the bind address
   , optSyslogUsage  :: Maybe SyslogUsage -- ^ Override for Syslog usage
+  , optForceNode    :: Bool           -- ^ Ignore node checks
+  , optNoVoting     :: Bool           -- ^ skip voting for master
+  , optYesDoIt      :: Bool           -- ^ force dangerous options
   }
 
 -- | Default values for the command line options.
@@ -122,6 +129,9 @@ defaultOptions  = DaemonOptions
   , optNoUserChecks = False
   , optBindAddress  = Nothing
   , optSyslogUsage  = Nothing
+  , optForceNode    = False
+  , optNoVoting     = False
+  , optYesDoIt      = False
   }
 
 instance StandardOptions DaemonOptions where
@@ -193,6 +203,27 @@ oSyslogUsage =
     \messages); one of 'no', 'yes' or 'only' [" ++ C.syslogUsage ++
     "]"),
    OptComplChoices ["yes", "no", "only"])
+
+oForceNode :: OptType
+oForceNode =
+  (Option "" ["force-node"]
+   (NoArg (\ opts -> Ok opts { optForceNode = True }))
+   "Force the daemon to run on a different node than the master",
+   OptComplNone)
+
+oNoVoting :: OptType
+oNoVoting =
+  (Option "" ["no-voting"]
+   (NoArg (\ opts -> Ok opts { optNoVoting = True }))
+   "Skip node agreement check (dangerous)",
+   OptComplNone)
+
+oYesDoIt :: OptType
+oYesDoIt =
+  (Option "" ["yes-do-it"]
+   (NoArg (\ opts -> Ok opts { optYesDoIt = True }))
+   "Force a dangerous operation",
+   OptComplNone)
 
 -- | Generic options.
 genericOpts :: [OptType]
@@ -308,8 +339,9 @@ parseAddress opts defport = do
 vClusterHostNameEnvVar :: String
 vClusterHostNameEnvVar = "GANETI_HOSTNAME"
 
-getFQDN :: IO String
-getFQDN = do
+-- | Get the real full qualified host name.
+getFQDN' :: IO String
+getFQDN' = do
   hostname <- getHostName
   addrInfos <- Socket.getAddrInfo Nothing (Just hostname) Nothing
   let address = listToMaybe addrInfos >>= (Just . Socket.addrAddress)
@@ -319,17 +351,22 @@ getFQDN = do
       return (fromMaybe hostname fqdn)
     Nothing -> return hostname
 
--- | Returns if the current node is the master node.
-isMaster :: IO Bool
-isMaster = do
+-- | Return the full qualified host name, honoring the vcluster setup.
+getFQDN :: IO String
+getFQDN = do
   let ioErrorToNothing :: IOError -> IO (Maybe String)
       ioErrorToNothing _ = return Nothing
   vcluster_node <- Control.Exception.catch
                      (liftM Just (getEnv vClusterHostNameEnvVar))
                      ioErrorToNothing
-  curNode <- case vcluster_node of
+  case vcluster_node of
     Just node_name -> return node_name
-    Nothing -> getFQDN
+    Nothing -> getFQDN'
+
+-- | Returns if the current node is the master node.
+isMaster :: IO Bool
+isMaster = do
+  curNode <- getFQDN
   masterNode <- Ssconf.getMasterNode Nothing
   case masterNode of
     Ok n -> return (curNode == n)
@@ -337,10 +374,12 @@ isMaster = do
 
 -- | Ensures that the daemon runs on the right node (and exits
 -- gracefully if it doesnt)
-ensureNode :: GanetiDaemon -> IO ()
-ensureNode daemon = do
+ensureNode :: GanetiDaemon -> DaemonOptions -> IO ()
+ensureNode daemon opts = do
   is_master <- isMaster
-  when (daemonOnlyOnMaster daemon && not is_master) $ do
+  when (daemonOnlyOnMaster daemon
+        && not is_master
+        && not (optForceNode opts)) $ do
     putStrLn "Not master, exiting."
     exitWith (ExitFailure C.exitNotmaster)
 
@@ -366,7 +405,6 @@ daemonize logfile action = do
     setupDaemonEnv "/" (unionFileModes groupModes otherModes)
     setupDaemonFDs (Just logfile) `Control.Exception.catch`
       handlePrepErr False wpipe'
-    _ <- installHandler lostConnection (Catch (handleSigHup logfile)) Nothing
     -- second fork, launches the actual child code; standard
     -- double-fork technique
     _ <- forkProcess (action wpipe')
@@ -393,12 +431,17 @@ genericMain daemon options check_fn prep_fn exec_fn = do
 
   (opts, args) <- parseArgs progname options
 
-  ensureNode daemon
+  -- Modify handleClient in Ganeti.UDSServer to remove this logging from luxid.
+  when (optDebug opts && daemon == GanetiLuxid) .
+    hPutStrLn stderr $
+      printf C.debugModeConfidentialityWarning (daemonName daemon)
+
+  ensureNode daemon opts
 
   exitUnless (null args) "This program doesn't take any arguments"
 
   unless (optNoUserChecks opts) $ do
-    runtimeEnts <- getEnts
+    runtimeEnts <- runResultT getEnts
     ents <- exitIfBad "Can't find required user/groups" runtimeEnts
     verifyDaemonUser daemon ents
 
@@ -417,6 +460,7 @@ genericMain daemon options check_fn prep_fn exec_fn = do
   let processFn = if optDaemonize opts
                     then daemonize log_file
                     else \action -> action Nothing
+  _ <- installHandler lostConnection (Catch (handleSigHup log_file)) Nothing
   processFn $ innerMain daemon opts syslog check_result' prep_fn exec_fn
 
 -- | Full prepare function.

@@ -16,7 +16,7 @@ imported.
 
 {-
 
-Copyright (C) 2013 Google Inc.
+Copyright (C) 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -212,6 +212,12 @@ masterdUser = Runtime.daemonUser GanetiMasterd
 masterdGroup :: String
 masterdGroup = Runtime.daemonGroup (DaemonGroup GanetiMasterd)
 
+metadUser :: String
+metadUser = Runtime.daemonUser GanetiMetad
+
+metadGroup :: String
+metadGroup = Runtime.daemonGroup (DaemonGroup GanetiMetad)
+
 rapiUser :: String
 rapiUser = Runtime.daemonUser GanetiRapi
 
@@ -223,6 +229,12 @@ confdUser = Runtime.daemonUser GanetiConfd
 
 confdGroup :: String
 confdGroup = Runtime.daemonGroup (DaemonGroup GanetiConfd)
+
+wconfdUser :: String
+wconfdUser = Runtime.daemonUser GanetiWConfd
+
+wconfdGroup :: String
+wconfdGroup = Runtime.daemonGroup (DaemonGroup GanetiWConfd)
 
 kvmdUser :: String
 kvmdUser = Runtime.daemonUser GanetiKvmd
@@ -286,15 +298,7 @@ cpuPinningOff = [cpuPinningAllVal]
 cpuPinningAllXen :: String
 cpuPinningAllXen = "0-63"
 
--- | A KVM-specific implementation detail - the following value is
--- used to set CPU affinity to all processors (--0 through --31), per
--- taskset man page.
---
--- FIXME: This only works for machines with up to 32 CPU cores
-cpuPinningAllKvm :: Int
-cpuPinningAllKvm = 0xFFFFFFFF
-
--- * Wipe
+-- * Image and wipe
 
 ddCmd :: String
 ddCmd = "dd"
@@ -328,6 +332,9 @@ enableConfd = AutoConf.enableConfd
 enableMond :: Bool
 enableMond = AutoConf.enableMond
 
+enableMetad :: Bool
+enableMetad = AutoConf.enableMetad
+
 enableRestrictedCommands :: Bool
 enableRestrictedCommands = AutoConf.enableRestrictedCommands
 
@@ -347,11 +354,17 @@ confd = Runtime.daemonName GanetiConfd
 masterd :: String
 masterd = Runtime.daemonName GanetiMasterd
 
+metad :: String
+metad = Runtime.daemonName GanetiMetad
+
 mond :: String
 mond = Runtime.daemonName GanetiMond
 
 noded :: String
 noded = Runtime.daemonName GanetiNoded
+
+wconfd :: String
+wconfd = Runtime.daemonName GanetiWConfd
 
 luxid :: String
 luxid = Runtime.daemonName GanetiLuxid
@@ -377,6 +390,9 @@ defaultConfdPort = 1814
 defaultMondPort :: Int
 defaultMondPort = 1815
 
+defaultMetadPort :: Int
+defaultMetadPort = 80
+
 defaultNodedPort :: Int
 defaultNodedPort = 1811
 
@@ -385,11 +401,14 @@ defaultRapiPort = 5080
 
 daemonsPorts :: Map String (Protocol, Int)
 daemonsPorts =
-  Map.fromList [(confd, (Udp, defaultConfdPort)),
-                (mond, (Tcp, defaultMondPort)),
-                (noded, (Tcp, defaultNodedPort)),
-                (rapi, (Tcp, defaultRapiPort)),
-                (ssh, (Tcp, 22))]
+  Map.fromList
+  [ (confd, (Udp, defaultConfdPort))
+  , (metad, (Tcp, defaultMetadPort))
+  , (mond, (Tcp, defaultMondPort))
+  , (noded, (Tcp, defaultNodedPort))
+  , (rapi, (Tcp, defaultRapiPort))
+  , (ssh, (Tcp, 22))
+  ]
 
 firstDrbdPort :: Int
 firstDrbdPort = 11000
@@ -574,11 +593,30 @@ iemImport = "import"
 iecGzip :: String
 iecGzip = "gzip"
 
+iecGzipFast :: String
+iecGzipFast = "gzip-fast"
+
+iecGzipSlow :: String
+iecGzipSlow = "gzip-slow"
+
+iecLzop :: String
+iecLzop = "lzop"
+
 iecNone :: String
 iecNone = "none"
 
 iecAll :: [String]
-iecAll = [iecGzip, iecNone]
+iecAll = [iecGzip, iecGzipFast, iecGzipSlow, iecLzop, iecNone]
+
+iecDefaultTools :: [String]
+iecDefaultTools = [iecGzip, iecGzipFast, iecGzipSlow]
+
+iecCompressionUtilities :: Map String String
+iecCompressionUtilities =
+  Map.fromList
+  [ (iecGzipFast, iecGzip)
+  , (iecGzipSlow, iecGzip)
+  ]
 
 ieCustomSize :: String
 ieCustomSize = "fd"
@@ -942,6 +980,10 @@ drbdMigrationNetProtocol = "C"
 drbdStatusFile :: String
 drbdStatusFile = "/proc/drbd"
 
+-- | The length of generated DRBD secrets (see also TempRes module).
+drbdSecretLength :: Int
+drbdSecretLength = 20
+
 -- | Size of DRBD meta block device
 drbdMetaSize :: Int
 drbdMetaSize = 128
@@ -1100,6 +1142,9 @@ inisectIns = "instance"
 
 inisectOsp :: String
 inisectOsp = "os"
+
+inisectOspPrivate :: String
+inisectOspPrivate = "os_private"
 
 -- * Dynamic device modification
 
@@ -1299,6 +1344,9 @@ rpcConnectTimeout = 5
 osScriptCreate :: String
 osScriptCreate = "create"
 
+osScriptCreateUntrusted :: String
+osScriptCreateUntrusted = "create_untrusted"
+
 osScriptExport :: String
 osScriptExport = "export"
 
@@ -1312,8 +1360,8 @@ osScriptVerify :: String
 osScriptVerify = "verify"
 
 osScripts :: [String]
-osScripts = [osScriptCreate, osScriptExport, osScriptImport, osScriptRename,
-             osScriptVerify]
+osScripts = [osScriptCreate, osScriptCreateUntrusted, osScriptExport,
+             osScriptImport, osScriptRename, osScriptVerify]
 
 osApiFile :: String
 osApiFile = "ganeti_api_version"
@@ -1419,6 +1467,9 @@ vtypeBool = VTypeBool
 
 vtypeInt :: VType
 vtypeInt = VTypeInt
+
+vtypeFloat :: VType
+vtypeFloat = VTypeFloat
 
 vtypeMaybeString :: VType
 vtypeMaybeString = VTypeMaybeString
@@ -1541,8 +1592,14 @@ hvKvmFloppyImagePath = "floppy_image_path"
 hvKvmMachineVersion :: String
 hvKvmMachineVersion = "machine_version"
 
+hvKvmMigrationCaps :: String
+hvKvmMigrationCaps = "migration_caps"
+
 hvKvmPath :: String
 hvKvmPath = "kvm_path"
+
+hvKvmDiskAio :: String
+hvKvmDiskAio = "disk_aio"
 
 hvKvmSpiceAudioCompr :: String
 hvKvmSpiceAudioCompr = "spice_playback_compression"
@@ -1646,6 +1703,9 @@ hvVga = "vga"
 hvVhostNet :: String
 hvVhostNet = "vhost_net"
 
+hvVirtioNetQueues :: String
+hvVirtioNetQueues = "virtio_net_queues"
+
 hvVifScript :: String
 hvVifScript = "vif_script"
 
@@ -1726,7 +1786,9 @@ hvsParameterTypes = Map.fromList
   , (hvKvmFlag,                         VTypeString)
   , (hvKvmFloppyImagePath,              VTypeString)
   , (hvKvmMachineVersion,               VTypeString)
+  , (hvKvmMigrationCaps,                VTypeString)
   , (hvKvmPath,                         VTypeString)
+  , (hvKvmDiskAio,                      VTypeString)
   , (hvKvmSpiceAudioCompr,              VTypeBool)
   , (hvKvmSpiceBind,                    VTypeString)
   , (hvKvmSpiceIpVersion,               VTypeInt)
@@ -1761,6 +1823,7 @@ hvsParameterTypes = Map.fromList
   , (hvUseLocaltime,                    VTypeBool)
   , (hvVga,                             VTypeString)
   , (hvVhostNet,                        VTypeBool)
+  , (hvVirtioNetQueues,                 VTypeInt)
   , (hvVifScript,                       VTypeString)
   , (hvVifType,                         VTypeString)
   , (hvViridian,                        VTypeBool)
@@ -2034,6 +2097,9 @@ ndOvsName = "ovs_name"
 ndSshPort :: String
 ndSshPort = "ssh_port"
 
+ndCpuSpeed :: String
+ndCpuSpeed = "cpu_speed"
+
 ndsParameterTypes :: Map String VType
 ndsParameterTypes =
   Map.fromList
@@ -2043,7 +2109,8 @@ ndsParameterTypes =
    (ndOvsLink, VTypeMaybeString),
    (ndOvsName, VTypeMaybeString),
    (ndSpindleCount, VTypeInt),
-   (ndSshPort, VTypeInt)]
+   (ndSshPort, VTypeInt),
+   (ndCpuSpeed, VTypeFloat)]
 
 ndsParameters :: FrozenSet String
 ndsParameters = ConstantUtils.mkSet (Map.keys ndsParameterTypes)
@@ -2561,6 +2628,17 @@ htValidCacheTypes =
                        htCacheNone,
                        htCacheWback,
                        htCacheWthrough]
+
+htKvmAioThreads :: String
+htKvmAioThreads = "threads"
+
+htKvmAioNative :: String
+htKvmAioNative = "native"
+
+htKvmValidAioTypes :: FrozenSet String
+htKvmValidAioTypes =
+  ConstantUtils.mkSet [htKvmAioThreads,
+                       htKvmAioNative]
 
 -- * Mouse types
 
@@ -3082,8 +3160,8 @@ nvVersion = "version"
 nvVglist :: String
 nvVglist = "vglist"
 
-nvVmnodes :: String
-nvVmnodes = "vmnodes"
+nvNonvmnodes :: String
+nvNonvmnodes = "nonvmnodes"
 
 -- * Instance status
 
@@ -3209,6 +3287,15 @@ iallocatorSearchPath = AutoConf.iallocatorSearchPath
 
 defaultIallocatorShortcut :: String
 defaultIallocatorShortcut = "."
+
+-- * Opportunistic allocator usage
+
+-- | Time delay in seconds between repeated opportunistic instance creations.
+-- Rather than failing with an informative error message if the opportunistic
+-- creation cannot grab enough nodes, for some uses it is better to retry the
+-- creation with an interval between attempts. This is a reasonable default.
+defaultOpportunisticRetryInterval :: Int
+defaultOpportunisticRetryInterval = 30
 
 -- * Node evacuation
 
@@ -3344,10 +3431,10 @@ locksReplace = "replace"
 -- given that we start from the default priority level.
 
 lockAttemptsMaxwait :: Double
-lockAttemptsMaxwait = 15.0
+lockAttemptsMaxwait = 75.0
 
 lockAttemptsMinwait :: Double
-lockAttemptsMinwait = 1.0
+lockAttemptsMinwait = 5.0
 
 lockAttemptsTimeout :: Int
 lockAttemptsTimeout = (10 * 3600) `div` (opPrioDefault - opPrioHighest)
@@ -3362,6 +3449,9 @@ elogRemoteImport = Types.eLogTypeToRaw ELogRemoteImport
 
 elogJqueueTest :: String
 elogJqueueTest = Types.eLogTypeToRaw ELogJqueueTest
+
+elogDelayTest :: String
+elogDelayTest = Types.eLogTypeToRaw ELogDelayTest
 
 -- * /etc/hosts modification
 
@@ -3456,6 +3546,9 @@ qftBool = "bool"
 qftNumber :: String
 qftNumber = "number"
 
+qftNumberFloat :: String
+qftNumberFloat = "float"
+
 qftOther :: String
 qftOther = "other"
 
@@ -3475,6 +3568,7 @@ qftAll :: FrozenSet String
 qftAll =
   ConstantUtils.mkSet [qftBool,
                        qftNumber,
+                       qftNumberFloat,
                        qftOther,
                        qftText,
                        qftTimestamp,
@@ -3740,6 +3834,7 @@ hvcDefaults =
           , (hvNicType,                         PyValueEx htNicParavirtual)
           , (hvDiskType,                        PyValueEx htDiskParavirtual)
           , (hvKvmCdromDiskType,                PyValueEx "")
+          , (hvKvmDiskAio,                      PyValueEx htKvmAioThreads)
           , (hvUsbMouse,                        PyValueEx "")
           , (hvKeymap,                          PyValueEx "")
           , (hvMigrationPort,                   PyValueEx (8102 :: Int))
@@ -3752,6 +3847,7 @@ hvcDefaults =
           , (hvSecurityDomain,                  PyValueEx "")
           , (hvKvmFlag,                         PyValueEx "")
           , (hvVhostNet,                        PyValueEx False)
+          , (hvVirtioNetQueues,                 PyValueEx (1 :: Int))
           , (hvKvmUseChroot,                    PyValueEx False)
           , (hvKvmUserShutdown,                 PyValueEx False)
           , (hvMemPath,                         PyValueEx "")
@@ -3766,6 +3862,7 @@ hvcDefaults =
           , (hvVga,                             PyValueEx "")
           , (hvKvmExtra,                        PyValueEx "")
           , (hvKvmMachineVersion,               PyValueEx "")
+          , (hvKvmMigrationCaps,                PyValueEx "")
           , (hvVnetHdr,                         PyValueEx True)])
   , (Fake, Map.fromList [(hvMigrationMode, PyValueEx htMigrationLive)])
   , (Chroot, Map.fromList [(hvInitScript, PyValueEx "/ganeti-chroot")])
@@ -3800,6 +3897,7 @@ ndcDefaults =
   , (ndOvsName,          PyValueEx defaultOvs)
   , (ndOvsLink,          PyValueEx "")
   , (ndSshPort,          PyValueEx (22 :: Int))
+  , (ndCpuSpeed,         PyValueEx (1 :: Double))
   ]
 
 ndcGlobals :: FrozenSet String
@@ -3990,6 +4088,44 @@ luxidJobqueuePollInterval = 307
 luxidMaximalRunningJobsDefault :: Int
 luxidMaximalRunningJobsDefault = 20
 
+-- | The default value for the maximal number of jobs that luxid tracks via
+-- inotify. If the number of running jobs exceeds this limit (which only happens
+-- if the user increases the default value of maximal running jobs), new forked
+-- jobs are no longer tracked by inotify; progress will still be noticed on the
+-- regular polls.
+luxidMaximalTrackedJobsDefault :: Int
+luxidMaximalTrackedJobsDefault = 25
+
+-- | The number of retries when trying to @fork@ a new job.
+-- Due to a bug in GHC, this can fail even though we synchronize all forks
+-- and restrain from other @IO@ operations in the thread.
+luxidRetryForkCount :: Int
+luxidRetryForkCount = 5
+
+-- | The average time period (in /us/) to wait between two @fork@ attempts.
+-- The forking thread wait a random time period between @0@ and twice the
+-- number, and with each attempt it doubles the step.
+-- See 'luxidRetryForkCount'.
+luxidRetryForkStepUS :: Int
+luxidRetryForkStepUS = 500000
+
+-- * WConfD
+
+-- | Time itnervall in seconds between checks that all lock owners are still
+-- alive, and cleaning up the resources for the dead ones. As jobs dying without
+-- releasing resources is the exception, not the rule, we don't want this task
+-- to take up too many cycles itself. Hence we choose a sufficiently large
+-- intervall, in the order of 5 minutes. To avoid accidental 'same wakeup'
+-- with other tasks, we choose the next unused prime number.
+wconfdDeathdetectionIntervall :: Int
+wconfdDeathdetectionIntervall = 311
+
+wconfdDefCtmo :: Int
+wconfdDefCtmo = 10
+
+wconfdDefRwto :: Int
+wconfdDefRwto = 60
+
 -- * Confd
 
 confdProtocolVersion :: Int
@@ -4023,6 +4159,9 @@ confdReqNodeDrbd = Types.confdRequestTypeToRaw ReqNodeDrbd
 
 confdReqNodeInstances :: Int
 confdReqNodeInstances = Types.confdRequestTypeToRaw ReqNodeInstances
+
+confdReqInstanceDisks :: Int
+confdReqInstanceDisks = Types.confdRequestTypeToRaw ReqInstanceDisks
 
 confdReqs :: FrozenSet Int
 confdReqs =
@@ -4347,6 +4486,9 @@ opcodeReasonSrcOpcode = "gnt:opcode"
 opcodeReasonSrcPickup :: String
 opcodeReasonSrcPickup = _opcodeReasonSrcMasterd ++ ":pickup"
 
+opcodeReasonSrcWatcher :: String
+opcodeReasonSrcWatcher = "gnt:watcher"
+
 opcodeReasonSrcRlib2 :: String
 opcodeReasonSrcRlib2 = "gnt:library:rlib2"
 
@@ -4359,6 +4501,7 @@ opcodeReasonSources =
                        opcodeReasonSrcNoded,
                        opcodeReasonSrcOpcode,
                        opcodeReasonSrcPickup,
+                       opcodeReasonSrcWatcher,
                        opcodeReasonSrcRlib2,
                        opcodeReasonSrcUser]
 
@@ -4638,6 +4781,26 @@ luxiDefRwto = 60
 luxiWfjcTimeout :: Int
 luxiWfjcTimeout = (luxiDefRwto - 1) `div` 2
 
+-- | The prefix of the LUXI livelock file name
+luxiLivelockPrefix :: String
+luxiLivelockPrefix = "luxi-daemon"
+
+-- | The LUXI daemon waits this number of seconds for ensuring that a canceled
+-- job terminates before giving up.
+luxiCancelJobTimeout :: Int
+luxiCancelJobTimeout = (luxiDefRwto - 1) `div` 4
+
+-- * Master voting constants
+
+-- | Number of retries to carry out if nodes do not answer
+masterVotingRetries :: Int
+masterVotingRetries = 6
+
+-- | Retry interval (in seconds) in master voting, if not enough answers
+-- could be gathered.
+masterVotingRetryIntervall :: Int
+masterVotingRetryIntervall = 10
+
 -- * Query language constants
 
 -- ** Logic operators with one or more operands, each of which is a
@@ -4786,3 +4949,103 @@ glusterPort = "port"
 -- | Default value of the Gluster port setting
 glusterPortDefault :: Int
 glusterPortDefault = 24007
+
+-- * Instance communication
+--
+-- The instance communication attaches an additional NIC, named
+-- @instanceCommunicationNicPrefix@:@instanceName@ with MAC address
+-- prefixed by @instanceCommunicationMacPrefix@, to the instances that
+-- have instance communication enabled.  This NIC is part of the
+-- instance communication network which is supplied by the user via
+--
+--   gnt-cluster modify --instance-communication=mynetwork
+--
+-- This network is defined as @instanceCommunicationNetwork4@ for IPv4
+-- and @instanceCommunicationNetwork6@ for IPv6.
+
+instanceCommunicationDoc :: String
+instanceCommunicationDoc =
+  "Enable or disable the communication mechanism for an instance"
+
+instanceCommunicationMacPrefix :: String
+instanceCommunicationMacPrefix = "52:54:00"
+
+-- | The instance communication network is a link-local IPv4/IPv6
+-- network because the communication is meant to be exclusive between
+-- the host and the guest and not routed outside the node.
+instanceCommunicationNetwork4 :: String
+instanceCommunicationNetwork4 = "169.254.0.0/16"
+
+-- | See 'instanceCommunicationNetwork4'.
+instanceCommunicationNetwork6 :: String
+instanceCommunicationNetwork6 = "fe80::/10"
+
+instanceCommunicationNetworkLink :: String
+instanceCommunicationNetworkLink = "communication_rt"
+
+instanceCommunicationNetworkMode :: String
+instanceCommunicationNetworkMode = nicModeRouted
+
+instanceCommunicationNicPrefix :: String
+instanceCommunicationNicPrefix = "ganeti:communication:"
+
+-- | Parameters that should be protected
+--
+-- Python does not have a type system and can't automatically infer what should
+-- be the resulting type of a JSON request. As a result, it must rely on this
+-- list of parameter names to protect values correctly.
+--
+-- Names ending in _cluster will be treated as dicts of dicts of private values.
+-- Otherwise they are considered dicts of private values.
+privateParametersBlacklist :: [String]
+privateParametersBlacklist = [ "osparams_private"
+                             , "osparams_secret"
+                             , "osparams_private_cluster"
+                             ]
+
+-- | Warn the user that the logging level is too low for production use.
+debugModeConfidentialityWarning :: String
+debugModeConfidentialityWarning =
+  "ALERT: %s started in debug mode.\n\
+  \ Private and secret parameters WILL be logged!\n"
+
+-- * Stat dictionary entries
+--
+-- The get_file_info RPC returns a number of values as a dictionary, and the
+-- following constants are both descriptions and means of accessing them.
+
+-- | The size of the file
+statSize :: String
+statSize = "size"
+
+
+-- * Helper VM-related timeouts
+
+-- | The default fixed timeout needed to startup the helper VM.
+helperVmStartup :: Int
+helperVmStartup = 5 * 60
+
+-- | The default fixed timeout needed until the helper VM is finally
+-- shutdown, for example, after installing the OS.
+helperVmShutdown :: Int
+helperVmShutdown = 2 * 60 * 60
+
+-- | The zeroing timeout per MiB of disks to zero
+--
+-- Determined by estimating that a disk writes at a relatively slow
+-- speed of 1/5 of the max speed of current drives.
+zeroingTimeoutPerMib :: Double
+zeroingTimeoutPerMib = 1.0 / (100.0 / 5.0)
+
+-- * Networking
+
+-- The minimum size of a network.
+ipv4NetworkMinSize :: Int
+ipv4NetworkMinSize = 30
+
+-- The maximum size of a network.
+--
+-- FIXME: This limit is for performance reasons. Remove when refactoring
+-- for performance tuning was successful.
+ipv4NetworkMaxSize :: Int
+ipv4NetworkMaxSize = 30

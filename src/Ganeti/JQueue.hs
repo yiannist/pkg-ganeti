@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 {-| Implementation of the job queue.
 
 -}
@@ -35,21 +33,20 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 -}
 
 module Ganeti.JQueue
-    ( QueuedOpCode(..)
-    , QueuedJob(..)
-    , InputOpCode(..)
-    , queuedOpCodeFromMetaOpCode
+    ( queuedOpCodeFromMetaOpCode
     , queuedJobFromOpCodes
     , changeOpCodePriority
     , changeJobPriority
     , cancelQueuedJob
-    , Timestamp
+    , failQueuedJob
     , fromClockTime
     , noTimestamp
     , currentTimestamp
     , advanceTimestamp
+    , reasonTrailTimestamp
     , setReceivedTimestamp
     , extendJobReasonTrail
+    , getJobDependencies
     , opStatusFinalized
     , extractOpSummary
     , calcJobStatus
@@ -70,19 +67,30 @@ module Ganeti.JQueue
     , allocateJobId
     , writeJobToDisk
     , replicateManyJobs
+    , writeAndReplicateJob
     , isQueueOpen
     , startJobs
     , cancelJob
+    , tellJobPriority
+    , notifyJob
     , queueDirPermissions
     , archiveJobs
+    -- re-export
+    , Timestamp
+    , InputOpCode(..)
+    , QueuedOpCode(..)
+    , QueuedJob(..)
     ) where
 
 import Control.Applicative (liftA2, (<|>), (<$>))
 import Control.Arrow (first, second)
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception
+import Control.Lens (over)
 import Control.Monad
+import Control.Monad.IO.Class
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Maybe
 import Data.Functor ((<$))
 import Data.List
 import Data.Maybe
@@ -93,6 +101,8 @@ import System.Directory
 import System.FilePath
 import System.IO.Error (isDoesNotExistError)
 import System.Posix.Files
+import System.Posix.Signals (sigHUP, sigTERM, sigUSR1, signalProcess)
+import System.Posix.Types (ProcessID)
 import System.Time
 import qualified Text.JSON
 import Text.JSON.Types
@@ -100,26 +110,27 @@ import Text.JSON.Types
 import Ganeti.BasicTypes
 import qualified Ganeti.Config as Config
 import qualified Ganeti.Constants as C
-import Ganeti.Errors (ErrorResult)
+import Ganeti.Errors (ErrorResult, ResultG)
+import Ganeti.JQueue.Lens (qoInputL, validOpCodeL)
+import Ganeti.JQueue.Objects
 import Ganeti.JSON
 import Ganeti.Logging
 import Ganeti.Luxi
 import Ganeti.Objects (ConfigData, Node)
 import Ganeti.OpCodes
+import Ganeti.OpCodes.Lens (metaParamsL, opReasonL)
 import Ganeti.Path
+import Ganeti.Query.Exec as Exec
 import Ganeti.Rpc (executeRpcCall, ERpcError, logRpcErrors,
                    RpcCallJobqueueUpdate(..), RpcCallJobqueueRename(..))
-import Ganeti.THH
 import Ganeti.Types
 import Ganeti.Utils
+import Ganeti.Utils.Atomic
+import Ganeti.Utils.Livelock (Livelock, isDead)
+import Ganeti.Utils.MVarLock
 import Ganeti.VCluster (makeVirtualPath)
 
 -- * Data types
-
--- | The ganeti queue timestamp type. It represents the time as the pair
--- of seconds since the epoch and microseconds since the beginning of the
--- second.
-type Timestamp = (Int, Int)
 
 -- | Missing timestamp type.
 noTimestamp :: Timestamp
@@ -139,19 +150,11 @@ currentTimestamp = fromClockTime `liftM` getClockTime
 advanceTimestamp :: Int -> Timestamp -> Timestamp
 advanceTimestamp = first . (+)
 
--- | An input opcode.
-data InputOpCode = ValidOpCode MetaOpCode -- ^ OpCode was parsed successfully
-                 | InvalidOpCode JSValue  -- ^ Invalid opcode
-                   deriving (Show, Eq)
 
--- | JSON instance for 'InputOpCode', trying to parse it and if
--- failing, keeping the original JSValue.
-instance Text.JSON.JSON InputOpCode where
-  showJSON (ValidOpCode mo) = Text.JSON.showJSON mo
-  showJSON (InvalidOpCode inv) = inv
-  readJSON v = case Text.JSON.readJSON v of
-                 Text.JSON.Error _ -> return $ InvalidOpCode v
-                 Text.JSON.Ok mo -> return $ ValidOpCode mo
+-- | From an InputOpCode obtain the MetaOpCode, if any.
+toMetaOpCode :: InputOpCode -> [MetaOpCode]
+toMetaOpCode (ValidOpCode mopc) = [mopc]
+toMetaOpCode _ = []
 
 -- | Invalid opcode summary.
 invalidOp :: String
@@ -167,32 +170,6 @@ extractOpSummary (InvalidOpCode (JSObject o)) =
     Just s -> drop 3 s -- drop the OP_ prefix
     Nothing -> invalidOp
 extractOpSummary _ = invalidOp
-
-$(buildObject "QueuedOpCode" "qo"
-  [ simpleField "input"           [t| InputOpCode |]
-  , simpleField "status"          [t| OpStatus    |]
-  , simpleField "result"          [t| JSValue     |]
-  , defaultField [| [] |] $
-    simpleField "log"             [t| [(Int, Timestamp, ELogType, JSValue)] |]
-  , simpleField "priority"        [t| Int         |]
-  , optionalNullSerField $
-    simpleField "start_timestamp" [t| Timestamp   |]
-  , optionalNullSerField $
-    simpleField "exec_timestamp"  [t| Timestamp   |]
-  , optionalNullSerField $
-    simpleField "end_timestamp"   [t| Timestamp   |]
-  ])
-
-$(buildObject "QueuedJob" "qj"
-  [ simpleField "id"                 [t| JobId          |]
-  , simpleField "ops"                [t| [QueuedOpCode] |]
-  , optionalNullSerField $
-    simpleField "received_timestamp" [t| Timestamp      |]
-  , optionalNullSerField $
-    simpleField "start_timestamp"    [t| Timestamp      |]
-  , optionalNullSerField $
-    simpleField "end_timestamp"      [t| Timestamp      |]
-  ])
 
 -- | Convenience function to obtain a QueuedOpCode from a MetaOpCode
 queuedOpCodeFromMetaOpCode :: MetaOpCode -> QueuedOpCode
@@ -219,6 +196,8 @@ queuedJobFromOpCodes jobid ops = do
                    , qjReceivedTimestamp = Nothing
                    , qjStartTimestamp = Nothing
                    , qjEndTimestamp = Nothing
+                   , qjLivelock = Nothing
+                   , qjProcessId = Nothing
                    }
 
 -- | Attach a received timestamp to a Queued Job.
@@ -270,6 +249,14 @@ extendJobReasonTrail job =
               qjOps job
         }
 
+-- | From a queued job obtain the list of jobs it depends on.
+getJobDependencies :: QueuedJob -> [JobId]
+getJobDependencies job = do
+  op <- qjOps job
+  mopc <- toMetaOpCode $ qoInput op
+  dep <- fromMaybe [] . opDepends $ metaParams mopc
+  getJobIdFromDependency dep
+
 -- | Change the priority of a QueuedOpCode, if it is not already
 -- finalized.
 changeOpCodePriority :: Int -> QueuedOpCode -> QueuedOpCode
@@ -293,7 +280,22 @@ changeJobPriority prio job =
 cancelQueuedJob :: Timestamp -> QueuedJob -> QueuedJob
 cancelQueuedJob now job =
   let ops' = map (cancelOpCode now) $ qjOps job
-  in job { qjOps = ops', qjEndTimestamp = Just now}
+  in job { qjOps = ops', qjEndTimestamp = Just now }
+
+-- | Set the state of a QueuedOpCode to failed
+-- and set the Op result using the given reason message.
+failOpCode :: ReasonElem -> Timestamp -> QueuedOpCode -> QueuedOpCode
+failOpCode reason@(_, msg, _) now op =
+  over (qoInputL . validOpCodeL . metaParamsL . opReasonL) (++ [reason])
+  op { qoStatus = OP_STATUS_ERROR
+     , qoResult = Text.JSON.JSString . Text.JSON.toJSString $ msg
+     , qoEndTimestamp = Just now }
+
+-- | Transform a QueuedJob that has not been started into its failed form.
+failQueuedJob :: ReasonElem -> Timestamp -> QueuedJob -> QueuedJob
+failQueuedJob reason now job =
+  let ops' = map (failOpCode reason now) $ qjOps job
+  in job { qjOps = ops', qjEndTimestamp = Just now }
 
 -- | Job file prefix.
 jobFilePrefix :: String
@@ -409,44 +411,19 @@ determineJobDirectories rootdir archived = do
              else return []
   return $ rootdir:other
 
--- Function equivalent to the \'sequence\' function, that cannot be used because
--- of library version conflict on Lucid.
--- FIXME: delete this and just use \'sequence\' instead when Lucid compatibility
--- will not be required anymore.
-sequencer :: [Either IOError [JobId]] -> Either IOError [[JobId]]
-sequencer l = reverse <$> foldl seqFolder (Right []) l
-
--- | Folding function for joining multiple [JobIds] into one list.
-seqFolder :: Either IOError [[JobId]]
-          -> Either IOError [JobId]
-          -> Either IOError [[JobId]]
-seqFolder (Left e) _ = Left e
-seqFolder (Right _) (Left e) = Left e
-seqFolder (Right l) (Right el) = Right $ el:l
-
 -- | Computes the list of all jobs in the given directories.
-getJobIDs :: [FilePath] -> IO (Either IOError [JobId])
-getJobIDs paths = liftM (fmap concat . sequencer) (mapM getDirJobIDs paths)
+getJobIDs :: [FilePath] -> IO (GenericResult IOError [JobId])
+getJobIDs = runResultT . liftM concat . mapM getDirJobIDs
 
 -- | Sorts the a list of job IDs.
 sortJobIDs :: [JobId] -> [JobId]
 sortJobIDs = sortBy (comparing fromJobId)
 
 -- | Computes the list of jobs in a given directory.
-getDirJobIDs :: FilePath -> IO (Either IOError [JobId])
-getDirJobIDs path = do
-  either_contents <-
-    try (getDirectoryContents path) :: IO (Either IOError [FilePath])
-  case either_contents of
-    Left e -> do
-      logWarning $ "Failed to list job directory " ++ path ++ ": " ++ show e
-      return $ Left e
-    Right contents -> do
-      let jids = foldl (\ids file ->
-                         case parseJobFileId file of
-                           Nothing -> ids
-                           Just new_id -> new_id:ids) [] contents
-      return . Right $ reverse jids
+getDirJobIDs :: FilePath -> ResultT IOError IO [JobId]
+getDirJobIDs path =
+  withErrorLogAt WARNING ("Failed to list job directory " ++ path) .
+    liftM (mapMaybe parseJobFileId) $ liftIO (getDirectoryContents path)
 
 -- | Reads the job data from disk.
 readJobDataFromDisk :: FilePath -> Bool -> JobId -> IO (Maybe (String, Bool))
@@ -496,13 +473,21 @@ replicateJob rootdir mastercandidates job = do
   callresult <- executeRpcCall mastercandidates
                   $ RpcCallJobqueueUpdate filename' content
   let result = map (second (() <$)) callresult
-  logRpcErrors result
+  _ <- logRpcErrors result
   return result
 
 -- | Replicate many jobs to all master candidates.
 replicateManyJobs :: FilePath -> [Node] -> [QueuedJob] -> IO ()
 replicateManyJobs rootdir mastercandidates =
   mapM_ (replicateJob rootdir mastercandidates)
+
+-- | Writes a job to a file and replicates it to master candidates.
+writeAndReplicateJob :: (Error e)
+                     => ConfigData -> FilePath -> QueuedJob
+                     -> ResultT e IO [(Node, ERpcError ())]
+writeAndReplicateJob cfg rootdir job = do
+  mkResultT $ writeJobToDisk rootdir job
+  liftIO $ replicateJob rootdir (Config.getMasterCandidates cfg) job
 
 -- | Read the job serial number from disk.
 readSerialFromDisk :: IO (Result JobId)
@@ -513,18 +498,15 @@ readSerialFromDisk = do
 
 -- | Allocate new job ids.
 -- To avoid races while accessing the serial file, the threads synchronize
--- over a lock, as usual provided by an MVar.
-allocateJobIds :: [Node] -> MVar () -> Int -> IO (Result [JobId])
+-- over a lock, as usual provided by a Lock.
+allocateJobIds :: [Node] -> Lock -> Int -> IO (Result [JobId])
 allocateJobIds mastercandidates lock n =
   if n <= 0
     then return . Bad $ "Can only allocate positive number of job ids"
-    else do
-      takeMVar lock
+    else withLock lock $ do
       rjobid <- readSerialFromDisk
       case rjobid of
-        Bad s -> do
-          putMVar lock ()
-          return . Bad $ s
+        Bad s -> return . Bad $ s
         Ok jid -> do
           let current = fromJobId jid
               serial_content = show (current + n) ++  "\n"
@@ -533,7 +515,6 @@ allocateJobIds mastercandidates lock n =
                           :: IO (Either IOError ())
           case write_result of
             Left e -> do
-              putMVar lock ()
               let msg = "Failed to write serial file: " ++ show e
               logError msg
               return . Bad $ msg
@@ -541,11 +522,10 @@ allocateJobIds mastercandidates lock n =
               serial' <- makeVirtualPath serial
               _ <- executeRpcCall mastercandidates
                      $ RpcCallJobqueueUpdate serial' serial_content
-              putMVar lock ()
               return $ mapM makeJobId [(current+1)..(current+n)]
 
 -- | Allocate one new job id.
-allocateJobId :: [Node] -> MVar () -> IO (Result JobId)
+allocateJobId :: [Node] -> Lock -> IO (Result JobId)
 allocateJobId mastercandidates lock = do
   jids <- allocateJobIds mastercandidates lock 1
   return (jids >>= monadicThe "Failed to allocate precisely one Job ID")
@@ -554,23 +534,112 @@ allocateJobId mastercandidates lock = do
 isQueueOpen :: IO Bool
 isQueueOpen = liftM not (jobQueueDrainFile >>= doesFileExist)
 
--- | Start enqueued jobs, currently by handing them over to masterd.
-startJobs :: [QueuedJob] -> IO ()
-startJobs jobs = do
-  socketpath <- defaultMasterSocket
-  client <- getLuxiClient socketpath
-  pickupResults <- mapM (flip callMethod client . PickupJob . qjId) jobs
-  let failures = map show $ justBad pickupResults
-  unless (null failures)
-   . logWarning . (++) "Failed to notify masterd: " . commaJoin $ failures
+-- | Start enqueued jobs by executing the Python code.
+startJobs :: ConfigData
+          -> Livelock -- ^ Luxi's livelock path
+          -> Lock -- ^ lock for forking new processes
+          -> [QueuedJob] -- ^ the list of jobs to start
+          -> IO [ErrorResult QueuedJob]
+startJobs cfg luxiLivelock forkLock jobs = do
+  qdir <- queueDir
+  let updateJob job llfile =
+        void . writeAndReplicateJob cfg qdir $ job { qjLivelock = Just llfile }
+  let runJob job = withLock forkLock $ do
+        (llfile, _) <- Exec.forkJobProcess (qjId job) luxiLivelock
+                                           (updateJob job)
+        return $ job { qjLivelock = Just llfile }
+  mapM (runResultT . runJob) jobs
+
+-- | Try to prove that a queued job is dead. This function needs to know
+-- the livelock of the caller (i.e., luxid) to avoid considering a job dead
+-- that is in the process of forking off.
+isQueuedJobDead :: MonadIO m => Livelock -> QueuedJob -> m Bool
+isQueuedJobDead ownlivelock =
+  maybe (return False) (liftIO . isDead)
+  . mfilter (/= ownlivelock)
+  . qjLivelock
+
+-- | Waits for a job to finalize its execution.
+waitForJob :: JobId -> Int -> ResultG (Bool, String)
+waitForJob jid tmout = do
+  qDir <- liftIO queueDir
+  let jobfile = liveJobFile qDir jid
+      load = liftM fst <$> loadJobFromDisk qDir False jid
+      finalizedR = genericResult (const False) jobFinalized
+  jobR <- liftIO $ watchFileBy jobfile tmout finalizedR load
+  case calcJobStatus <$> jobR of
+    Ok s | s == JOB_STATUS_CANCELED ->
+             return (True, "Job successfully cancelled")
+         | finalizedR jobR ->
+            return (False, "Job exited before it could have been canceled,\
+                           \ status " ++ show s)
+         | otherwise ->
+             return (False, "Job could not be canceled, status "
+                            ++ show s)
+    Bad e -> failError $ "Can't read job status: " ++ e
 
 -- | Try to cancel a job that has already been handed over to execution,
--- currently by asking masterd to cancel it.
-cancelJob :: JobId -> IO (ErrorResult JSValue)
-cancelJob jid = do
-  socketpath <- defaultMasterSocket
-  client <- getLuxiClient socketpath
-  callMethod (CancelJob jid) client
+-- by terminating the process.
+cancelJob :: Livelock -- ^ Luxi's livelock path
+          -> JobId -- ^ the job to cancel
+          -> IO (ErrorResult (Bool, String))
+cancelJob luxiLivelock jid = runResultT $ do
+  -- we can't terminate the job if it's just being started, so
+  -- retry several times in such a case
+  result <- runMaybeT . msum . flip map [0..5 :: Int] $ \tryNo -> do
+    -- if we're retrying, sleep for some time
+    when (tryNo > 0) . liftIO . threadDelay $ 100000 * (2 ^ tryNo)
+
+    -- first check if the job is alive so that we don't kill some other
+    -- process by accident
+    qDir <- liftIO queueDir
+    (job, _) <- lift . mkResultT $ loadJobFromDisk qDir True jid
+    let jName = ("Job " ++) . show . fromJobId . qjId $ job
+    dead <- isQueuedJobDead luxiLivelock job
+    case qjProcessId job of
+      _ | dead ->
+        return (True, jName ++ " has been already dead")
+      Just pid -> do
+        liftIO $ signalProcess sigTERM pid
+        if calcJobStatus job > JOB_STATUS_WAITING
+          then return (False, "Job no longer waiting, can't cancel\
+                              \ (informed it anyway)")
+          else lift $ waitForJob jid C.luxiCancelJobTimeout
+      _ -> do
+        logDebug $ jName ++ " in its startup phase, retrying"
+        mzero
+  return $ fromMaybe (False, "Timeout: job still in its startup phase") result
+
+-- | Inform a job that it is requested to change its priority. This is done
+-- by writing the new priority to a file and sending SIGUSR1.
+tellJobPriority :: Livelock -- ^ Luxi's livelock path
+                -> JobId -- ^ the job to inform
+                -> Int -- ^ the new priority
+                -> IO (ErrorResult (Bool, String))
+tellJobPriority luxiLivelock jid prio = runResultT $ do
+  let  jidS = show $ fromJobId jid
+       jName = "Job " ++ jidS
+  mDir <- liftIO luxidMessageDir
+  let prioFile = mDir </> jidS ++ ".prio"
+  liftIO . atomicWriteFile prioFile $ show prio
+  qDir <- liftIO queueDir
+  (job, _) <- mkResultT $ loadJobFromDisk qDir True jid
+  dead <- isQueuedJobDead luxiLivelock job
+  case qjProcessId job of
+    _ | dead -> do
+      liftIO $ removeFile prioFile
+      return (False, jName ++ " is dead")
+    Just pid -> do
+      liftIO $ signalProcess sigUSR1 pid
+      return (True, jName ++ " with pid " ++ show pid ++ " signaled")
+    _ -> return (False, jName ++ "'s pid unknown")
+
+-- | Notify a job that something relevant happened, e.g., a lock became
+-- available. We do this by sending sigHUP to the process.
+notifyJob :: ProcessID  -> IO (ErrorResult ())
+notifyJob pid = runResultT $ do
+  logDebug $ "Signalling process " ++ show pid
+  liftIO $ signalProcess sigHUP pid
 
 -- | Permissions for the archive directories.
 queueDirPermissions :: FilePermissions

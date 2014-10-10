@@ -37,6 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 module Ganeti.HTools.Node
   ( Node(..)
   , List
+  , pCpuEff
   -- * Constructor
   , create
   -- ** Finalization after data loading
@@ -53,6 +54,7 @@ module Ganeti.HTools.Node
   , setMdsk
   , setMcpu
   , setPolicy
+  , setCpuSpeed
   -- * Tag maps
   , addTags
   , delTags
@@ -120,6 +122,7 @@ data Node = Node
   , tDsk     :: Double    -- ^ Total disk space (MiB)
   , fDsk     :: Int       -- ^ Free disk space (MiB)
   , tCpu     :: Double    -- ^ Total CPU count
+  , tCpuSpeed :: Double    -- ^ Relative CPU speed
   , nCpu     :: Int       -- ^ VCPUs used by the node OS
   , uCpu     :: Int       -- ^ Used VCPU count
   , tSpindles :: Int      -- ^ Node spindles (spindle_count node parameter,
@@ -173,6 +176,11 @@ instance T.Element Node where
   setAlias = setAlias
   setIdx = setIdx
   allNames n = [name n, alias n]
+
+-- | Derived parameter: ratio of virutal to pysical CPUs, weighted
+-- by CPU speed.
+pCpuEff :: Node -> Double
+pCpuEff n = pCpu n / tCpuSpeed n
 
 -- | A simple name for the int, node association list.
 type AssocList = [(T.Ndx, Node)]
@@ -259,6 +267,7 @@ create name_init mem_t_init mem_n_init mem_f_init
        , tDsk = dsk_t_init
        , fDsk = dsk_f_init
        , tCpu = cpu_t_init
+       , tCpuSpeed = 1
        , nCpu = cpu_n_init
        , uCpu = cpu_n_init
        , tSpindles = spindles_t_init
@@ -433,6 +442,10 @@ computeNewPDsk node new_free_sp new_free_dsk =
   else computePDsk new_free_dsk $ tDsk node
 
 -- * Update functions
+
+-- | Set the CPU speed
+setCpuSpeed :: Node -> Double -> Node
+setCpuSpeed n f = n { tCpuSpeed = f }
 
 -- | Sets the free memory.
 setFmem :: Node -> Int -> Node

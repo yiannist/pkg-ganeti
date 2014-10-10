@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-| Implementation of the Ganeti Unix Domain Socket JSON server interface.
 
@@ -36,6 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 module Ganeti.UDSServer
   ( ConnectConfig(..)
+  , ServerConfig(..)
   , Client
   , Server
   , RecvResult(..)
@@ -50,10 +52,14 @@ module Ganeti.UDSServer
   -- * Client and server
   , connectClient
   , connectServer
+  , pipeClient
   , acceptClient
   , closeClient
+  , clientToFd
   , closeServer
   , buildResponse
+  , parseResponse
+  , buildCall
   , parseCall
   , recvMsg
   , recvMsgExt
@@ -65,32 +71,37 @@ module Ganeti.UDSServer
   ) where
 
 import Control.Applicative
-import Control.Concurrent (forkIO)
+import Control.Concurrent.Lifted (fork, yield)
+import Control.Monad.Base
+import Control.Monad.Trans.Control
 import Control.Exception (catch)
-import Data.IORef
+import Control.Monad
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.ByteString.Lazy.UTF8 as UTF8L
+import Data.IORef
+import Data.List
 import Data.Word (Word8)
-import Control.Monad
 import qualified Network.Socket as S
 import System.Directory (removeFile)
 import System.IO (hClose, hFlush, hWaitForInput, Handle, IOMode(..))
 import System.IO.Error (isEOFError)
+import System.Posix.Types (Fd)
+import System.Posix.IO (createPipe, fdToHandle, handleToFd)
 import System.Timeout
 import Text.JSON (encodeStrict, decodeStrict)
 import qualified Text.JSON as J
 import Text.JSON.Types
 
 import Ganeti.BasicTypes
-import Ganeti.Errors (GanetiException)
+import Ganeti.Errors (GanetiException(..), ErrorResult)
 import Ganeti.JSON
 import Ganeti.Logging
 import Ganeti.Runtime (GanetiDaemon(..), MiscGroup(..), GanetiGroup(..))
 import Ganeti.THH
 import Ganeti.Utils
-
+import Ganeti.Constants (privateParametersBlacklist)
 
 -- * Utility functions
 
@@ -130,14 +141,25 @@ data MsgKeys = Method
 $(genStrOfKey ''MsgKeys "strOfKey")
 
 
+-- Information required for creating a server connection.
+data ServerConfig = ServerConfig
+                    { connDaemon :: GanetiDaemon
+                    , connConfig :: ConnectConfig
+                    }
+
+-- Information required for creating a client or server connection.
 data ConnectConfig = ConnectConfig
-                     { connDaemon :: GanetiDaemon
-                     , recvTmo :: Int
+                     { recvTmo :: Int
                      , sendTmo :: Int
                      }
 
--- | A client encapsulation.
-data Client = Client { socket :: Handle           -- ^ The socket of the client
+-- | A client encapsulation. Note that it has separate read and write handle.
+-- For sockets it is the same handle. It is required for bi-directional
+-- inter-process pipes though.
+data Client = Client { rsocket :: Handle          -- ^ The read part of
+                                                  -- the client socket
+                     , wsocket :: Handle          -- ^ The write part of
+                                                  -- the client socket
                      , rbuf :: IORef B.ByteString -- ^ Already received buffer
                      , clientConfig :: ConnectConfig
                      }
@@ -162,6 +184,10 @@ openClientSocket tmo path = do
               S.connect sock (S.SockAddrUnix path)
   S.socketToHandle sock ReadWriteMode
 
+-- | Closes the handle.
+-- Performing the operation on a handle that has already been closed has no
+-- effect; doing so is not an error.
+-- All other operations on a closed handle will fail.
 closeClientSocket :: Handle -> IO ()
 closeClientSocket = hClose
 
@@ -194,41 +220,75 @@ connectClient
 connectClient conf tmo path = do
   h <- openClientSocket tmo path
   rf <- newIORef B.empty
-  return Client { socket=h, rbuf=rf, clientConfig=conf }
+  return Client { rsocket=h, wsocket=h, rbuf=rf, clientConfig=conf }
 
 -- | Creates and returns a server endpoint.
-connectServer :: ConnectConfig -> Bool -> FilePath -> IO Server
-connectServer conf setOwner path = do
+connectServer :: ServerConfig -> Bool -> FilePath -> IO Server
+connectServer sconf setOwner path = do
   s <- openServerSocket path
-  when setOwner . setOwnerAndGroupFromNames path (connDaemon conf) $
+  when setOwner . setOwnerAndGroupFromNames path (connDaemon sconf) $
     ExtraGroup DaemonsGroup
   S.listen s 5 -- 5 is the max backlog
-  return Server { sSocket=s, sPath=path, serverConfig=conf }
+  return Server { sSocket = s, sPath = path, serverConfig = connConfig sconf }
+
+-- | Creates a new bi-directional client pipe. The two returned clients
+-- talk to each other through the pipe.
+pipeClient :: ConnectConfig -> IO (Client, Client)
+pipeClient conf =
+  let newClient r w = do
+        rf <- newIORef B.empty
+        rh <- fdToHandle r
+        wh <- fdToHandle w
+        return Client { rsocket = rh, wsocket = wh
+                      , rbuf = rf, clientConfig = conf }
+  in do
+    (r1, w1) <- createPipe
+    (r2, w2) <- createPipe
+    (,) <$> newClient r1 w2 <*> newClient r2 w1
 
 -- | Closes a server endpoint.
-closeServer :: Server -> IO ()
+closeServer :: (MonadBase IO m) => Server -> m ()
 closeServer server =
-  closeServerSocket (sSocket server) (sPath server)
+  liftBase $ closeServerSocket (sSocket server) (sPath server)
 
 -- | Accepts a client
 acceptClient :: Server -> IO Client
 acceptClient s = do
   handle <- acceptSocket (sSocket s)
   new_buffer <- newIORef B.empty
-  return Client { socket=handle
+  return Client { rsocket=handle
+                , wsocket=handle
                 , rbuf=new_buffer
                 , clientConfig=serverConfig s
                 }
 
 -- | Closes the client socket.
+-- Performing the operation on a client that has already been closed has no
+-- effect; doing so is not an error.
+-- All other operations on a closed client will fail with an exception.
 closeClient :: Client -> IO ()
-closeClient = closeClientSocket . socket
+closeClient client = do
+  closeClientSocket . wsocket $ client
+  closeClientSocket . rsocket $ client
+
+-- | Extracts the read (the first) and the write (the second) file descriptor
+-- of a client. This closes the underlying 'Handle's, therefore the original
+-- client is closed and unusable after the call.
+--
+-- The purpose of this function is to keep the communication channel open,
+-- while replacing a 'Client' with some other means.
+clientToFd :: Client -> IO (Fd, Fd)
+clientToFd client | rh == wh  = join (,) <$> handleToFd rh
+                  | otherwise = (,) <$> handleToFd rh <*> handleToFd wh
+  where
+    rh = rsocket client
+    wh = wsocket client
 
 -- | Sends a message over a transport.
 sendMsg :: Client -> String -> IO ()
 sendMsg s buf = withTimeout (sendTmo $ clientConfig s) "sending a message" $ do
   let encoded = UTF8L.fromString buf
-      handle = socket s
+      handle = wsocket s
   BL.hPut handle encoded
   B.hPut handle bEOM
   hFlush handle
@@ -246,7 +306,7 @@ recvUpdate conf handle obuf = do
       newbuf = B.append obuf msg
   if B.null remaining
     then recvUpdate conf handle newbuf
-    else return (newbuf, B.tail remaining)
+    else return (newbuf, B.copy (B.tail remaining))
 
 -- | Waits for a message over a transport.
 recvMsg :: Client -> IO String
@@ -256,8 +316,10 @@ recvMsg s = do
   (msg, nbuf) <-
     if B.null ibuf      -- if old buffer didn't contain a full message
                         -- then we read from network:
-      then recvUpdate (clientConfig s) (socket s) cbuf
-      else return (imsg, B.tail ibuf)   -- else we return data from our buffer
+      then recvUpdate (clientConfig s) (rsocket s) cbuf
+      -- else we return data from our buffer, copying it so that the whole
+      -- message isn't retained and can be garbage collected
+      else return (imsg, B.copy (B.tail ibuf))
   writeIORef (rbuf s) nbuf
   return $ UTF8.toString msg
 
@@ -269,6 +331,16 @@ recvMsgExt s =
                then RecvConnClosed
                else RecvError (show e)
 
+
+-- | Serialize a request to String.
+buildCall :: (J.JSON mth, J.JSON args)
+          => mth    -- ^ The method
+          -> args   -- ^ The arguments
+          -> String -- ^ The serialized form
+buildCall mth args =
+  let keyToObj :: (J.JSON a) => MsgKeys -> a -> (String, J.JSValue)
+      keyToObj k v = (strOfKey k, J.showJSON v)
+  in encodeStrict $ toJSObject [ keyToObj Method mth, keyToObj Args args ]
 
 -- | Parse the required keys out of a call.
 parseCall :: (J.JSON mth, J.JSON args) => String -> Result (mth, args)
@@ -290,10 +362,34 @@ buildResponse success args =
       jo = toJSObject ja
   in encodeStrict jo
 
+-- | Try to decode an error from the server response. This function
+-- will always fail, since it's called only on the error path (when
+-- status is False).
+decodeError :: JSValue -> ErrorResult JSValue
+decodeError val =
+  case fromJVal val of
+    Ok e -> Bad e
+    Bad msg -> Bad $ GenericError msg
+
+-- | Check that luxi responses contain the required keys and that the
+-- call was successful.
+parseResponse :: String -> ErrorResult JSValue
+parseResponse s = do
+  when (UTF8.replacement_char `elem` s) $
+      failError "Failed to decode UTF-8,\
+                \ detected replacement char after decoding"
+  oarr <- fromJResultE "Parsing LUXI response" (decodeStrict s)
+  let arr = J.fromJSObject oarr
+  status <- fromObj arr (strOfKey Success)
+  result <- fromObj arr (strOfKey Result)
+  if status
+    then return result
+    else decodeError result
+
 -- | Logs an outgoing message.
 logMsg
     :: (Show e, J.JSON e, MonadLog m)
-    => Handler i o
+    => Handler i m o
     -> i                          -- ^ the received request (used for logging)
     -> GenericResult e J.JSValue  -- ^ A message to be sent
     -> m ()
@@ -316,25 +412,25 @@ prepareMsg (Ok result) = (True, result)
 
 -- * Processing client requests
 
-type HandlerResult o = IO (Bool, GenericResult GanetiException o)
+type HandlerResult m o = m (Bool, GenericResult GanetiException o)
 
-data Handler i o = Handler
+data Handler i m o = Handler
   { hParse         :: J.JSValue -> J.JSValue -> Result i
     -- ^ parses method and its arguments into the input type
   , hInputLogShort :: i -> String
     -- ^ short description of an input, for the INFO logging level
   , hInputLogLong  :: i -> String
     -- ^ long description of an input, for the DEBUG logging level
-  , hExec          :: i -> HandlerResult o
+  , hExec          :: i -> HandlerResult m o
     -- ^ executes the handler on an input
   }
 
 
 handleJsonMessage
-    :: (J.JSON o)
-    => Handler i o              -- ^ handler
+    :: (J.JSON o, Monad m)
+    => Handler i m o            -- ^ handler
     -> i                        -- ^ parsed input
-    -> HandlerResult J.JSValue
+    -> HandlerResult m J.JSValue
 handleJsonMessage handler req = do
   (close, call_result) <- hExec handler req
   return (close, fmap J.showJSON call_result)
@@ -342,10 +438,10 @@ handleJsonMessage handler req = do
 -- | Takes a request as a 'String', parses it, passes it to a handler and
 -- formats its response.
 handleRawMessage
-    :: (J.JSON o)
-    => Handler i o              -- ^ handler
+    :: (J.JSON o, MonadLog m)
+    => Handler i m o            -- ^ handler
     -> String                   -- ^ raw unparsed input
-    -> IO (Bool, String)
+    -> m (Bool, String)
 handleRawMessage handler payload =
   case parseCall payload >>= uncurry (hParse handler) of
     Bad err -> do
@@ -359,16 +455,28 @@ handleRawMessage handler payload =
         let (status, response) = prepareMsg call_result_json
         return (close, buildResponse status response)
 
+isRisky :: RecvResult -> Bool
+isRisky msg = case msg of
+  RecvOk payload -> any (`isInfixOf` payload) privateParametersBlacklist
+  _ -> False
+
 -- | Reads a request, passes it to a handler and sends a response back to the
 -- client.
 handleClient
-    :: (J.JSON o)
-    => Handler i o
+    :: (J.JSON o, MonadBase IO m, MonadLog m)
+    => Handler i m o
     -> Client
-    -> IO Bool
+    -> m Bool
 handleClient handler client = do
-  msg <- recvMsgExt client
-  logDebug $ "Received message: " ++ show msg
+  msg <- liftBase $ recvMsgExt client
+
+  debugMode <- liftBase isDebugMode
+  when (debugMode && isRisky msg) $
+    logAlert "POSSIBLE LEAKING OF CONFIDENTIAL PARAMETERS. \
+             \Daemon is running in debug mode. \
+             \The text of the request has been logged."
+  logDebug $ "Received message (truncated): " ++ take 500 (show msg)
+
   case msg of
     RecvConnClosed -> logDebug "Connection closed" >>
                       return False
@@ -376,30 +484,37 @@ handleClient handler client = do
                      return False
     RecvOk payload -> do
       (close, outMsg) <- handleRawMessage handler payload
-      sendMsg client outMsg
+      liftBase $ sendMsg client outMsg
       return close
+
 
 -- | Main client loop: runs one loop of 'handleClient', and if that
 -- doesn't report a finished (closed) connection, restarts itself.
 clientLoop
-    :: (J.JSON o)
-    => Handler i o
+    :: (J.JSON o, MonadBase IO m, MonadLog m)
+    => Handler i m o
     -> Client
-    -> IO ()
+    -> m ()
 clientLoop handler client = do
   result <- handleClient handler client
+  {- It's been observed sometimes that reading immediately after sending
+     a response leads to worse performance, as there is nothing to read and
+     the system calls are just wasted. Thus yielding before reading gives
+     other threads a chance to proceed and provides a natural pause, leading
+     to a bit more efficient communication.
+  -}
   if result
-    then clientLoop handler client
-    else closeClient client
+    then yield >> clientLoop handler client
+    else liftBase $ closeClient client
 
 -- | Main listener loop: accepts clients, forks an I/O thread to handle
 -- that client.
 listener
-    :: (J.JSON o)
-    => Handler i o
+    :: (J.JSON o, MonadBaseControl IO m, MonadLog m)
+    => Handler i m o
     -> Server
-    -> IO ()
+    -> m ()
 listener handler server = do
-  client <- acceptClient server
-  _ <- forkIO $ clientLoop handler client
+  client <- liftBase $ acceptClient server
+  _ <- fork $ clientLoop handler client
   return ()

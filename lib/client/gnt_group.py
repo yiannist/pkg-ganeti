@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,7 @@ from ganeti import constants
 from ganeti import opcodes
 from ganeti import utils
 from ganeti import compat
+from ganeti.client import base
 
 
 #: default list of fields for L{ListGroups}
@@ -79,7 +80,7 @@ def AddGroup(opts, args):
                           diskparams=diskparams, ipolicy=ipolicy,
                           hv_state=hv_state,
                           disk_state=disk_state)
-  SubmitOrSend(op, opts)
+  return base.GetResult(None, opts, SubmitOrSend(op, opts))
 
 
 def AssignNodes(opts, args):
@@ -131,7 +132,7 @@ def ListGroups(opts, args):
     "ndparams": (_FmtDict, False),
     }
 
-  cl = GetClient(query=True)
+  cl = GetClient()
 
   return GenericList(constants.QR_GROUP, desired_fields, args, None,
                      opts.separator, not opts.no_headers,
@@ -149,7 +150,7 @@ def ListGroupFields(opts, args):
   @return: the desired exit code
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
 
   return GenericListFields(constants.QR_GROUP, args, opts.separator,
                            not opts.no_headers, cl=cl)
@@ -289,7 +290,7 @@ def GroupInfo(_, args):
   """Shows info about node group.
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
   selected_fields = ["name",
                      "ndparams", "custom_ndparams",
                      "diskparams", "custom_diskparams",
@@ -318,7 +319,7 @@ def ShowCreateCommand(opts, args):
   Currently it works only for ipolicy specs.
 
   """
-  cl = GetClient(query=True)
+  cl = GetClient()
   selected_fields = ["name"]
   if opts.include_defaults:
     selected_fields += ["ipolicy"]

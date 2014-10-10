@@ -1028,7 +1028,7 @@ def TransferInstanceData(lu, feedback_fn, src_node_uuid, dest_node_uuid,
   @type dest_ip: string
   @param dest_ip: IP address of destination node
   @type compress: string
-  @param compress: one of L{constants.IEC_ALL}
+  @param compress: Compression tool to use
   @type instance: L{objects.Instance}
   @param instance: Instance object
   @type all_transfers: list of L{DiskTransfer} instances
@@ -1175,7 +1175,8 @@ class ExportInstanceHelper(object):
     src_node = instance.primary_node
     src_node_name = self._lu.cfg.GetNodeName(src_node)
 
-    for idx, disk in enumerate(instance.disks):
+    inst_disks = self._lu.cfg.GetInstanceDisks(instance.uuid)
+    for idx, disk in enumerate(inst_disks):
       self._feedback_fn("Creating a snapshot of disk/%s on node %s" %
                         (idx, src_node_name))
 
@@ -1233,7 +1234,7 @@ class ExportInstanceHelper(object):
     @type dest_node: L{objects.Node}
     @param dest_node: Destination node
     @type compress: string
-    @param compress: one of L{constants.IEC_ALL}
+    @param compress: Compression tool to use
 
     """
     instance = self._instance
@@ -1253,9 +1254,16 @@ class ExportInstanceHelper(object):
 
       finished_fn = compat.partial(self._TransferFinished, idx)
 
+      if instance.os:
+        src_io = constants.IEIO_SCRIPT
+        src_ioargs = ((dev, instance), idx)
+      else:
+        src_io = constants.IEIO_RAW_DISK
+        src_ioargs = (dev, instance)
+
       # FIXME: pass debug option from opcode to backend
       dt = DiskTransfer("snapshot/%s" % idx,
-                        constants.IEIO_SCRIPT, ((dev, instance), idx),
+                        src_io, src_ioargs,
                         constants.IEIO_FILE, (path, ),
                         finished_fn)
       transfers.append(dt)
@@ -1290,12 +1298,13 @@ class ExportInstanceHelper(object):
     @type dest_ca_pem: string
     @param dest_ca_pem: Destination X509 CA in PEM format
     @type compress: string
-    @param compress: one of L{constants.IEC_ALL}
+    @param compress: Compression tool to use
     @type timeouts: L{ImportExportTimeouts}
     @param timeouts: Timeouts for this import
 
     """
     instance = self._instance
+    inst_disks = self._lu.cfg.GetInstanceDisks(instance.uuid)
 
     assert len(disk_info) == len(instance.disks)
 
@@ -1303,7 +1312,7 @@ class ExportInstanceHelper(object):
 
     ieloop = ImportExportLoop(self._lu)
     try:
-      for idx, (dev, (host, port, magic)) in enumerate(zip(instance.disks,
+      for idx, (dev, (host, port, magic)) in enumerate(zip(inst_disks,
                                                            disk_info)):
         # Decide whether to use IPv6
         ipv6 = netutils.IP6Address.IsValid(host)
@@ -1314,11 +1323,18 @@ class ExportInstanceHelper(object):
                                            compress=compress,
                                            ipv6=ipv6)
 
+        if instance.os:
+          src_io = constants.IEIO_SCRIPT
+          src_ioargs = ((dev, instance), idx)
+        else:
+          src_io = constants.IEIO_RAW_DISK
+          src_ioargs = (dev, instance)
+
         self._feedback_fn("Sending disk %s to %s:%s" % (idx, host, port))
         finished_fn = compat.partial(self._TransferFinished, idx)
         ieloop.Add(DiskExport(self._lu, instance.primary_node,
                               opts, host, port, instance, "disk%d" % idx,
-                              constants.IEIO_SCRIPT, ((dev, instance), idx),
+                              src_io, src_ioargs,
                               timeouts, cbs, private=(idx, finished_fn)))
 
       ieloop.Run()
@@ -1459,7 +1475,7 @@ def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
   @type cds: string
   @param cds: Cluster domain secret
   @type compress: string
-  @param compress: one of L{constants.IEC_ALL}
+  @param compress: Compression tool to use
   @type timeouts: L{ImportExportTimeouts}
   @param timeouts: Timeouts for this import
 
@@ -1491,8 +1507,9 @@ def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
                           len(instance.disks), pnode.primary_ip)
 
     ieloop = ImportExportLoop(lu)
+    inst_disks = lu.cfg.GetInstanceDisks(instance.uuid)
     try:
-      for idx, dev in enumerate(instance.disks):
+      for idx, dev in enumerate(inst_disks):
         magic = _GetInstDiskMagic(magic_base, instance.name, idx)
 
         # Import daemon options
@@ -1502,9 +1519,16 @@ def RemoteImport(lu, feedback_fn, instance, pnode, source_x509_ca,
                                            compress=compress,
                                            ipv6=ipv6)
 
+        if instance.os:
+          src_io = constants.IEIO_SCRIPT
+          src_ioargs = ((dev, instance), idx)
+        else:
+          src_io = constants.IEIO_RAW_DISK
+          src_ioargs = (dev, instance)
+
         ieloop.Add(DiskImport(lu, instance.primary_node, opts, instance,
                               "disk%d" % idx,
-                              constants.IEIO_SCRIPT, ((dev, instance), idx),
+                              src_io, src_ioargs,
                               timeouts, cbs, private=(idx, )))
 
       ieloop.Run()

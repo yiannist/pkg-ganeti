@@ -266,6 +266,109 @@ leaving the codebase in a consistent and usable state.
    intelligent one. Also, the implementation of :doc:`design-optables` can be
    started.
 
+Job death detection
+-------------------
+
+**Requirements:**
+
+- It must be possible to reliably detect a death of a process even under
+  uncommon conditions such as very heavy system load.
+- A daemon must be able to detect a death of a process even if the
+  daemon is restarted while the process is running.
+- The solution must not rely on being able to communicate with
+  a process.
+- The solution must work for the current situation where multiple jobs
+  run in a single process.
+- It must be POSIX compliant.
+
+These conditions rule out simple solutions like checking a process ID
+(because the process might be eventually replaced by another process
+with the same ID) or keeping an open connection to a process.
+
+**Solution:** As a job process is spawned, before attempting to
+communicate with any other process, it will create a designated empty
+lock file, open it, acquire an *exclusive* lock on it, and keep it open.
+When connecting to a daemon, the job process will provide it with the
+path of the file. If the process dies unexpectedly, the operating system
+kernel automatically cleans up the lock.
+
+Therefore, daemons can check if a process is dead by trying to acquire
+a *shared* lock on the lock file in a non-blocking mode:
+
+- If the locking operation succeeds, it means that the exclusive lock is
+  missing, therefore the process has died, but the lock
+  file hasn't been cleaned up yet. The daemon should release the lock
+  immediately. Optionally, the daemon may delete the lock file.
+- If the file is missing, the process has died and the lock file has
+  been cleaned up.
+- If the locking operation fails due to a lock conflict, it means
+  the process is alive.
+
+Using shared locks for querying lock files ensures that the detection
+works correctly even if multiple daemons query a file at the same time.
+
+A job should close and remove its lock file when completely finishes.
+The WConfD daemon will be responsible for removing stale lock files of
+jobs that didn't remove its lock files themselves.
+
+**Statelessness of the protocol:** To keep our protocols stateless,
+the job id and the path the to lock file are sent as part of every
+request that deals with resources, in particular the Ganeti Locks.
+All resources are owned by the pair (job id, lock file). In this way,
+several jobs can live in the same process (as it will be in the
+transition period), but owner death detection still only depends on the
+owner of the resource. In particular, no additional lookup table is
+needed to obtain the lock file for a given owner.
+
+**Considered alternatives:** An alternative to creating a separate lock
+file would be to lock the job status file. However, file locks are kept
+only as long as the file is open. Therefore any operation followed by
+closing the file would cause the process to release the lock. In
+particular, with jobs as threads, the master daemon wouldn't be able to
+keep locks and operate on job files at the same time.
+
+Job execution
+-------------
+
+As the Luxi daemon will be responsible for executing jobs, it needs to
+start jobs in such a way that it can properly detect if the job dies
+under any circumstances (such as Luxi daemon being restarted in the
+process).
+
+The name of the lock file will be stored in the corresponding job file
+so that anybody is able to check the status of the process corresponding
+to a job.
+
+The proposed procedure:
+
+#. The Luxi daemon saves the name of its own lock file into the job file.
+#. The Luxi daemon forks, creating a bi-directional pipe with the child
+   process.
+#. The child process creates and locks its own, proper lock file and
+   handles its name to the Luxi daemon through the pipe.
+#. The Luxi daemon saves the name of the lock file into the job file and
+   confirms it to the child process.
+#. Only then the child process can replace itself by the actual job
+   process.
+
+If the child process detect that the pipe is broken before receiving the
+confirmation, it must terminate, not starting the actual job.
+This way, the actual job is only started if its ensured that its lock
+file name is written to the job file.
+
+If the Luxi daemon detect that the pipe is broken before successfully
+sending the confirmation in step 4., it assumes that the job has failed.
+If the pipe gets broken after sending the confirmation, no further
+action is necessary. If the child doesn't receive the confirmation,
+it will die and its death will be detected by Luxid eventually.
+
+If the Luxi daemon dies before completing the procedure, the job will
+not be started. If the job file contained the daemon's lock file name,
+it will be detected as dead (because the daemon process died). If the
+job file already contained its proper lock file, it will also be
+detected as dead (because the child process won't start the actual job
+and die).
+
 WConfD details
 --------------
 
@@ -275,10 +378,6 @@ through one socket. For each such a call the client sends a JSON request
 document with a remote function name and data for its arguments. The server
 replies with a JSON response document containing either the result of
 signalling a failure.
-
-There will be a special RPC call for identifying a client when connecting to
-WConfD. The client will tell WConfD it's job number and process ID. WConfD will
-fail any other RPC calls before a client identifies this way.
 
 Any state associated with client processes will be mirrored on persistent
 storage and linked to the identity of processes so that the WConfD daemon will
@@ -294,16 +393,53 @@ Configuration management
 The new configuration management protocol will be implemented in the following
 steps:
 
-#. Reimplement all current methods of ``ConfigWriter`` for reading and writing
-   the configuration of a cluster in WConfD.
-#. Expose each of those functions in WConfD as a RPC function. This will allow
-   easy future extensions or modifications.
-#. Replace ``ConfigWriter`` with a stub (preferably automatically generated
-   from the Haskell code) that will contain the same methods as the current
-   ``ConfigWriter`` and delegate all calls to its methods to WConfD.
+Step 1:
+  #. Implement the following functions in WConfD and export them through
+     RPC:
 
-After this step it'll be possible access the configuration from separate
-processes.
+     - Obtain a single internal lock, either in shared or
+       exclusive mode. This lock will substitute the current lock
+       ``_config_lock`` in config.py.
+     - Release the lock.
+     - Return the whole configuration data to a client.
+     - Receive the whole configuration data from a client and replace the
+       current configuration with it. Distribute it to master candidates
+       and distribute the corresponding *ssconf*.
+
+     WConfD must detect deaths of its clients (see `Job death
+     detection`_) and release locks automatically.
+
+  #. In config.py modify public methods that access configuration:
+
+     - Instead of acquiring a local lock, obtain a lock from WConfD
+       using the above functions
+     - Fetch the current configuration from WConfD.
+     - Use it to perform the method's task.
+     - If the configuration was modified, send it to WConfD at the end.
+     - Release the lock to WConfD.
+
+  This will decouple the configuration management from the master daemon,
+  even though the specific configuration tasks will still performed by
+  individual jobs.
+
+  After this step it'll be possible access the configuration from separate
+  processes.
+
+Step 2:
+  #. Reimplement all current methods of ``ConfigWriter`` for reading and
+     writing the configuration of a cluster in WConfD.
+  #. Expose each of those functions in WConfD as a separate RPC function.
+     This will allow easy future extensions or modifications.
+  #. Replace ``ConfigWriter`` with a stub (preferably automatically
+     generated from the Haskell code) that will contain the same methods
+     as the current ``ConfigWriter`` and delegate all calls to its
+     methods to WConfD.
+
+Step 3:
+  #. Remove WConfD's RPC functions for obtaining/releasing the single
+     internal lock from Step 1.
+  #. Remove WConfD's RPC functions for sending/receiving the whole
+     configuration from Step 1.
 
 Future aims:
 
@@ -349,6 +485,17 @@ protocol will allow the following operations on the set:
   Retain only a given set of locks in the current one. This function is
   provided for convenience, it's redundant wrt. *list* and *update*. Immediate,
   never fails.
+
+Addidional restrictions due to lock implications:
+  Ganeti supports locks that act as if a lock on a whole group (like all nodes)
+  were held. To avoid dead locks caused by the additional blockage of those
+  group locks, we impose certain restrictions. Whenever `A` is a group lock and
+  `B` belongs to `A`, then the following holds.
+
+  - `A` is in lock order before `B`.
+  - All locks that are in the lock order between `A` and `B` also belong to `A`.
+  - It is considered a lock-order violation to ask for an exclusive lock on `B`
+    while holding a shared lock on `A`.
 
 After this step it'll be possible to use locks from jobs as separate processes.
 
@@ -401,20 +548,13 @@ Further considerations
 
 There is a possibility that a job will finish performing its task while LuxiD
 and/or WConfD will not be available.
-In order to deal with this situation, each job will write the results of its
-execution on a file. The name of this file will be known to LuxiD before
-starting the job, and will be stored together with the job ID, and the
-name of the job-unique socket.
-
-The job, upon ending its execution, will signal LuxiD (through the socket), so
-that it can read the result of the execution and release the locks as needed.
-
-In case LuxiD is not available at that time, the job will just terminate without
-signalling it, and writing the results on file as usual. When a new LuxiD
-becomes available, it will have the most up-to-date list of running jobs
-(received via replication from the former LuxiD), and go through it, cleaning up
-all the terminated jobs.
-
+In order to deal with this situation, each job will update its job file
+in the queue. This is race free, as LuxiD will no longer touch the job file,
+once the job is started; a corollary of this is that the job also has to
+take care of replicating updates to the job file. LuxiD will watch job files for
+changes to determine when a job as cleanly finished. To determine jobs
+that died without having the chance of updating the job file, the `Job death
+detection`_ mechanism will be used.
 
 .. vim: set textwidth=72 :
 .. Local Variables:

@@ -57,6 +57,7 @@ from ganeti import luxi
 from ganeti import jstore
 from ganeti import pathutils
 from ganeti import runtime
+from ganeti import vcluster
 
 
 # ec_id for InitConfig's temporary reservation manager
@@ -562,6 +563,7 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
                 primary_ip_version=None, ipolicy=None,
                 prealloc_wipe_disks=False, use_external_mip_script=False,
                 hv_state=None, disk_state=None, enabled_disk_templates=None,
+                install_image=None, zeroing_image=None, compression_tools=None,
                 enabled_user_shutdown=False):
   """Initialise the cluster.
 
@@ -581,6 +583,18 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
   if config.ConfigWriter.IsCluster():
     raise errors.OpPrereqError("Cluster is already initialised",
                                errors.ECODE_STATE)
+
+  data_dir = vcluster.AddNodePrefix(pathutils.DATA_DIR)
+  queue_dir = vcluster.AddNodePrefix(pathutils.QUEUE_DIR)
+  archive_dir = vcluster.AddNodePrefix(pathutils.JOB_QUEUE_ARCHIVE_DIR)
+  for ddir in [queue_dir, data_dir, archive_dir]:
+    if os.path.isdir(ddir):
+      for entry in os.listdir(ddir):
+        if not os.path.isdir(os.path.join(ddir, entry)):
+          raise errors.OpPrereqError(
+            "%s contains non-directory enries like %s. Remove left-overs of an"
+            " old cluster before initialising a new one" % (ddir, entry),
+            errors.ECODE_STATE)
 
   if not enabled_hypervisors:
     raise errors.OpPrereqError("Enabled hypervisors list must contain at"
@@ -794,6 +808,9 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
 
   now = time.time()
 
+  if compression_tools is not None:
+    cluster.CheckCompressionTools(compression_tools)
+
   # init of cluster config file
   cluster_config = objects.Cluster(
     serial_no=1,
@@ -834,6 +851,11 @@ def InitCluster(cluster_name, mac_prefix, # pylint: disable=R0913, R0914
     disk_state_static=disk_state,
     enabled_disk_templates=enabled_disk_templates,
     candidate_certs=candidate_certs,
+    osparams={},
+    osparams_private_cluster={},
+    install_image=install_image,
+    zeroing_image=zeroing_image,
+    compression_tools=compression_tools,
     enabled_user_shutdown=enabled_user_shutdown,
     )
   master_node_config = objects.Node(name=hostname.name,
@@ -905,6 +927,7 @@ def InitConfig(version, cluster_config, master_node_config,
                                    nodes=nodes,
                                    instances={},
                                    networks={},
+                                   disks={},
                                    serial_no=1,
                                    ctime=now, mtime=now)
   utils.WriteFile(cfg_file,
@@ -919,7 +942,8 @@ def FinalizeClusterDestroy(master_uuid):
   begun in cmdlib.LUDestroyOpcode.
 
   """
-  cfg = config.ConfigWriter()
+  livelock = utils.livelock.LiveLock("bootstrap_destroy")
+  cfg = config.GetConfig(None, livelock)
   modify_ssh_setup = cfg.GetClusterInfo().modify_ssh_setup
   runner = rpc.BootstrapRunner()
 
@@ -1030,9 +1054,20 @@ def MasterFailover(no_voting=False):
   logging.info("Setting master to %s, old master: %s", new_master, old_master)
 
   try:
+    # Forcefully start WConfd so that we can access the configuration
+    result = utils.RunCmd([pathutils.DAEMON_UTIL,
+                           "start", constants.WCONFD, "--force-node",
+                           "--no-voting", "--yes-do-it"])
+    if result.failed:
+      raise errors.OpPrereqError("Could not start the configuration daemon,"
+                                 " command %s had exitcode %s and error %s" %
+                                 (result.cmd, result.exit_code, result.output),
+                                 errors.ECODE_NOENT)
+
     # instantiate a real config writer, as we now know we have the
     # configuration data
-    cfg = config.ConfigWriter(accept_foreign=True)
+    livelock = utils.livelock.LiveLock("bootstrap_failover")
+    cfg = config.GetConfig(None, livelock, accept_foreign=True)
 
     old_master_node = cfg.GetNodeInfoByName(old_master)
     if old_master_node is None:
@@ -1051,34 +1086,41 @@ def MasterFailover(no_voting=False):
     # this will also regenerate the ssconf files, since we updated the
     # cluster info
     cfg.Update(cluster_info, logging.error)
+
+    # if cfg.Update worked, then it means the old master daemon won't be
+    # able now to write its own config file (we rely on locking in both
+    # backend.UploadFile() and ConfigWriter._Write(); hence the next
+    # step is to kill the old master
+
+    logging.info("Stopping the master daemon on node %s", old_master)
+
+    runner = rpc.BootstrapRunner()
+    master_params = cfg.GetMasterNetworkParameters()
+    master_params.uuid = old_master_node.uuid
+    ems = cfg.GetUseExternalMipScript()
+    result = runner.call_node_deactivate_master_ip(old_master,
+                                                   master_params, ems)
+
+    msg = result.fail_msg
+    if msg:
+      logging.warning("Could not disable the master IP: %s", msg)
+
+    result = runner.call_node_stop_master(old_master)
+    msg = result.fail_msg
+    if msg:
+      logging.error("Could not disable the master role on the old master"
+                    " %s, please disable manually: %s", old_master, msg)
   except errors.ConfigurationError, err:
     logging.error("Error while trying to set the new master: %s",
                   str(err))
     return 1
-
-  # if cfg.Update worked, then it means the old master daemon won't be
-  # able now to write its own config file (we rely on locking in both
-  # backend.UploadFile() and ConfigWriter._Write(); hence the next
-  # step is to kill the old master
-
-  logging.info("Stopping the master daemon on node %s", old_master)
-
-  runner = rpc.BootstrapRunner()
-  master_params = cfg.GetMasterNetworkParameters()
-  master_params.uuid = old_master_node.uuid
-  ems = cfg.GetUseExternalMipScript()
-  result = runner.call_node_deactivate_master_ip(old_master,
-                                                 master_params, ems)
-
-  msg = result.fail_msg
-  if msg:
-    logging.warning("Could not disable the master IP: %s", msg)
-
-  result = runner.call_node_stop_master(old_master)
-  msg = result.fail_msg
-  if msg:
-    logging.error("Could not disable the master role on the old master"
-                  " %s, please disable manually: %s", old_master, msg)
+  finally:
+    # stop WConfd again:
+    result = utils.RunCmd([pathutils.DAEMON_UTIL, "stop", constants.WCONFD])
+    if result.failed:
+      logging.error("Could not stop the configuration daemon,"
+                    " command %s had exitcode %s and error %s",
+                    result.cmd, result.exit_code, result.output)
 
   logging.info("Checking master IP non-reachability...")
 

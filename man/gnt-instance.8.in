@@ -63,6 +63,16 @@ option=\f[I]value\f[]...
 .PD 0
 .P
 .PD
+[--os-parameters-private \f[I]param\f[]=\f[I]value\f[]...
+]
+.PD 0
+.P
+.PD
+[--os-parameters-secret \f[I]param\f[]=\f[I]value\f[]...
+]
+.PD 0
+.P
+.PD
 [--file-storage-dir \f[I]dir_path\f[]] [--file-driver {loop | blktap |
 blktap2}]
 .PD 0
@@ -86,6 +96,10 @@ blktap2}]
 .P
 .PD
 [--no-wait-for-sync]
+.PD 0
+.P
+.PD
+[{-c|--communication=yes|no}]
 .PD 0
 .P
 .PD
@@ -820,6 +834,16 @@ on version of KVM used and disk type (always raw file under Ganeti),
 please refer to the KVM documentation for more details.
 .RE
 .TP
+.B disk_aio
+Valid for the KVM hypervisor.
+.RS
+.PP
+This is an optional parameter that specifies the aio mode for the disks.
+KVM default is to use the \[aq]threads\[aq] mode, so if not explicitly
+specified, the native mode will not be used.
+Possible values are: threads or native.
+.RE
+.TP
 .B security_model
 Valid for the KVM hypervisor.
 .RS
@@ -1095,6 +1119,19 @@ In case it\[aq]s not set the default version supported by your version
 of kvm is used.
 .RE
 .TP
+.B migration_caps
+Valid for the KVM hypervisor.
+.RS
+.PP
+Enable specific migration capabilities by providing a ":" separated list
+of supported capabilites.
+QEMU version 1.7.0 defines x-rdma-pin-all, auto-converge, zero-blocks,
+and xbzrle.
+Please note that while a combination of xbzrle and auto-converge might
+speed up the migration process significantly, the first may cause BSOD
+on Windows8r2 instances running on drbd.
+.RE
+.TP
 .B kvm_path
 Valid for the KVM hypervisor.
 .RS
@@ -1116,6 +1153,27 @@ dealing with broken or malicious virtio-net drivers.
 .PP
 It is set to \f[C]true\f[] by default.
 .RE
+.TP
+.B virtio_net_queues
+Valid for the KVM hypervisor.
+.RS
+.PP
+Set a number of queues (file descriptors) for tap device to parallelize
+packets sending or receiving.
+Tap devices will be created with MULTI_QUEUE (IFF_MULTI_QUEUE) support.
+This only works with KVM paravirtual nics (virtio-net) and the maximum
+number of queues is limited to \f[C]8\f[].
+Tehnically this is an extension of \f[C]vnet_hdr\f[] which must be
+enabled for multiqueue support.
+.PP
+If set to \f[C]1\f[] queue, it effectively disables multiqueue support
+on the tap and virio-net devices.
+.PP
+For instances it is necessary to manually set number of queues (on Linux
+using: \f[C]ethtool\ -L\ ethX\ combined\ $queues\f[]).
+.PP
+It is set to \f[C]1\f[] by default.
+.RE
 .PP
 The \f[C]-O\ (--os-parameters)\f[] option allows customisation of the OS
 parameters.
@@ -1129,6 +1187,22 @@ be achieved by:
 gnt-instance\ add\ -O\ dhcp=yes\ ...
 \f[]
 .fi
+.PP
+You can also specify OS parameters that should not be logged but reused
+at the next reinstall with \f[C]--os-parameters-private\f[] and OS
+parameters that should not be logged or saved to configuration with
+\f[C]--os-parameters-secret\f[].
+Bear in mind that:
+.RS
+.IP \[bu] 2
+Launching the daemons in debug mode will cause debug logging to happen,
+which leaks private and secret parameters to the log files.
+Do not use the debug mode in production.
+Deamons will emit a warning on startup if they are in debug mode.
+.IP \[bu] 2
+You will have to pass again all \f[C]--os-parameters-secret\f[]
+parameters should you want to reinstall this instance.
+.RE
 .PP
 The \f[C]-I\ (--iallocator)\f[] option specifies the instance allocator
 plugin to use (\f[C]\&.\f[] means the default allocator).
@@ -1242,6 +1316,10 @@ Analogous to the blktap driver, but used by newer versions of Xen.
 .PP
 If \f[C]--ignore-ipolicy\f[] is given any instance policy violations
 occuring during this operation are ignored.
+.PP
+The \f[C]-c\f[] and \f[C]--communication\f[] specify whether to
+enable/disable instance communication, which is a communication
+mechanism between the instance and the host.
 .PP
 See \f[B]ganeti\f[](7) for a description of \f[C]--submit\f[] and other
 common options.
@@ -2022,6 +2100,11 @@ The "device_model" hypervisor parameter
 .RS
 .RE
 .TP
+.B \f[C]hv/disk_aio\f[]
+The "disk_aio" hypervisor parameter
+.RS
+.RE
+.TP
 .B \f[C]hv/disk_cache\f[]
 The "disk_cache" hypervisor parameter
 .RS
@@ -2084,6 +2167,11 @@ The "machine_version" hypervisor parameter
 .TP
 .B \f[C]hv/mem_path\f[]
 The "mem_path" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/migration_caps\f[]
+The "migration_caps" hypervisor parameter
 .RS
 .RE
 .TP
@@ -2249,6 +2337,11 @@ The "vif_type" hypervisor parameter
 .TP
 .B \f[C]hv/viridian\f[]
 The "viridian" hypervisor parameter
+.RS
+.RE
+.TP
+.B \f[C]hv/virtio_net_queues\f[]
+The "virtio_net_queues" hypervisor parameter
 .RS
 .RE
 .TP
@@ -3007,6 +3100,11 @@ virtualization technologies.
 .PD 0
 .P
 .PD
+[--os-parameters-private \f[I]param\f[]=\f[I]value\f[]...
+]
+.PD 0
+.P
+.PD
 [--offline | --online]
 .PD 0
 .P
@@ -3166,8 +3264,19 @@ If the instance is running, there is no effect on the instance.
 .PD 0
 .P
 .PD
-[{-O|--os-parameters} \f[I]OS_PARAMETERS\f[]] [--submit]
-[--print-job-id]
+[{-O|--os-parameters} \f[I]OS_PARAMETERS\f[]]
+.PD 0
+.P
+.PD
+[--os-parameters-private} \f[I]OS_PARAMETERS\f[]]
+.PD 0
+.P
+.PD
+[--os-parameters-secret} \f[I]OS_PARAMETERS\f[]]
+.PD 0
+.P
+.PD
+[--submit] [--print-job-id]
 .PD 0
 .P
 .PD
@@ -4041,7 +4150,8 @@ long time for big disks (similar to replace-disks for a drbd instance).
 .PP
 The \f[C]--compress\f[] option is used to specify which compression mode
 is used during the move.
-Valid values are \[aq]none\[aq] (the default) and \[aq]gzip\[aq].
+Valid values are \[aq]none\[aq] (the default) and any values specified
+in the \[aq]compression_tools\[aq] cluster parameter.
 .PP
 The \f[C]--shutdown-timeout\f[] is used to specify how much time to wait
 before forcing the shutdown (e.g.

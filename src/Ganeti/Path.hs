@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2012 Google Inc.
+Copyright (C) 2012, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -37,20 +37,26 @@ module Ganeti.Path
   , runDir
   , logDir
   , socketDir
-  , defaultMasterSocket
+  , luxidMessageDir
+  , livelockDir
+  , livelockFile
   , defaultQuerySocket
+  , defaultWConfdSocket
   , confdHmacKey
   , clusterConfFile
+  , lockStatusFile
+  , tempResStatusFile
   , watcherPauseFile
   , nodedCertFile
   , nodedClientCertFile
   , queueDir
   , jobQueueSerialFile
-  , jobQueueLockFile 
-  , jobQueueDrainFile  
+  , jobQueueLockFile
+  , jobQueueDrainFile
   , jobQueueArchiveSubDir
   , instanceReasonDir
   , getInstReasonFilename
+  , jqueueExecutorPy
   ) where
 
 import System.FilePath
@@ -95,13 +101,27 @@ logDir = addNodePrefix $ AutoConf.localstatedir </> "log" </> "ganeti"
 socketDir :: IO FilePath
 socketDir = runDir `pjoin` "socket"
 
--- | The default path for the master-daemon LUXI socket.
-defaultMasterSocket :: IO FilePath
-defaultMasterSocket = socketDir `pjoin` "ganeti-master"
+-- | Directory for the jobs' livelocks.
+livelockDir :: IO FilePath
+livelockDir = runDir `pjoin` "livelocks"
+
+-- | Directory for luxid to write messages to running jobs, like
+-- requests to change the priority.
+luxidMessageDir :: IO FilePath
+luxidMessageDir = runDir `pjoin` "luxidmessages"
+
+-- | A helper for building a job's livelock file. It prepends
+-- 'livelockDir' to a given filename.
+livelockFile :: FilePath -> IO FilePath
+livelockFile = pjoin livelockDir
 
 -- | The default LUXI socket for queries.
 defaultQuerySocket :: IO FilePath
 defaultQuerySocket = socketDir `pjoin` "ganeti-query"
+
+-- | The default WConfD socket for queries.
+defaultWConfdSocket :: IO FilePath
+defaultWConfdSocket = socketDir `pjoin` "ganeti-wconfd"
 
 -- | Path to file containing confd's HMAC key.
 confdHmacKey :: IO FilePath
@@ -110,6 +130,14 @@ confdHmacKey = dataDirP "hmac.key"
 -- | Path to cluster configuration file.
 clusterConfFile :: IO FilePath
 clusterConfFile  = dataDirP "config.data"
+
+-- | Path to the file representing the lock status.
+lockStatusFile :: IO FilePath
+lockStatusFile  = dataDirP "locks.data"
+
+-- | Path to the file representing the lock status.
+tempResStatusFile :: IO FilePath
+tempResStatusFile  = dataDirP "tempres.data"
 
 -- | Path to the watcher pause file.
 watcherPauseFile :: IO FilePath
@@ -152,3 +180,8 @@ instanceReasonDir = runDir `pjoin` "instance-reason"
 -- instance name.
 getInstReasonFilename :: String -> IO FilePath
 getInstReasonFilename instName = instanceReasonDir `pjoin` instName
+
+-- | The path to the Python executable for starting jobs.
+jqueueExecutorPy :: IO FilePath
+jqueueExecutorPy = return $ versionedsharedir
+                            </> "ganeti" </> "jqueue" </> "exec.py"

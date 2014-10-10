@@ -12,7 +12,7 @@ module.
 
 {-
 
-Copyright (C) 2012 Google Inc.
+Copyright (C) 2012, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -53,6 +53,9 @@ module Ganeti.OpParams
   , SetParamsMods(..)
   , ExportTarget(..)
   , pInstanceName
+  , pInstallImage
+  , pInstanceCommunication
+  , pOptInstanceCommunication
   , pInstanceUuid
   , pInstances
   , pName
@@ -101,7 +104,7 @@ module Ganeti.OpParams
   , pSkipChecks
   , pIgnoreErrors
   , pOptGroupName
-  , pDiskParams
+  , pGroupDiskParams
   , pHvState
   , pDiskState
   , pIgnoreIpolicy
@@ -116,6 +119,9 @@ module Ganeti.OpParams
   , pClusterFileStorageDir
   , pClusterSharedFileStorageDir
   , pClusterGlusterStorageDir
+  , pInstanceCommunicationNetwork
+  , pZeroingImage
+  , pCompressionTools
   , pVgName
   , pEnabledHypervisors
   , pHypervisor
@@ -126,9 +132,13 @@ module Ganeti.OpParams
   , pResetDefaults
   , pOsHvp
   , pClusterOsParams
+  , pClusterOsParamsPrivate
   , pInstOsParams
+  , pInstOsParamsPrivate
+  , pInstOsParamsSecret
   , pCandidatePoolSize
   , pMaxRunningJobs
+  , pMaxTrackedJobs
   , pUidPool
   , pAddUids
   , pRemoveUids
@@ -166,7 +176,7 @@ module Ganeti.OpParams
   , pRequiredNodes
   , pRequiredNodeUuids
   , pStorageType
-  , pStorageTypeOptional
+  , pOptStorageType
   , pStorageChanges
   , pMasterCandidate
   , pOffline
@@ -195,6 +205,8 @@ module Ganeti.OpParams
   , pInstTags
   , pMultiAllocInstances
   , pTempOsParams
+  , pTempOsParamsPrivate
+  , pTempOsParamsSecret
   , pTempHvParams
   , pTempBeParams
   , pIgnoreFailures
@@ -219,6 +231,11 @@ module Ganeti.OpParams
   , pIgnoreRemoveFailures
   , pX509KeyName
   , pX509DestCA
+  , pZeroFreeSpace
+  , pHelperStartupTimeout
+  , pHelperShutdownTimeout
+  , pZeroingTimeoutFixed
+  , pZeroingTimeoutPerMiB
   , pTagSearchPattern
   , pRestrictedCommand
   , pReplaceDisksMode
@@ -230,6 +247,7 @@ module Ganeti.OpParams
   , pDelayOnNodes
   , pDelayOnNodeUuids
   , pDelayRepeat
+  , pDelayInterruptible
   , pDelayNoLocks
   , pIAllocatorDirection
   , pIAllocatorMode
@@ -283,6 +301,7 @@ import Text.JSON.Pretty (pp_value)
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
 import Ganeti.THH
+import Ganeti.THH.Field
 import Ganeti.Utils
 import Ganeti.JSON
 import Ganeti.Types
@@ -602,6 +621,26 @@ pClusterGlusterStorageDir =
   renameField "ClusterGlusterStorageDir" $
   optionalStringField "gluster_storage_dir"
 
+pInstallImage :: Field
+pInstallImage =
+  withDoc "OS image for running OS scripts in a safe environment" $
+  optionalStringField "install_image"
+
+pInstanceCommunicationNetwork :: Field
+pInstanceCommunicationNetwork =
+  optionalStringField "instance_communication_network"
+
+-- | The OS to use when zeroing instance disks.
+pZeroingImage :: Field
+pZeroingImage =
+  optionalStringField "zeroing_image"
+
+-- | The additional tools that can be used to compress data in transit
+pCompressionTools :: Field
+pCompressionTools =
+  withDoc "List of enabled compression tools" . optionalField $
+  simpleField "compression_tools" [t| [NonEmptyString] |]
+
 -- | Volume group name.
 pVgName :: Field
 pVgName =
@@ -640,8 +679,17 @@ pClusterOsParams =
   optionalField $
   simpleField "osparams" [t| GenericContainer String (JSObject JSValue) |]
 
-pDiskParams :: Field
-pDiskParams =
+pClusterOsParamsPrivate :: Field
+pClusterOsParamsPrivate =
+  withDoc "Cluster-wide private OS parameter defaults" .
+  renameField "ClusterOsParamsPrivate" .
+  optionalField $
+  -- This field needs an unique name to aid Python deserialization
+  simpleField "osparams_private_cluster"
+    [t| GenericContainer String (JSObject (Private JSValue)) |]
+
+pGroupDiskParams :: Field
+pGroupDiskParams =
   withDoc "Disk templates' parameter defaults" .
   optionalField $
   simpleField "diskparams"
@@ -656,6 +704,12 @@ pMaxRunningJobs :: Field
 pMaxRunningJobs =
   withDoc "Maximal number of jobs to run simultaneously" .
   optionalField $ simpleField "max_running_jobs" [t| Positive Int |]
+
+pMaxTrackedJobs :: Field
+pMaxTrackedJobs =
+  withDoc "Maximal number of jobs tracked in the job queue" .
+  optionalField $ simpleField "max_tracked_jobs" [t| Positive Int |]
+
 
 pUidPool :: Field
 pUidPool =
@@ -901,10 +955,10 @@ pStorageType :: Field
 pStorageType =
   withDoc "Storage type" $ simpleField "storage_type" [t| StorageType |]
 
-pStorageTypeOptional :: Field
-pStorageTypeOptional =
+pOptStorageType :: Field
+pOptStorageType =
   withDoc "Storage type" .
-  renameField "StorageTypeOptional" .
+  renameField "OptStorageType" .
   optionalField $ simpleField "storage_type" [t| StorageType |]
 
 pStorageName :: Field
@@ -1012,6 +1066,18 @@ pInstanceName =
   withDoc "A required instance name (for single-instance LUs)" $
   simpleField "instance_name" [t| String |]
 
+pInstanceCommunication :: Field
+pInstanceCommunication =
+  withDoc C.instanceCommunicationDoc $
+  defaultFalse "instance_communication"
+
+pOptInstanceCommunication :: Field
+pOptInstanceCommunication =
+  withDoc C.instanceCommunicationDoc .
+  renameField "OptInstanceCommunication" .
+  optionalField $
+  booleanField "instance_communication"
+
 pForceVariant :: Field
 pForceVariant =
   withDoc "Whether to force an unknown OS variant" $
@@ -1108,6 +1174,18 @@ pInstOsParams =
   renameField "InstOsParams" .
   defaultField [| toJSObject [] |] $
   simpleField "osparams" [t| JSObject JSValue |]
+
+pInstOsParamsPrivate :: Field
+pInstOsParamsPrivate =
+  withDoc "Private OS parameters for instance" .
+  optionalField $
+  simpleField "osparams_private" [t| JSObject (Private JSValue) |]
+
+pInstOsParamsSecret :: Field
+pInstOsParamsSecret =
+  withDoc "Secret OS parameters for instance" .
+  optionalField $
+  simpleField "osparams_secret" [t| JSObject (Private JSValue) |]
 
 pPrimaryNode :: Field
 pPrimaryNode =
@@ -1206,6 +1284,18 @@ pTempOsParams =
           \ added to install as well)" .
   renameField "TempOsParams" .
   optionalField $ simpleField "osparams" [t| JSObject JSValue |]
+
+pTempOsParamsPrivate :: Field
+pTempOsParamsPrivate =
+  withDoc "Private OS parameters for instance reinstalls" .
+  optionalField $
+  simpleField "osparams_private" [t| JSObject (Private JSValue) |]
+
+pTempOsParamsSecret :: Field
+pTempOsParamsSecret =
+  withDoc "Secret OS parameters for instance reinstalls" .
+  optionalField $
+  simpleField "osparams_secret" [t| JSObject (Private JSValue) |]
 
 pShutdownTimeout :: Field
 pShutdownTimeout =
@@ -1313,14 +1403,14 @@ pMoveTargetNodeUuid =
 pMoveCompress :: Field
 pMoveCompress =
   withDoc "Compression mode to use during instance moves" .
-  defaultField [| None |] $
-  simpleField "compress" [t| ImportExportCompression |]
+  defaultField [| C.iecNone |] $
+  simpleField "compress" [t| String |]
 
 pBackupCompress :: Field
 pBackupCompress =
   withDoc "Compression mode to use for moves during backups/imports" .
-  defaultField [| None |] $
-  simpleField "compress" [t| ImportExportCompression |]
+  defaultField [| C.iecNone |] $
+  simpleField "compress" [t| String |]
 
 pIgnoreDiskSize :: Field
 pIgnoreDiskSize =
@@ -1452,6 +1542,33 @@ pX509DestCA =
   withDoc "Destination X509 CA (remote export only)" $
   optionalNEStringField "destination_x509_ca"
 
+pZeroFreeSpace :: Field
+pZeroFreeSpace =
+  withDoc "Whether to zero the free space on the disks of the instance" $
+  defaultFalse "zero_free_space"
+
+pHelperStartupTimeout :: Field
+pHelperStartupTimeout =
+  withDoc "Startup timeout for the helper VM" .
+  optionalField $ simpleField "helper_startup_timeout" [t| Int |]
+
+pHelperShutdownTimeout :: Field
+pHelperShutdownTimeout =
+  withDoc "Shutdown timeout for the helper VM" .
+  optionalField $ simpleField "helper_shutdown_timeout" [t| Int |]
+
+pZeroingTimeoutFixed :: Field
+pZeroingTimeoutFixed =
+  withDoc "The fixed part of time to wait before declaring the zeroing\
+           \ operation to have failed" .
+  optionalField $ simpleField "zeroing_timeout_fixed" [t| Int |]
+
+pZeroingTimeoutPerMiB :: Field
+pZeroingTimeoutPerMiB =
+  withDoc "The variable part of time to wait before declaring the zeroing\
+           \ operation to have failed, dependent on total size of disks" .
+  optionalField $ simpleField "zeroing_timeout_per_mib" [t| Double |]
+
 pTagsObject :: Field
 pTagsObject =
   withDoc "Tag kind" $
@@ -1506,6 +1623,13 @@ pDelayRepeat =
   renameField "DelayRepeat" .
   defaultField [| forceNonNeg (0::Int) |] $
   simpleField "repeat" [t| NonNegative Int |]
+
+pDelayInterruptible :: Field
+pDelayInterruptible =
+  withDoc "Allows socket-based interruption of a running OpTestDelay" .
+  renameField "DelayInterruptible" .
+  defaultField [| False |] $
+  simpleField "interruptible" [t| Bool |]
 
 pDelayNoLocks :: Field
 pDelayNoLocks =

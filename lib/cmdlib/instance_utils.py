@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Google Inc.
+# Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -156,7 +156,8 @@ def BuildInstanceHookEnv(name, primary_node_name, secondary_node_names, os_type,
   return env
 
 
-def BuildInstanceHookEnvByObject(lu, instance, override=None):
+def BuildInstanceHookEnvByObject(lu, instance, secondary_nodes=None,
+                                 disks=None, override=None):
   """Builds instance related env variables for hooks from an object.
 
   @type lu: L{LogicalUnit}
@@ -174,10 +175,19 @@ def BuildInstanceHookEnvByObject(lu, instance, override=None):
   cluster = lu.cfg.GetClusterInfo()
   bep = cluster.FillBE(instance)
   hvp = cluster.FillHV(instance)
+
+  # Override secondary_nodes
+  if secondary_nodes is None:
+    secondary_nodes = lu.cfg.GetInstanceSecondaryNodes(instance.uuid)
+
+  # Override disks
+  if disks is None:
+    disks = lu.cfg.GetInstanceDisks(instance.uuid)
+
   args = {
     "name": instance.name,
     "primary_node_name": lu.cfg.GetNodeName(instance.primary_node),
-    "secondary_node_names": lu.cfg.GetNodeNames(instance.secondary_nodes),
+    "secondary_node_names": lu.cfg.GetNodeNames(secondary_nodes),
     "os_type": instance.os,
     "status": instance.admin_state,
     "maxmem": bep[constants.BE_MAXMEM],
@@ -186,7 +196,7 @@ def BuildInstanceHookEnvByObject(lu, instance, override=None):
     "nics": NICListToTuple(lu, instance.nics),
     "disk_template": instance.disk_template,
     "disks": [(disk.name, disk.uuid, disk.size, disk.mode)
-              for disk in instance.disks],
+              for disk in disks],
     "bep": bep,
     "hvp": hvp,
     "hypervisor_name": instance.hypervisor,
@@ -243,15 +253,12 @@ def RemoveInstance(lu, feedback_fn, instance, ignore_failures):
       raise errors.OpExecError("Can't remove instance's disks")
     feedback_fn("Warning: can't remove instance's disks")
 
+  logging.info("Removing instance's disks")
+  for disk in instance.disks:
+    lu.cfg.RemoveInstanceDisk(instance.uuid, disk)
+
   logging.info("Removing instance %s out of cluster config", instance.name)
-
   lu.cfg.RemoveInstance(instance.uuid)
-
-  assert not lu.remove_locks.get(locking.LEVEL_INSTANCE), \
-    "Instance lock removal conflict"
-
-  # Remove lock for the instance
-  lu.remove_locks[locking.LEVEL_INSTANCE] = instance.name
 
 
 def RemoveDisks(lu, instance, target_node_uuid=None, ignore_failures=False):
@@ -276,7 +283,8 @@ def RemoveDisks(lu, instance, target_node_uuid=None, ignore_failures=False):
 
   all_result = True
   ports_to_release = set()
-  anno_disks = AnnotateDiskParams(instance, instance.disks, lu.cfg)
+  inst_disks = lu.cfg.GetInstanceDisks(instance.uuid)
+  anno_disks = AnnotateDiskParams(instance, inst_disks, lu.cfg)
   for (idx, device) in enumerate(anno_disks):
     if target_node_uuid:
       edata = [(target_node_uuid, device)]
@@ -302,8 +310,8 @@ def RemoveDisks(lu, instance, target_node_uuid=None, ignore_failures=False):
   CheckDiskTemplateEnabled(lu.cfg.GetClusterInfo(), instance.disk_template)
 
   if instance.disk_template in [constants.DT_FILE, constants.DT_SHARED_FILE]:
-    if len(instance.disks) > 0:
-      file_storage_dir = os.path.dirname(instance.disks[0].logical_id[1])
+    if len(inst_disks) > 0:
+      file_storage_dir = os.path.dirname(inst_disks[0].logical_id[1])
     else:
       if instance.disk_template == constants.DT_SHARED_FILE:
         file_storage_dir = utils.PathJoin(lu.cfg.GetSharedFileStorageDir(),
@@ -387,6 +395,8 @@ def ReleaseLocks(lu, level, names=None, keep=None):
   @param keep: Names of locks to retain
 
   """
+  logging.debug("Lu %s ReleaseLocks %s names=%s, keep=%s",
+                lu.wconfdcontext, level, names, keep)
   assert not (keep is not None and names is not None), \
          "Only one of the 'names' and the 'keep' parameters can be given"
 
@@ -396,6 +406,8 @@ def ReleaseLocks(lu, level, names=None, keep=None):
     should_release = lambda name: name not in keep
   else:
     should_release = None
+
+  levelname = locking.LEVEL_NAMES[level]
 
   owned = lu.owned_locks(level)
   if not owned:
@@ -416,14 +428,11 @@ def ReleaseLocks(lu, level, names=None, keep=None):
     assert len(lu.owned_locks(level)) == (len(retain) + len(release))
 
     # Release just some locks
-    lu.glm.release(level, names=release)
-
+    lu.WConfdClient().TryUpdateLocks(
+      lu.release_request(level, release))
     assert frozenset(lu.owned_locks(level)) == frozenset(retain)
   else:
-    # Release everything
-    lu.glm.release(level)
-
-    assert not lu.glm.is_owned(level), "No locks should be owned"
+    lu.WConfdClient().FreeLocksLevel(levelname)
 
 
 def _ComputeIPolicyNodeViolation(ipolicy, instance, current_group,
@@ -549,43 +558,97 @@ def CheckNicsBridgesExist(lu, nics, node_uuid):
                  ecode=errors.ECODE_ENVIRON)
 
 
-def CheckNodeHasOS(lu, node_uuid, os_name, force_variant):
-  """Ensure that a node supports a given OS.
+def UpdateMetadata(feedback_fn, rpc, instance,
+                   osparams_public=None,
+                   osparams_private=None,
+                   osparams_secret=None):
+  """Updates instance metadata on the metadata daemon on the
+  instance's primary node.
 
-  @param lu: the LU on behalf of which we make the check
-  @param node_uuid: the node to check
-  @param os_name: the OS to query about
-  @param force_variant: whether to ignore variant errors
-  @raise errors.OpPrereqError: if the node is not supporting the OS
+  If the daemon isn't available (not compiled), do nothing.
+
+  In case the RPC fails, this function simply issues a warning and
+  proceeds normally.
+
+  @type feedback_fn: callable
+  @param feedback_fn: function used send feedback back to the caller
+
+  @type rpc: L{rpc.node.RpcRunner}
+  @param rpc: RPC runner
+
+  @type instance: L{objects.Instance}
+  @param instance: instance for which the metadata should be updated
+
+  @type osparams_public: NoneType or dict
+  @param osparams_public: public OS parameters used to override those
+                          defined in L{instance}
+
+  @type osparams_private: NoneType or dict
+  @param osparams_private: private OS parameters used to override those
+                           defined in L{instance}
+
+  @type osparams_secret: NoneType or dict
+  @param osparams_secret: secret OS parameters used to override those
+                          defined in L{instance}
+
+  @rtype: NoneType
+  @return: None
 
   """
-  result = lu.rpc.call_os_get(node_uuid, os_name)
-  result.Raise("OS '%s' not in supported OS list for node %s" %
-               (os_name, lu.cfg.GetNodeName(node_uuid)),
-               prereq=True, ecode=errors.ECODE_INVAL)
-  if not force_variant:
-    _CheckOSVariant(result.payload, os_name)
-
-
-def _CheckOSVariant(os_obj, name):
-  """Check whether an OS name conforms to the os variants specification.
-
-  @type os_obj: L{objects.OS}
-  @param os_obj: OS object to check
-  @type name: string
-  @param name: OS name passed by the user, to check for validity
-
-  """
-  variant = objects.OS.GetVariant(name)
-  if not os_obj.supported_variants:
-    if variant:
-      raise errors.OpPrereqError("OS '%s' doesn't support variants ('%s'"
-                                 " passed)" % (os_obj.name, variant),
-                                 errors.ECODE_INVAL)
+  if not constants.ENABLE_METAD:
     return
-  if not variant:
-    raise errors.OpPrereqError("OS name must include a variant",
-                               errors.ECODE_INVAL)
 
-  if variant not in os_obj.supported_variants:
-    raise errors.OpPrereqError("Unsupported OS variant", errors.ECODE_INVAL)
+  data = instance.ToDict()
+
+  if osparams_public is not None:
+    data["osparams_public"] = osparams_public
+
+  if osparams_private is not None:
+    data["osparams_private"] = osparams_private
+
+  if osparams_secret is not None:
+    data["osparams_secret"] = osparams_secret
+  else:
+    data["osparams_secret"] = {}
+
+  result = rpc.call_instance_metadata_modify(instance.primary_node, data)
+  result.Warn("Could not update metadata for instance '%s'" % instance.name,
+              feedback_fn)
+
+
+def CheckCompressionTool(lu, compression_tool):
+  """ Checks if the provided compression tool is allowed to be used.
+
+  @type compression_tool: string
+  @param compression_tool: Compression tool to use for importing or exporting
+    the instance
+
+  @rtype: NoneType
+  @return: None
+
+  @raise errors.OpPrereqError: If the tool is not enabled by Ganeti or
+                               whitelisted
+
+  """
+  allowed_tools = lu.cfg.GetCompressionTools()
+  if (compression_tool != constants.IEC_NONE and
+      compression_tool not in allowed_tools):
+    raise errors.OpPrereqError(
+      "Compression tool not allowed, tools allowed are [%s]"
+      % ", ".join(allowed_tools)
+    )
+
+
+def CheckInstanceExistence(lu, instance_name):
+  """Raises an error if an instance with the given name exists already.
+
+  @type instance_name: string
+  @param instance_name: The name of the instance.
+
+  To be used in the locking phase.
+
+  """
+  if instance_name in \
+     [inst.name for inst in lu.cfg.GetAllInstancesInfo().values()]:
+    raise errors.OpPrereqError("Instance '%s' is already in the cluster" %
+                               instance_name, errors.ECODE_EXISTS)

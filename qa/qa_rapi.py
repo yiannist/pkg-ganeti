@@ -42,11 +42,12 @@ from ganeti import cli
 from ganeti import compat
 from ganeti import constants
 from ganeti import errors
-from ganeti import pathutils
+from ganeti import locking
 from ganeti import objects
 from ganeti import opcodes
-from ganeti import query
+from ganeti import pathutils
 from ganeti import qlang
+from ganeti import query
 from ganeti import rapi
 from ganeti import utils
 
@@ -59,9 +60,10 @@ import qa_error
 import qa_logging
 import qa_utils
 
+from qa_instance import IsDiskReplacingSupported
 from qa_instance import IsFailoverSupported
 from qa_instance import IsMigrationSupported
-from qa_instance import IsDiskReplacingSupported
+from qa_job_utils import RunWithLocks
 from qa_utils import (AssertEqual, AssertIn, AssertMatch, StartLocalCommand)
 from qa_utils import InstanceCheck, INST_DOWN, INST_UP, FIRST_ARG
 
@@ -354,15 +356,18 @@ def TestEmptyCluster():
     "force",       # Standard option
     "add_uids",    # Modifies UID pool, is not a param itself
     "remove_uids", # Same as above
+    "osparams_private_cluster", # Should not be returned
   ]
   NOT_EXPOSED_YET = ["hv_state", "disk_state", "modify_etc_hosts"]
   # The nicparams are returned under the default entry, yet accepted as they
   # are - this is a TODO to fix!
   DEFAULT_ISSUES = ["nicparams"]
+  # Cannot be set over RAPI due to security issues
+  FORBIDDEN_PARAMS = ["compression_tools"]
 
   _DoGetPutTests("/2/info", "/2/modify", opcodes.OpClusterSetParams.OP_PARAMS,
                  exceptions=(LEGITIMATELY_MISSING + NOT_EXPOSED_YET),
-                 set_exceptions=DEFAULT_ISSUES)
+                 set_exceptions=DEFAULT_ISSUES + FORBIDDEN_PARAMS)
 
 
 def TestRapiQuery():
@@ -1019,6 +1024,51 @@ def GetOperatingSystems():
   return _rapi_client.GetOperatingSystems()
 
 
+def _InvokeMoveInstance(current_dest_inst, current_src_inst, rapi_pw_filename,
+                        joint_master, perform_checks, target_nodes=None):
+  """ Invokes the move-instance tool for testing purposes.
+
+  """
+  # Some uses of this test might require that RAPI-only commands are used,
+  # and the checks are command-line based.
+  if perform_checks:
+    qa_utils.RunInstanceCheck(current_dest_inst, False)
+
+  cmd = [
+      "../tools/move-instance",
+      "--verbose",
+      "--src-ca-file=%s" % _rapi_ca.name,
+      "--src-username=%s" % _rapi_username,
+      "--src-password-file=%s" % rapi_pw_filename,
+      "--dest-instance-name=%s" % current_dest_inst,
+      ]
+
+  if target_nodes:
+    pnode, snode = target_nodes
+    cmd.extend([
+      "--dest-primary-node=%s" % pnode,
+      "--dest-secondary-node=%s" % snode,
+      ])
+  else:
+    cmd.extend([
+      "--iallocator=%s" % constants.IALLOC_HAIL,
+      "--opportunistic-tries=1",
+      ])
+
+  cmd.extend([
+    "--net=0:mac=%s" % constants.VALUE_GENERATE,
+    joint_master,
+    joint_master,
+    current_src_inst,
+    ])
+
+  AssertEqual(StartLocalCommand(cmd).wait(), 0)
+
+  if perform_checks:
+    qa_utils.RunInstanceCheck(current_src_inst, False)
+    qa_utils.RunInstanceCheck(current_dest_inst, True)
+
+
 def TestInterClusterInstanceMove(src_instance, dest_instance,
                                  inodes, tnode, perform_checks=True):
   """Test tools/move-instance"""
@@ -1040,38 +1090,21 @@ def TestInterClusterInstanceMove(src_instance, dest_instance,
     assert len(inodes) == 2
     snode = inodes[1]
   else:
-    # instance is not redundant, but we still need to pass a node
+    # Instance is not redundant, but we still need to pass a node
     # (which will be ignored)
     snode = tnode
   pnode = inodes[0]
-  # note: pnode:snode are the *current* nodes, so we move it first to
-  # tnode:pnode, then back to pnode:snode
-  for current_src_inst, current_dest_inst, target_pnode, target_snode in \
-    [(src_instance.name, dest_instance.name, tnode.primary, pnode.primary),
-     (dest_instance.name, src_instance.name, pnode.primary, snode.primary)]:
-    cmd = [
-      "../tools/move-instance",
-      "--verbose",
-      "--src-ca-file=%s" % _rapi_ca.name,
-      "--src-username=%s" % _rapi_username,
-      "--src-password-file=%s" % rapi_pw_file.name,
-      "--dest-instance-name=%s" % current_dest_inst,
-      "--dest-primary-node=%s" % target_pnode,
-      "--dest-secondary-node=%s" % target_snode,
-      "--net=0:mac=%s" % constants.VALUE_GENERATE,
-      master.primary,
-      master.primary,
-      current_src_inst,
-      ]
 
-    # Some uses of this test might require that RAPI-only commands are used,
-    # and the checks are command-line based.
+  # pnode:snode are the *current* nodes, and the first move is an
+  # iallocator-guided move outside of pnode. The node lock for the pnode
+  # assures that this happens, and while we cannot be sure where the instance
+  # will land, it is a real move.
+  locks = {locking.LEVEL_NODE: [pnode.primary]}
+  RunWithLocks(_InvokeMoveInstance, locks, 600.0, False,
+               dest_instance.name, src_instance.name, rapi_pw_file.name,
+               master.primary, perform_checks)
 
-    if perform_checks:
-      qa_utils.RunInstanceCheck(current_dest_inst, False)
-
-    AssertEqual(StartLocalCommand(cmd).wait(), 0)
-
-    if perform_checks:
-      qa_utils.RunInstanceCheck(current_src_inst, False)
-      qa_utils.RunInstanceCheck(current_dest_inst, True)
+  # And then back to pnode:snode
+  _InvokeMoveInstance(src_instance.name, dest_instance.name, rapi_pw_file.name,
+                      master.primary, perform_checks,
+                      target_nodes=(pnode.primary, snode.primary))

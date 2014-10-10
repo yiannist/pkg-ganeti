@@ -90,8 +90,6 @@ $(genArbitrary ''OpCodes.ReplaceDisksMode)
 
 $(genArbitrary ''DiskAccess)
 
-$(genArbitrary ''ImportExportCompression)
-
 instance Arbitrary OpCodes.DiskIndex where
   arbitrary = choose (0, C.maxDisks - 1) >>= OpCodes.mkDiskIndex
 
@@ -135,7 +133,8 @@ instance Arbitrary OpCodes.OpCode where
     case op_id of
       "OP_TEST_DELAY" ->
         OpCodes.OpTestDelay <$> arbitrary <*> arbitrary <*>
-          genNodeNamesNE <*> return Nothing <*> arbitrary <*> arbitrary
+          genNodeNamesNE <*> return Nothing <*> arbitrary <*> arbitrary <*>
+          arbitrary
       "OP_INSTANCE_REPLACE_DISKS" ->
         OpCodes.OpInstanceReplaceDisks <$> genFQDN <*> return Nothing <*>
           arbitrary <*> arbitrary <*> arbitrary <*> genDiskIndices <*>
@@ -181,18 +180,49 @@ instance Arbitrary OpCodes.OpCode where
       "OP_CLUSTER_RENAME" ->
         OpCodes.OpClusterRename <$> genNameNE
       "OP_CLUSTER_SET_PARAMS" ->
-        OpCodes.OpClusterSetParams <$> arbitrary <*> emptyMUD <*> emptyMUD <*>
-          arbitrary <*> genMaybe arbitrary <*>
-          genMaybe genEmptyContainer <*> emptyMUD <*>
-          genMaybe genEmptyContainer <*> genMaybe genEmptyContainer <*>
-          genMaybe genEmptyContainer <*> genMaybe arbitrary <*>
-          genMaybe arbitrary <*>
-          arbitrary <*> arbitrary <*> arbitrary <*>
-          arbitrary <*> arbitrary <*> arbitrary <*>
-          emptyMUD <*> emptyMUD <*> arbitrary <*>
-          arbitrary  <*> emptyMUD <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          arbitrary <*> genMaybe genName <*> genMaybe genName <*> arbitrary
+        OpCodes.OpClusterSetParams
+          <$> arbitrary                    -- force
+          <*> emptyMUD                     -- hv_state
+          <*> emptyMUD                     -- disk_state
+          <*> arbitrary                    -- vg_name
+          <*> genMaybe arbitrary           -- enabled_hypervisors
+          <*> genMaybe genEmptyContainer   -- hvparams
+          <*> emptyMUD                     -- beparams
+          <*> genMaybe genEmptyContainer   -- os_hvp
+          <*> genMaybe genEmptyContainer   -- osparams
+          <*> genMaybe genEmptyContainer   -- osparams_private_cluster
+          <*> genMaybe genEmptyContainer   -- diskparams
+          <*> genMaybe arbitrary           -- candidate_pool_size
+          <*> genMaybe arbitrary           -- max_running_jobs
+          <*> genMaybe arbitrary           -- max_tracked_jobs
+          <*> arbitrary                    -- uid_pool
+          <*> arbitrary                    -- add_uids
+          <*> arbitrary                    -- remove_uids
+          <*> arbitrary                    -- maintain_node_health
+          <*> arbitrary                    -- prealloc_wipe_disks
+          <*> arbitrary                    -- nicparams
+          <*> emptyMUD                     -- ndparams
+          <*> emptyMUD                     -- ipolicy
+          <*> arbitrary                    -- drbd_helper
+          <*> arbitrary                    -- default_iallocator
+          <*> emptyMUD                     -- default_iallocator_params
+          <*> genMaybe genMacPrefix        -- mac_prefix
+          <*> arbitrary                    -- master_netdev
+          <*> arbitrary                    -- master_netmask
+          <*> arbitrary                    -- reserved_lvs
+          <*> arbitrary                    -- hidden_os
+          <*> arbitrary                    -- blacklisted_os
+          <*> arbitrary                    -- use_external_mip_script
+          <*> arbitrary                    -- enabled_disk_templates
+          <*> arbitrary                    -- modify_etc_hosts
+          <*> genMaybe genName             -- file_storage_dir
+          <*> genMaybe genName             -- shared_file_storage_dir
+          <*> genMaybe genName             -- gluster_file_storage_dir
+          <*> arbitrary                    -- install_image
+          <*> arbitrary                    -- instance_communication_network
+          <*> arbitrary                    -- zeroing_image
+          <*> arbitrary                    -- compression_tools
+          <*> arbitrary                    -- enabled_user_shutdown
       "OP_CLUSTER_REDIST_CONF" -> pure OpCodes.OpClusterRedistConf
       "OP_CLUSTER_ACTIVATE_MASTER_IP" ->
         pure OpCodes.OpClusterActivateMasterIp
@@ -241,23 +271,55 @@ instance Arbitrary OpCodes.OpCode where
           return Nothing <*> genMaybe genNodeNameNE <*> return Nothing <*>
           genMaybe genNameNE <*> arbitrary
       "OP_INSTANCE_CREATE" ->
-        OpCodes.OpInstanceCreate <$> genFQDN <*> arbitrary <*>
-          arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          pure emptyJSObject <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          genMaybe genNameNE <*> pure emptyJSObject <*> arbitrary <*>
-          genMaybe genNameNE <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          arbitrary <*> arbitrary <*> arbitrary <*> pure emptyJSObject <*>
-          genMaybe genNameNE <*> genMaybe genNodeNameNE <*> return Nothing <*>
-          genMaybe genNodeNameNE <*> return Nothing <*> genMaybe (pure []) <*>
-          genMaybe genNodeNameNE <*> arbitrary <*> genMaybe genNodeNameNE <*>
-          return Nothing <*> genMaybe genNodeNameNE <*> genMaybe genNameNE <*>
-          arbitrary <*> arbitrary <*> (genTags >>= mapM mkNonEmpty)
+        OpCodes.OpInstanceCreate
+          <$> genFQDN                         -- instance_name
+          <*> arbitrary                       -- force_variant
+          <*> arbitrary                       -- wait_for_sync
+          <*> arbitrary                       -- name_check
+          <*> arbitrary                       -- ignore_ipolicy
+          <*> arbitrary                       -- opportunistic_locking
+          <*> pure emptyJSObject              -- beparams
+          <*> arbitrary                       -- disks
+          <*> arbitrary                       -- disk_template
+          <*> arbitrary                       -- file_driver
+          <*> genMaybe genNameNE              -- file_storage_dir
+          <*> pure emptyJSObject              -- hvparams
+          <*> arbitrary                       -- hypervisor
+          <*> genMaybe genNameNE              -- iallocator
+          <*> arbitrary                       -- identify_defaults
+          <*> arbitrary                       -- ip_check
+          <*> arbitrary                       -- conflicts_check
+          <*> arbitrary                       -- mode
+          <*> arbitrary                       -- nics
+          <*> arbitrary                       -- no_install
+          <*> pure emptyJSObject              -- osparams
+          <*> genMaybe arbitraryPrivateJSObj  -- osparams_private
+          <*> genMaybe arbitraryPrivateJSObj  -- osparams_secret
+          <*> genMaybe genNameNE              -- os_type
+          <*> genMaybe genNodeNameNE          -- pnode
+          <*> return Nothing                  -- pnode_uuid
+          <*> genMaybe genNodeNameNE          -- snode
+          <*> return Nothing                  -- snode_uuid
+          <*> genMaybe (pure [])              -- source_handshake
+          <*> genMaybe genNodeNameNE          -- source_instance_name
+          <*> arbitrary                       -- source_shutdown_timeout
+          <*> genMaybe genNodeNameNE          -- source_x509_ca
+          <*> return Nothing                  -- src_node
+          <*> genMaybe genNodeNameNE          -- src_node_uuid
+          <*> genMaybe genNameNE              -- src_path
+          <*> arbitrary                       -- compress
+          <*> arbitrary                       -- start
+          <*> (genTags >>= mapM mkNonEmpty)   -- tags
+          <*> arbitrary                       -- instance_communication
+          <*> arbitrary                       -- helper_startup_timeout
+          <*> arbitrary                       -- helper_shutdown_timeout
       "OP_INSTANCE_MULTI_ALLOC" ->
         OpCodes.OpInstanceMultiAlloc <$> arbitrary <*> genMaybe genNameNE <*>
         pure []
       "OP_INSTANCE_REINSTALL" ->
         OpCodes.OpInstanceReinstall <$> genFQDN <*> return Nothing <*>
           arbitrary <*> genMaybe genNameNE <*> genMaybe (pure emptyJSObject)
+          <*> genMaybe arbitraryPrivateJSObj <*> genMaybe arbitraryPrivateJSObj
       "OP_INSTANCE_REMOVE" ->
         OpCodes.OpInstanceRemove <$> genFQDN <*> return Nothing <*>
           arbitrary <*> arbitrary
@@ -301,13 +363,31 @@ instance Arbitrary OpCodes.OpCode where
         OpCodes.OpInstanceQueryData <$> arbitrary <*>
           genNodeNamesNE <*> arbitrary
       "OP_INSTANCE_SET_PARAMS" ->
-        OpCodes.OpInstanceSetParams <$> genFQDN <*> return Nothing <*>
-          arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          arbitrary <*> pure emptyJSObject <*> arbitrary <*>
-          pure emptyJSObject <*> arbitrary <*> genMaybe genNodeNameNE <*>
-          return Nothing <*> genMaybe genNodeNameNE <*> return Nothing <*>
-          genMaybe genNameNE <*> pure emptyJSObject <*> arbitrary <*>
-          arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+        OpCodes.OpInstanceSetParams
+          <$> genFQDN                         -- instance_name
+          <*> return Nothing                  -- instance_uuid
+          <*> arbitrary                       -- force
+          <*> arbitrary                       -- force_variant
+          <*> arbitrary                       -- ignore_ipolicy
+          <*> arbitrary                       -- nics
+          <*> arbitrary                       -- disks
+          <*> pure emptyJSObject              -- beparams
+          <*> arbitrary                       -- runtime_mem
+          <*> pure emptyJSObject              -- hvparams
+          <*> arbitrary                       -- disk_template
+          <*> genMaybe genNodeNameNE          -- pnode
+          <*> return Nothing                  -- pnode_uuid
+          <*> genMaybe genNodeNameNE          -- remote_node
+          <*> return Nothing                  -- remote_node_uuid
+          <*> genMaybe genNameNE              -- os_name
+          <*> pure emptyJSObject              -- osparams
+          <*> genMaybe arbitraryPrivateJSObj  -- osparams_private
+          <*> arbitrary                       -- wait_for_sync
+          <*> arbitrary                       -- offline
+          <*> arbitrary                       -- conflicts_check
+          <*> arbitrary                       -- hotplug
+          <*> arbitrary                       -- hotplug_if_possible
+          <*> arbitrary                       -- instance_communication
       "OP_INSTANCE_GROW_DISK" ->
         OpCodes.OpInstanceGrowDisk <$> genFQDN <*> return Nothing <*>
           arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
@@ -343,7 +423,8 @@ instance Arbitrary OpCodes.OpCode where
         OpCodes.OpBackupExport <$> genFQDN <*> return Nothing <*>
           arbitrary <*> arbitrary <*> arbitrary <*> return Nothing <*>
           arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*>
-          genMaybe (pure []) <*> genMaybe genNameNE
+          genMaybe (pure []) <*> genMaybe genNameNE <*> arbitrary <*>
+          arbitrary <*> arbitrary
       "OP_BACKUP_REMOVE" ->
         OpCodes.OpBackupRemove <$> genFQDN <*> return Nothing
       "OP_TEST_ALLOCATOR" ->
@@ -447,6 +528,16 @@ genMacPrefix = do
   octets <- vectorOf 3 $ choose (0::Int, 255)
   mkNonEmpty . intercalate ":" $ map (printf "%02x") octets
 
+-- | JSObject of arbitrary data.
+--
+-- Since JSValue does not implement Arbitrary, I'll simply generate
+-- (String, String) objects.
+arbitraryPrivateJSObj :: Gen (J.JSObject (Private J.JSValue))
+arbitraryPrivateJSObj =
+  constructor <$> (fromNonEmpty <$> genNameNE)
+              <*> (fromNonEmpty <$> genNameNE)
+    where constructor k v = showPrivateJSObject [(k, v)]
+
 -- | Arbitrary instance for MetaOpCode, defined here due to TH ordering.
 $(genArbitrary ''OpCodes.MetaOpCode)
 
@@ -525,7 +616,10 @@ case_py_compat_types = do
                \  op.Validate(True)\n\
                \encoded = [(op.Summary(), op.__getstate__())\n\
                \           for op in decoded]\n\
-               \print serializer.Dump(encoded)" serialized
+               \print serializer.Dump(\
+               \  encoded,\
+               \  private_encoder=serializer.EncodeWithPrivateFields)"
+               serialized
      >>= checkPythonResult
   let deserialised =
         J.decode py_stdout::J.Result [(String, OpCodes.MetaOpCode)]
@@ -539,7 +633,7 @@ case_py_compat_types = do
   HUnit.assertEqual "Mismatch in number of returned opcodes"
     (length decoded) (length with_sum)
   mapM_ (uncurry (HUnit.assertEqual "Different result after encoding/decoding")
-        ) $ zip decoded with_sum
+        ) $ zip with_sum decoded
 
 -- | Custom HUnit test case that forks a Python process and checks
 -- correspondence between Haskell OpCodes fields and their Python
@@ -572,7 +666,7 @@ case_py_compat_fields = do
            HUnit.assertEqual "Mismatch in OP_ID" py_id hs_id
            HUnit.assertEqual ("Mismatch in fields for " ++ hs_id)
              py_flds hs_flds
-        ) $ zip py_fields hs_fields
+        ) $ zip hs_fields py_fields
 
 -- | Checks that setOpComment works correctly.
 prop_setOpComment :: OpCodes.MetaOpCode -> String -> Property

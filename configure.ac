@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
-m4_define([gnt_version_minor], [11])
-m4_define([gnt_version_revision], [6])
+m4_define([gnt_version_minor], [12])
+m4_define([gnt_version_revision], [0])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -301,22 +301,28 @@ AC_ARG_WITH([user-prefix],
     [ to change the default)]
   )],
   [user_masterd="${withval}masterd";
+   user_metad="$user_default";
    user_rapi="${withval}rapi";
    user_confd="${withval}confd";
+   user_wconfd="${withval}masterd";
    user_kvmd="$user_default";
    user_luxid="${withval}masterd";
    user_noded="$user_default";
    user_mond="$user_default"],
   [user_masterd="$user_default";
+   user_metad="$user_default";
    user_rapi="$user_default";
    user_confd="$user_default";
+   user_wconfd="$user_default";
    user_kvmd="$user_default";
    user_luxid="$user_default";
    user_noded="$user_default";
    user_mond="$user_default"])
 AC_SUBST(MASTERD_USER, $user_masterd)
+AC_SUBST(METAD_USER, $user_metad)
 AC_SUBST(RAPI_USER, $user_rapi)
 AC_SUBST(CONFD_USER, $user_confd)
+AC_SUBST(WCONFD_USER, $user_wconfd)
 AC_SUBST(KVMD_USER, $user_kvmd)
 AC_SUBST(LUXID_USER, $user_luxid)
 AC_SUBST(NODED_USER, $user_noded)
@@ -332,35 +338,43 @@ AC_ARG_WITH([group-prefix],
   [group_rapi="${withval}rapi";
    group_admin="${withval}admin";
    group_confd="${withval}confd";
+   group_wconfd="${withval}wconfd";
    group_kvmd="$group_default";
    group_luxid="${withval}luxid";
    group_masterd="${withval}masterd";
+   group_metad="${withval}metad";
    group_noded="$group_default";
    group_daemons="${withval}daemons";
    group_mond="$group_default"],
   [group_rapi="$group_default";
    group_admin="$group_default";
    group_confd="$group_default";
+   group_wconfd="$group_default";
    group_kvmd="$group_default";
    group_luxid="$group_default";
    group_masterd="$group_default";
+   group_metad="$group_default";
    group_noded="$group_default";
    group_daemons="$group_default";
    group_mond="$group_default"])
 AC_SUBST(RAPI_GROUP, $group_rapi)
 AC_SUBST(ADMIN_GROUP, $group_admin)
 AC_SUBST(CONFD_GROUP, $group_confd)
+AC_SUBST(WCONFD_GROUP, $group_wconfd)
 AC_SUBST(KVMD_GROUP, $group_kvmd)
 AC_SUBST(LUXID_GROUP, $group_luxid)
 AC_SUBST(MASTERD_GROUP, $group_masterd)
+AC_SUBST(METAD_GROUP, $group_metad)
 AC_SUBST(NODED_GROUP, $group_noded)
 AC_SUBST(DAEMONS_GROUP, $group_daemons)
 AC_SUBST(MOND_GROUP, $group_mond)
 
 # Print the config to the user
 AC_MSG_NOTICE([Running ganeti-masterd as $group_masterd:$group_masterd])
+AC_MSG_NOTICE([Running ganeti-metad as $group_metad:$group_metad])
 AC_MSG_NOTICE([Running ganeti-rapi as $user_rapi:$group_rapi])
 AC_MSG_NOTICE([Running ganeti-confd as $user_confd:$group_confd])
+AC_MSG_NOTICE([Running ganeti-wconfd as $user_wconfd:$group_wconfd])
 AC_MSG_NOTICE([Running ganeti-luxid as $user_luxid:$group_luxid])
 AC_MSG_NOTICE([Group for daemons is $group_daemons])
 AC_MSG_NOTICE([Group for clients is $group_admin])
@@ -572,6 +586,14 @@ AC_ARG_ENABLE([monitoring],
   [],
   [enable_monitoring=check])
 
+# --enable-metadata
+ENABLE_METADATA=
+AC_ARG_ENABLE([metadata],
+  [AS_HELP_STRING([--enable-metadata],
+  [enable the ganeti metadata daemon (default: check)])],
+  [],
+  [enable_metadata=check])
+
 # Check for ghc
 AC_ARG_VAR(GHC, [ghc path])
 AC_PATH_PROG(GHC, [ghc], [])
@@ -620,6 +642,8 @@ AC_GHC_PKG_REQUIRE(vector)
 AC_GHC_PKG_REQUIRE(text)
 AC_GHC_PKG_REQUIRE(hinotify)
 AC_GHC_PKG_REQUIRE(Crypto)
+AC_GHC_PKG_REQUIRE(lifted-base)
+AC_GHC_PKG_REQUIRE(lens)
 
 # extra modules for confd functionality; also needed for tests
 HS_NODEV=
@@ -694,9 +718,38 @@ fi
 AC_SUBST(ENABLE_MOND, $has_monitoring)
 AM_CONDITIONAL([ENABLE_MOND], [test "$has_monitoring" = True])
 
+# extra modules for metad functionality; also needed for tests
+METAD_PKG=
+AC_GHC_PKG_CHECK([snap-server], [],
+                 [NS_NODEV=1; METAD_PKG="$METAD_PKG snap-server"])
+has_metad=False
+if test "$enable_metadata" != no; then
+  if test -z "$METAD_PKG"; then
+    has_metad=True
+  elif test "$enable_metadata" = check; then
+    AC_MSG_WARN(m4_normalize([The required extra libraries for metad were
+                              not found ($METAD_PKG), metad disabled]))
+  else
+    AC_MSG_FAILURE(m4_normalize([The metadata functionality was requested, but
+                                 required libraries were not found:
+                                 $METAD_PKG]))
+  fi
+fi
+AC_SUBST(HS_REGEX_PCRE)
+if test "$has_metad" = True; then
+  AC_MSG_NOTICE([Enabling metadata usage])
+fi
+AC_SUBST(ENABLE_METADATA, $has_metad)
+AM_CONDITIONAL([ENABLE_METADATA], [test x$has_metad = xTrue])
+
+
 # development modules
 AC_GHC_PKG_CHECK([QuickCheck-2.*], [], [HS_NODEV=1], t)
-AC_GHC_PKG_CHECK([test-framework-0.6*], [], [HS_NODEV=1], t)
+AC_GHC_PKG_CHECK([test-framework-0.6*], [], [
+  AC_GHC_PKG_CHECK([test-framework-0.7*], [], [
+    AC_GHC_PKG_CHECK([test-framework-0.8*], [], [HS_NODEV=1], t)
+  ], t)
+], t)
 AC_GHC_PKG_CHECK([test-framework-hunit], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([test-framework-quickcheck2], [], [HS_NODEV=1])
 AC_GHC_PKG_CHECK([temporary], [], [HS_NODEV=1])
@@ -818,7 +871,7 @@ AC_PYTHON_MODULE(pycurl, t)
 AC_PYTHON_MODULE(bitarray, t)
 AC_PYTHON_MODULE(ipaddr, t)
 AC_PYTHON_MODULE(mock)
-AC_PYTHON_MODULE(affinity)
+AC_PYTHON_MODULE(psutil)
 AC_PYTHON_MODULE(paramiko)
 
 # Development-only Python modules

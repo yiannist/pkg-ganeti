@@ -51,7 +51,7 @@ There are a few documents particularly useful for developers who want
 to modify Ganeti:
 
 - :doc:`locking`: Describes Ganeti's locking strategy and lock order dependencies.
-- :doc:`devnotes`: Details build dependencies and other useful development-related information. 
+- :doc:`devnotes`: Details build dependencies and other useful development-related information.
 
 
 Implemented designs
@@ -77,6 +77,7 @@ and draft versions (which are either incomplete or not implemented).
    design-2.9.rst
    design-2.10.rst
    design-2.11.rst
+   design-2.12.rst
 
 Draft designs
 -------------
@@ -95,8 +96,11 @@ Draft designs
    design-bulk-create.rst
    design-chained-jobs.rst
    design-cmdlib-unittests.rst
+   design-cpu-speed.rst
    design-cpu-pinning.rst
    design-device-uuid-name.rst
+   design-daemons.rst
+   design-disks.rst
    design-file-based-storage.rst
    design-hroller.rst
    design-hotplug.rst
@@ -105,6 +109,7 @@ Draft designs
    design-linuxha.rst
    design-lu-generated-jobs.rst
    design-monitoring-agent.rst
+   design-move-instance-improvements.rst
    design-multi-reloc.rst
    design-multi-version-tests.rst
    design-network.rst
@@ -124,6 +129,7 @@ Draft designs
    design-shared-storage.rst
    design-ssh-ports.rst
    design-storagetypes.rst
+   design-systemd.rst
    design-upgrade.rst
    design-virtual-clusters.rst
    devnotes.rst

@@ -45,6 +45,8 @@ options =
   , oNoUserChecks
   , oDebug
   , oSyslogUsage
+  , oNoVoting
+  , oYesDoIt
   ]
 
 -- | Main function.

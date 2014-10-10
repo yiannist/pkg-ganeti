@@ -1,7 +1,7 @@
 #
 #
 
-# Copyright (C) 2007, 2008 Google Inc.
+# Copyright (C) 2007, 2008, 2014 Google Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -49,19 +49,25 @@ import simplejson
 
 from ganeti import errors
 from ganeti import utils
-
+from ganeti import constants
 
 _RE_EOLSP = re.compile("[ \t]+$", re.MULTILINE)
 
 
-def DumpJson(data):
+def DumpJson(data, private_encoder=None):
   """Serialize a given object.
 
   @param data: the data to serialize
   @return: the string representation of data
+  @param private_encoder: specify L{serializer.EncodeWithPrivateFields} if you
+                          require the produced JSON to also contain private
+                          parameters. Otherwise, they will encode to null.
 
   """
-  encoded = simplejson.dumps(data)
+  if private_encoder is None:
+    # Do not leak private fields by default.
+    private_encoder = EncodeWithoutPrivateFields
+  encoded = simplejson.dumps(data, default=private_encoder)
 
   txt = _RE_EOLSP.sub("", encoded)
   if not txt.endswith("\n"):
@@ -74,24 +80,68 @@ def LoadJson(txt):
   """Unserialize data from a string.
 
   @param txt: the json-encoded form
-
   @return: the original data
+  @raise JSONDecodeError: if L{txt} is not a valid JSON document
 
   """
-  return simplejson.loads(txt)
+  values = simplejson.loads(txt)
+
+  # Hunt and seek for Private fields and wrap them.
+  WrapPrivateValues(values)
+
+  return values
 
 
-def DumpSignedJson(data, key, salt=None, key_selector=None):
+def WrapPrivateValues(json):
+  """Crawl a JSON decoded structure for private values and wrap them.
+
+  @param json: the json-decoded value to protect.
+
+  """
+  # This function used to be recursive. I use this list to avoid actual
+  # recursion, however, since this is a very high-traffic area.
+  todo = [json]
+
+  while todo:
+    data = todo.pop()
+
+    if isinstance(data, list): # Array
+      for item in data:
+        todo.append(item)
+    elif isinstance(data, dict): # Object
+
+      # This is kind of a kludge, but the only place where we know what should
+      # be protected is in ganeti.opcodes, and not in a way that is helpful to
+      # us, especially in such a high traffic method; on the other hand, the
+      # Haskell `py_compat_fields` test should complain whenever this check
+      # does not protect fields properly.
+      for field in data:
+        value = data[field]
+        if field in constants.PRIVATE_PARAMETERS_BLACKLIST:
+          if not field.endswith("_cluster"):
+            data[field] = PrivateDict(value)
+          elif data[field] is not None:
+            for os in data[field]:
+              value[os] = PrivateDict(value[os])
+        else:
+          todo.append(value)
+    else: # Values
+      pass
+
+
+def DumpSignedJson(data, key, salt=None, key_selector=None,
+                   private_encoder=None):
   """Serialize a given object and authenticate it.
 
   @param data: the data to serialize
   @param key: shared hmac key
   @param key_selector: name/id that identifies the key (in case there are
     multiple keys in use, e.g. in a multi-cluster environment)
+  @param private_encoder: see L{DumpJson}
   @return: the string representation of data signed by the hmac key
 
   """
-  txt = DumpJson(data)
+  txt = DumpJson(data, private_encoder=private_encoder)
   if salt is None:
     salt = ""
   signed_dict = {
@@ -122,6 +172,9 @@ def LoadSignedJson(txt, key):
 
   """
   signed_dict = LoadJson(txt)
+
+  WrapPrivateValues(signed_dict)
+
   if not isinstance(signed_dict, dict):
     raise errors.SignatureError("Invalid external message")
   try:
@@ -175,3 +228,168 @@ Dump = DumpJson
 Load = LoadJson
 DumpSigned = DumpSignedJson
 LoadSigned = LoadSignedJson
+
+
+class Private(object):
+  """Wrap a value so it is hard to leak it accidentally.
+
+  >>> x = Private("foo")
+  >>> print "Value: %s" % x
+  Value: <redacted>
+  >>> print "Value: {0}".format(x)
+  Value: <redacted>
+  >>> x.upper() == "FOO"
+  True
+
+  """
+  def __init__(self, item, descr="redacted"):
+    if isinstance(item, Private):
+      raise ValueError("Attempted to nest Private values.")
+    self._item = item
+    self._descr = descr
+
+  def Get(self):
+    "Return the wrapped value."
+    return self._item
+
+  def __str__(self):
+    return "<%s>" % self._descr
+
+  def __repr__(self):
+    return "Private(?, descr=%r)".format(self._descr)
+
+  # pylint: disable=W0212
+  # If it doesn't access _item directly, the call will go through __getattr__
+  # because this class defines __slots__ and "item" is not in it.
+  # OTOH, if we do add it there, we'd risk shadowing an "item" attribute.
+  def __eq__(self, other):
+    if isinstance(other, Private):
+      return self._item == other._item
+    else:
+      return self._item == other
+
+  def __hash__(self):
+    return hash(self._item)
+
+  def __format__(self, *_1, **_2):
+    return self.__str__()
+
+  def __getattr__(self, attr):
+    return Private(getattr(self._item, attr),
+                   descr="%s.%s" % (self._descr, attr))
+
+  def __call__(self, *args, **kwargs):
+    return Private(self._item(*args, **kwargs),
+                   descr="%s()" % self._descr)
+
+  # pylint: disable=R0201
+  # While this could get away with being a function, it needs to be a method.
+  # Required by the copy.deepcopy function used by FillDict.
+  def __getnewargs__(self):
+    return tuple()
+
+  def __nonzero__(self):
+    return bool(self._item)
+
+  # Get in the way of Pickle by implementing __slots__ but not __getstate__
+  # ...and get a performance boost, too.
+  __slots__ = ["_item", "_descr"]
+
+
+class PrivateDict(dict):
+  """A dictionary that turns its values to private fields.
+
+  >>> PrivateDict()
+  {}
+  >>> supersekkrit = PrivateDict({"password": "foobar"})
+  >>> print supersekkrit["password"]
+  <password>
+  >>> supersekkrit["password"].Get()
+  'foobar'
+  >>> supersekkrit.GetPrivate("password")
+  'foobar'
+  >>> supersekkrit["user"] = "eggspam"
+  >>> supersekkrit.Unprivate()
+  {'password': 'foobar', 'user': 'eggspam'}
+
+  """
+  def __init__(self, data=None):
+    dict.__init__(self)
+    self.update(data)
+
+  def __setitem__(self, item, value):
+    if not isinstance(value, Private):
+      if not isinstance(item, dict):
+        value = Private(value, descr=item)
+      else:
+        value = PrivateDict(value)
+    dict.__setitem__(self, item, value)
+
+  # The actual conversion to Private containers is done by __setitem__
+
+  # copied straight from cpython/Lib/UserDict.py
+  # Copyright (c) 2001-2014 Python Software Foundation; All Rights Reserved
+  def update(self, other=None, **kwargs):
+    # Make progressively weaker assumptions about "other"
+    if other is None:
+      pass
+    elif hasattr(other, 'iteritems'):  # iteritems saves memory and lookups
+      for k, v in other.iteritems():
+        self[k] = v
+    elif hasattr(other, 'keys'):
+      for k in other.keys():
+        self[k] = other[k]
+    else:
+      for k, v in other:
+        self[k] = v
+    if kwargs:
+      self.update(kwargs)
+
+  def GetPrivate(self, *args):
+    """Like dict.get, but extracting the value in the process.
+
+    Arguments are semantically equivalent to ``dict.get``
+
+    >>> PrivateDict({"foo": "bar"}).GetPrivate("foo")
+    'bar'
+    >>> PrivateDict({"foo": "bar"}).GetPrivate("baz", "spam")
+    'spam'
+
+    """
+    if len(args) == 1:
+      key, = args
+      return self[key].Get()
+    elif len(args) == 2:
+      key, default = args
+      if key not in self:
+        return default
+      else:
+        return self[key].Get()
+    else:
+      raise TypeError("GetPrivate() takes 2 arguments (%d given)" % len(args))
+
+  def Unprivate(self):
+    """Turn this dict of Private() values to a dict of values.
+
+    >>> PrivateDict({"foo": "bar"}).Unprivate()
+    {'foo': 'bar'}
+
+    @rtype: dict
+
+    """
+    returndict = {}
+    for key in self:
+      returndict[key] = self[key].Get()
+    return returndict
+
+
+def EncodeWithoutPrivateFields(obj):
+  if isinstance(obj, Private):
+    return None
+  raise TypeError(repr(obj) + " is not JSON serializable")
+
+
+def EncodeWithPrivateFields(obj):
+  if isinstance(obj, Private):
+    return obj.Get()
+  raise TypeError(repr(obj) + " is not JSON serializable")

@@ -10,7 +10,7 @@ needs in this module (except the one for unittests).
 
 {-
 
-Copyright (C) 2011, 2012, 2013 Google Inc.
+Copyright (C) 2011, 2012, 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -59,34 +59,36 @@ module Ganeti.THH ( declareSADT
                   , Field (..)
                   , simpleField
                   , andRestArguments
-                  , specialNumericalField
                   , withDoc
                   , defaultField
                   , optionalField
                   , optionalNullSerField
                   , renameField
                   , customField
-                  , timeStampFields
-                  , uuidFields
-                  , serialFields
-                  , tagsFields
-                  , TagSet
                   , buildObject
                   , buildObjectSerialisation
                   , buildParam
-                  , DictObject(..)
                   , genException
                   , excErrMsg
                   ) where
 
+import Control.Arrow ((&&&))
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Base () -- Needed to prevent spurious GHC linking errors.
+import Control.Monad.Writer (tell)
+import qualified Control.Monad.Trans as MT
+import Data.Attoparsec.Text ()
+  -- Needed to prevent spurious GHC 7.4 linking errors.
+  -- See issue #683 and https://ghc.haskell.org/trac/ghc/ticket/4899
 import Data.Char
+import Data.Function (on)
 import Data.List
 import Data.Maybe
 import qualified Data.Map as M
-import qualified Data.Set as Set
+import qualified Data.Set as S
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax (lift)
 
 import qualified Text.JSON as JSON
 import Text.JSON.Pretty (pp_value)
@@ -98,11 +100,6 @@ import Ganeti.THH.PyType
 
 -- * Exported types
 
--- | Class of objects that can be converted to 'JSObject'
--- lists-format.
-class DictObject a where
-  toDict :: a -> [(String, JSON.JSValue)]
-
 -- | Optional field information.
 data OptionalType
   = NotOptional           -- ^ Field is not optional
@@ -112,15 +109,77 @@ data OptionalType
                           -- as plain JSON values
   deriving (Show, Eq)
 
--- | Serialised field data type.
+-- | Serialised field data type describing how to generate code for the field.
+-- Each field has a type, which isn't captured in the type of the data type,
+-- but is saved in the 'Q' monad in 'fieldType'.
+--
+-- Let @t@ be a type we want to parametrize the field with. There are the
+-- following possible types of fields:
+--
+--   [Mandatory with no default.] Then @fieldType@ holds @t@,
+--     @fieldDefault = Nothing@ and @fieldIsOptional = NotOptional@.
+--
+--   [Field with a default value.] Then @fieldType@ holds @t@ and
+--     @fieldDefault = Just exp@ where @exp@ is an expression of type @t@ and
+--    @fieldIsOptional = NotOptional@.
+--
+--   [Optional, no default value.] Then @fieldType@ holds @Maybe t@,
+--     @fieldDefault = Nothing@ and @fieldIsOptional@ is either
+--     'OptionalOmitNull' or 'OptionalSerializeNull'.
+--
+-- Optional fields with a default value are prohibited, as their main
+-- intention is to represent the information that a request didn't contain
+-- the field data.
+--
+-- /Custom (de)serialization:/
+-- Field can have custom (de)serialization functions that are stored in
+-- 'fieldRead' and 'fieldShow'. If they aren't provided, the default is to use
+-- 'readJSON' and 'showJSON' for the field's type @t@. If they are provided,
+-- the type of the contained deserializing expression must be
+--
+-- @
+--   [(String, JSON.JSValue)] -> JSON.JSValue -> JSON.Result t
+-- @
+--
+-- where the first argument carries the whole record in the case the
+-- deserializing function needs to process additional information.
+--
+-- The type of the contained serializing experssion must be
+--
+-- @
+--   t -> (JSON.JSValue, [(String, JSON.JSValue)])
+-- @
+--
+-- where the result can provide extra JSON fields to include in the output
+-- record (or just return @[]@ if they're not needed).
+--
+-- Note that for optional fields the type appearing in the custom functions
+-- is still @t@. Therefore making a field optional doesn't change the
+-- functions.
+--
+-- There is also a special type of optional field 'AndRestArguments' which
+-- allows to parse any additional arguments not covered by other fields. There
+-- can be at most one such special field and it's type must be
+-- @Map String JSON.JSValue@. See also 'andRestArguments'.
 data Field = Field { fieldName        :: String
                    , fieldType        :: Q Type
+                     -- ^ the type of the field, @t@ for non-optional fields,
+                     -- @Maybe t@ for optional ones.
                    , fieldRead        :: Maybe (Q Exp)
+                     -- ^ an optional custom deserialization function of type
+                     -- @[(String, JSON.JSValue)] -> JSON.JSValue ->
+                     -- JSON.Result t@
                    , fieldShow        :: Maybe (Q Exp)
+                     -- ^ an optional custom serialization function of type
+                     -- @t -> (JSON.JSValue, [(String, JSON.JSValue)])@
                    , fieldExtraKeys   :: [String]
+                     -- ^ a list of extra keys added by 'fieldShow'
                    , fieldDefault     :: Maybe (Q Exp)
+                     -- ^ an optional default value of type @t@
                    , fieldConstr      :: Maybe String
                    , fieldIsOptional  :: OptionalType
+                     -- ^ determines if a field is optional, and if yes,
+                     -- how
                    , fieldDoc         :: String
                    }
 
@@ -174,32 +233,6 @@ optionalField field = field { fieldIsOptional = OptionalOmitNull }
 optionalNullSerField :: Field -> Field
 optionalNullSerField field = field { fieldIsOptional = OptionalSerializeNull }
 
--- | Wrapper around a special parse function, suitable as field-parsing
--- function.
-numericalReadFn :: JSON.JSON a => (String -> JSON.Result a)
-                   -> [(String, JSON.JSValue)] -> JSON.JSValue -> JSON.Result a
-numericalReadFn _ _ v@(JSON.JSRational _ _) = JSON.readJSON v
-numericalReadFn f _ (JSON.JSString x) = f $ JSON.fromJSString x
-numericalReadFn _ _ _ = JSON.Error "A numerical field has to be a number or\ 
-                                   \ a string."
-
--- | Wrapper to lift a read function to optional values
-makeReadOptional :: ([(String, JSON.JSValue)] -> JSON.JSValue -> JSON.Result a)
-                    -> [(String, JSON.JSValue)]
-                    -> Maybe JSON.JSValue -> JSON.Result (Maybe a)
-makeReadOptional _ _ Nothing = JSON.Ok Nothing
-makeReadOptional f o (Just x) = fmap Just $ f o x
-
--- | Sets the read function to also accept string parsable by the given
--- function.
-specialNumericalField :: Name -> Field -> Field
-specialNumericalField f field =
-  if (fieldIsOptional field == NotOptional)
-     then field { fieldRead = Just (appE (varE 'numericalReadFn) (varE f)) }
-     else field { fieldRead = Just (appE (varE 'makeReadOptional)
-                                         (appE (varE 'numericalReadFn)
-                                               (varE f))) }
-
 -- | Sets custom functions on a field.
 customField :: Name      -- ^ The name of the read function
             -> Name      -- ^ The name of the show function
@@ -247,6 +280,18 @@ checkNonOptDef (Field { fieldDefault = (Just _), fieldName = name }) =
   fail $ "Default field " ++ name ++ " used in parameter declaration"
 checkNonOptDef _ = return ()
 
+-- | Construct a function that parses a field value. If the field has
+-- a custom 'fieldRead', it's applied to @o@ and used. Otherwise
+-- @JSON.readJSON@ is used.
+parseFn :: Field   -- ^ The field definition
+        -> Q Exp   -- ^ The entire object in JSON object format
+        -> Q Exp   -- ^ The resulting function that parses a JSON message
+parseFn field o =
+  let fnType = [t| JSON.JSValue -> JSON.Result $(fieldType field) |]
+      expr = maybe [| readJSONWithDesc $(stringE $ fieldName field) False |]
+                   (`appE` o) (fieldRead field)
+  in sigE expr fnType
+
 -- | Produces the expression that will de-serialise a given
 -- field. Since some custom parsing functions might need to use the
 -- entire object, we do take and pass the object to any custom read
@@ -255,34 +300,22 @@ loadFn :: Field   -- ^ The field definition
        -> Q Exp   -- ^ The value of the field as existing in the JSON message
        -> Q Exp   -- ^ The entire object in JSON object format
        -> Q Exp   -- ^ Resulting expression
-loadFn (Field { fieldRead = Just readfn }) expr o = [| $expr >>= $readfn $o |]
-loadFn _ expr _ = expr
+loadFn field expr o = [| $expr >>= $(parseFn field o) |]
 
--- * Common field declarations
-
--- | Timestamp fields description.
-timeStampFields :: [Field]
-timeStampFields =
-    [ defaultField [| 0::Double |] $ simpleField "ctime" [t| Double |]
-    , defaultField [| 0::Double |] $ simpleField "mtime" [t| Double |]
-    ]
-
--- | Serial number fields description.
-serialFields :: [Field]
-serialFields =
-    [ renameField  "Serial" $ simpleField "serial_no" [t| Int |] ]
-
--- | UUID fields description.
-uuidFields :: [Field]
-uuidFields = [ simpleField "uuid" [t| String |] ]
-
--- | Tag set type alias.
-type TagSet = Set.Set String
-
--- | Tag field description.
-tagsFields :: [Field]
-tagsFields = [ defaultField [| Set.empty |] $
-               simpleField "tags" [t| TagSet |] ]
+-- | Just as 'loadFn', but for optional fields.
+loadFnOpt :: Field   -- ^ The field definition
+          -> Q Exp   -- ^ The value of the field as existing in the JSON message
+                     -- as Maybe
+          -> Q Exp   -- ^ The entire object in JSON object format
+          -> Q Exp   -- ^ Resulting expression
+loadFnOpt field@(Field { fieldDefault = Just def }) expr o
+  = case fieldIsOptional field of
+      NotOptional -> [| $expr >>= maybe (return $def) $(parseFn field o) |]
+      _           -> fail $ "Field " ++ fieldName field ++ ":\
+                            \ A field can't be optional and\
+                            \ have a default value at the same time."
+loadFnOpt field expr o
+  = [| $expr >>= maybe (return Nothing) (liftM Just . $(parseFn field o)) |]
 
 -- * Internal types
 
@@ -353,6 +386,16 @@ reprE = either stringE varE
 appFn :: Exp -> Exp -> Exp
 appFn f x | f == VarE 'id = x
           | otherwise = AppE f x
+
+-- | Apply a constructor to a list of expressions
+appCons :: Name -> [Exp] -> Exp
+appCons cname = foldl AppE (ConE cname)
+
+-- | Apply a constructor to a list of applicative expressions
+appConsApp :: Name -> [Exp] -> Exp
+appConsApp cname =
+  foldl (\accu e -> InfixE (Just accu) (VarE '(<*>)) (Just e))
+          (AppE (VarE 'pure) (ConE cname))
 
 -- | Builds a field for a normal constructor.
 buildConsField :: Q Type -> StrictTypeQ
@@ -520,13 +563,8 @@ genShowJSON name = do
 genReadJSON :: String -> Q Dec
 genReadJSON name = do
   let s = mkName "s"
-  body <- [| case JSON.readJSON $(varE s) of
-               JSON.Ok s' -> $(varE (fromRawName name)) s'
-               JSON.Error e ->
-                   JSON.Error $ "Can't parse raw value for type " ++
-                           $(stringE name) ++ ": " ++ e ++ " from " ++
-                           show $(varE s)
-           |]
+  body <- [| $(varE (fromRawName name)) =<<
+             readJSONWithDesc $(stringE name) True $(varE s) |]
   return $ FunD 'JSON.readJSON [Clause [VarP s] (NormalB body) []]
 
 -- | Generates a JSON instance for a given type.
@@ -704,8 +742,22 @@ pyClasses cons =
           clause [] (normalB (ListE <$> mapM pyClass c)) []
 
 -- | Converts from an opcode constructor to a Luxi constructor.
-opcodeConsToLuxiCons :: (a, b, c, d, e) -> (a, d)
+opcodeConsToLuxiCons :: OpCodeConstructor -> LuxiConstructor
 opcodeConsToLuxiCons (x, _, _, y, _) = (x, y)
+
+-- | Generates 'DictObject' instance for an op-code.
+genOpCodeDictObject :: Name                -- ^ Type name to use
+                    -> (LuxiConstructor -> Q Clause) -- ^ saving function
+                    -> (LuxiConstructor -> Q Exp) -- ^ loading function
+                    -> [LuxiConstructor] -- ^ Constructors
+                    -> Q [Dec]
+genOpCodeDictObject tname savefn loadfn cons = do
+  tdclauses <- genSaveOpCode cons savefn
+  fdclauses <- genLoadOpCode cons loadfn
+  return [ InstanceD [] (AppT (ConT ''DictObject) (ConT tname))
+           [ FunD 'toDict tdclauses
+           , FunD 'fromDictWKeys fdclauses
+           ]]
 
 -- | Generates the OpCode data type.
 --
@@ -725,11 +777,13 @@ genOpCode name cons = do
             cons
   let declD = DataD [] tname [] decl_d [''Show, ''Eq]
   let (allfsig, allffn) = genAllOpFields "allOpFields" cons
-  save_decs <- genSaveOpCode tname "saveOpCode" "toDictOpCode"
-               (map opcodeConsToLuxiCons cons) saveConstructor True
-  (loadsig, loadfn) <- genLoadOpCode cons
+  -- DictObject
+  let luxiCons = map opcodeConsToLuxiCons cons
+  dictObjInst <- genOpCodeDictObject tname saveConstructor loadOpConstructor
+                                     luxiCons
+  -- rest
   pyDecls <- pyClasses cons
-  return $ [declD, allfsig, allffn, loadsig, loadfn] ++ save_decs ++ pyDecls
+  return $ [declD, allfsig, allffn] ++ dictObjInst ++ pyDecls
 
 -- | Generates the function pattern returning the list of fields for a
 -- given constructor.
@@ -762,7 +816,7 @@ saveConstructor (sname, fields) = do
   let cname = mkName sname
   fnames <- mapM (newName . fieldVariable) fields
   let pat = conP cname (map varP fnames)
-  let felems = map (uncurry saveObjectField) (zip fnames fields)
+  let felems = zipWith saveObjectField fnames fields
       -- now build the OP_ID serialisation
       opid = [| [( $(stringE "OP_ID"),
                    JSON.showJSON $(stringE . deCamelCase $ sname) )] |]
@@ -771,66 +825,50 @@ saveConstructor (sname, fields) = do
       flist' = [| concat $flist |]
   clause [pat] (normalB flist') []
 
--- | Generates the main save opcode function.
+-- | Generates the main save opcode function, serializing as a dictionary.
 --
 -- This builds a per-constructor match clause that contains the
 -- respective constructor-serialisation code.
-genSaveOpCode :: Name                          -- ^ Object ype
-              -> String                        -- ^ To 'JSValue' function name
-              -> String                        -- ^ To 'JSObject' function name
-              -> [LuxiConstructor]             -- ^ Object definition
+genSaveOpCode :: [LuxiConstructor]             -- ^ Object definition
               -> (LuxiConstructor -> Q Clause) -- ^ Constructor save fn
-              -> Bool                          -- ^ Whether to generate
-                                               -- obj or just a
-                                               -- list\/tuple of values
-              -> Q [Dec]
-genSaveOpCode tname jvalstr tdstr opdefs fn gen_object = do
-  tdclauses <- mapM fn opdefs
-  let typecon = ConT tname
-      jvalname = mkName jvalstr
-      jvalsig = AppT  (AppT ArrowT typecon) (ConT ''JSON.JSValue)
-      tdname = mkName tdstr
-  tdsig <- [t| $(return typecon) -> [(String, JSON.JSValue)] |]
-  jvalclause <- if gen_object
-                  then [| $makeObjE . $(varE tdname) |]
-                  else [| JSON.showJSON . map snd . $(varE tdname) |]
-  return [ SigD tdname tdsig
-         , FunD tdname tdclauses
-         , SigD jvalname jvalsig
-         , ValD (VarP jvalname) (NormalB jvalclause) []]
+              -> Q [Clause]
+genSaveOpCode opdefs fn = mapM fn opdefs
 
 -- | Generates load code for a single constructor of the opcode data type.
-loadConstructor :: OpCodeConstructor -> Q Exp
-loadConstructor (sname, _, _, fields, _) = do
-  let name = mkName sname
-  fbinds <- mapM (loadObjectField fields) fields
-  let (fnames, fstmts) = unzip fbinds
-  let cval = foldl (\accu fn -> AppE accu (VarE fn)) (ConE name) fnames
-      fstmts' = fstmts ++ [NoBindS (AppE (VarE 'return) cval)]
-  return $ DoE fstmts'
+-- The type of the resulting expression is @WriterT UsedKeys J.Result a@.
+loadConstructor :: Name -> (Field -> Q Exp) -> [Field] -> Q Exp
+loadConstructor name loadfn fields =
+  [| MT.lift $(appConsApp name <$> mapM loadfn fields)
+     <* tell $(fieldsUsedKeysQ fields) |]
+
+-- | Generates load code for a single constructor of the opcode data type.
+loadOpConstructor :: LuxiConstructor -> Q Exp
+loadOpConstructor (sname, fields) =
+  loadConstructor (mkName sname) (loadObjectField fields) fields
 
 -- | Generates the loadOpCode function.
-genLoadOpCode :: [OpCodeConstructor] -> Q (Dec, Dec)
-genLoadOpCode opdefs = do
-  let fname = mkName "loadOpCode"
-      arg1 = mkName "v"
-      objname = mkName "o"
-      opid = mkName "op_id"
-  st1 <- bindS (varP objname) [| liftM JSON.fromJSObject
-                                 (JSON.readJSON $(varE arg1)) |]
-  st2 <- bindS (varP opid) [| $fromObjE $(varE objname) $(stringE "OP_ID") |]
+genLoadOpCode :: [LuxiConstructor]
+              -> (LuxiConstructor -> Q Exp) -- ^ Constructor load fn
+              -> Q [Clause]
+genLoadOpCode opdefs fn = do
+  let objname = objVarName
+      opidKey = "OP_ID"
+      opid = mkName $ map toLower opidKey
+  st <- bindS (varP opid) [| $fromObjE $(varE objname) $(stringE opidKey) |]
   -- the match results (per-constructor blocks)
-  mexps <- mapM loadConstructor opdefs
+  mexps <- mapM fn opdefs
   fails <- [| fail $ "Unknown opcode " ++ $(varE opid) |]
-  let mpats = map (\(me, (consName, _, _, _, _)) ->
-                       let mp = LitP . StringL . deCamelCase $ consName
+  let mpats = map (\(me, op) ->
+                       let mp = LitP . StringL . deCamelCase . fst $ op
                        in Match mp (NormalB me) []
                   ) $ zip mexps opdefs
       defmatch = Match WildP (NormalB fails) []
       cst = NoBindS $ CaseE (VarE opid) $ mpats++[defmatch]
-      body = DoE [st1, st2, cst]
-  sigt <- [t| JSON.JSValue -> JSON.Result $(conT (mkName "OpCode")) |]
-  return $ (SigD fname sigt, FunD fname [Clause [VarP arg1] (NormalB body) []])
+      body = DoE [st, cst]
+  -- include "OP_ID" to the list of used keys
+  bodyAndOpId <- [| $(return body)
+                    <* tell (mkUsedKeys $ S.singleton opidKey) |]
+  return [Clause [VarP objname] (NormalB bodyAndOpId) []]
 
 -- * Template code for luxi
 
@@ -865,12 +903,22 @@ genLuxiOp name cons = do
                     return $ NormalC (mkName cname) fields'')
             cons
   let declD = DataD [] (mkName name) [] decl_d [''Show, ''Eq]
-  save_decs <- genSaveOpCode tname "opToArgs" "opToDict"
-               cons saveLuxiConstructor False
+  -- generate DictObject instance
+  dictObjInst <- genOpCodeDictObject tname saveLuxiConstructor
+                                     loadOpConstructor cons
+  -- .. and use it to construct 'opToArgs' of 'toDict'
+  -- (as we know that the output of 'toDict' is always in the proper order)
+  opToArgsType <- [t| $(conT tname) -> JSON.JSValue |]
+  opToArgsExp <- [| JSON.showJSON . map snd . toDict |]
+  let opToArgsName = mkName "opToArgs"
+      opToArgsDecs = [ SigD opToArgsName opToArgsType
+                     , ValD (VarP opToArgsName) (NormalB opToArgsExp) []
+                     ]
+  -- rest
   req_defs <- declareSADT "LuxiReq" .
               map (\(str, _) -> ("Req" ++ str, mkName ("luxiReq" ++ str))) $
                   cons
-  return $ declD:save_decs ++ req_defs
+  return $ [declD] ++ dictObjInst ++ opToArgsDecs ++ req_defs
 
 -- | Generates the \"save\" clause for entire LuxiOp constructor.
 saveLuxiConstructor :: LuxiConstructor -> Q Clause
@@ -878,7 +926,7 @@ saveLuxiConstructor (sname, fields) = do
   let cname = mkName sname
   fnames <- mapM (newName . fieldVariable) fields
   let pat = conP cname (map varP fnames)
-  let felems = map (uncurry saveObjectField) (zip fnames fields)
+  let felems = zipWith saveObjectField fnames fields
       flist = [| concat $(listE felems) |]
   clause [pat] (normalB flist) []
 
@@ -894,6 +942,10 @@ fieldTypeInfo field_pfx fd = do
 -- | Build an object declaration.
 buildObject :: String -> String -> [Field] -> Q [Dec]
 buildObject sname field_pfx fields = do
+  when (any ((==) AndRestArguments . fieldIsOptional)
+         . drop 1 $ reverse fields)
+    $ fail "Objects may have only one AndRestArguments field,\
+           \ and it must be the last one."
   let name = mkName sname
   fields_d <- mapM (fieldTypeInfo field_pfx) fields
   let decl_d = RecC name fields_d
@@ -905,62 +957,107 @@ buildObject sname field_pfx fields = do
 buildObjectSerialisation :: String -> [Field] -> Q [Dec]
 buildObjectSerialisation sname fields = do
   let name = mkName sname
-  savedecls <- genSaveObject saveObjectField sname fields
-  (loadsig, loadfn) <- genLoadObject (loadObjectField fields) sname fields
+  dictdecls <- genDictObject saveObjectField
+                             (loadObjectField fields) sname fields
+  savedecls <- genSaveObject sname
+  (loadsig, loadfn) <- genLoadObject sname
   shjson <- objectShowJSON sname
   rdjson <- objectReadJSON sname
   let instdecl = InstanceD [] (AppT (ConT ''JSON.JSON) (ConT name))
                  [rdjson, shjson]
-  return $ savedecls ++ [loadsig, loadfn, instdecl]
+  return $ dictdecls ++ savedecls ++ [loadsig, loadfn, instdecl]
 
--- | The toDict function name for a given type.
-toDictName :: String -> Name
-toDictName sname = mkName ("toDict" ++ sname)
+-- | An internal name used for naming variables that hold the entire
+-- object of type @[(String,JSValue)]@.
+objVarName :: Name
+objVarName = mkName "_o"
 
--- | Generates the save object functionality.
-genSaveObject :: (Name -> Field -> Q Exp)
-              -> String -> [Field] -> Q [Dec]
-genSaveObject save_fn sname fields = do
+-- | Provides a default 'toJSArray' for 'ArrayObject' instance using its
+-- existing 'DictObject' instance. The keys are serialized in the order
+-- they're declared. The list must contain all keys possibly generated by
+-- 'toDict'.
+defaultToJSArray :: (DictObject a) => [String] -> a -> [JSON.JSValue]
+defaultToJSArray keys o =
+  let m = M.fromList $ toDict o
+  in map (fromMaybe JSON.JSNull . flip M.lookup m) keys
+
+-- | Provides a default 'fromJSArray' for 'ArrayObject' instance using its
+-- existing 'DictObject' instance. The fields are deserialized in the order
+-- they're declared.
+defaultFromJSArray :: (DictObject a)
+                   => [String] -> [JSON.JSValue] -> JSON.Result a
+defaultFromJSArray keys xs = do
+  let xslen = length xs
+      explen = length keys
+  unless (xslen == explen) (fail $ "Expected " ++ show explen
+                                   ++ " arguments, got " ++ show xslen)
+  fromDict $ zip keys xs
+
+-- | Generates an additional 'ArrayObject' instance using its
+-- existing 'DictObject' instance.
+--
+-- See 'defaultToJSArray' and 'defaultFromJSArray'.
+genArrayObjectInstance :: Name -> [Field] -> Q Dec
+genArrayObjectInstance name fields = do
+  let fnames = concatMap (liftA2 (:) fieldName fieldExtraKeys) fields
+  instanceD (return []) (appT (conT ''ArrayObject) (conT name))
+    [ valD (varP 'toJSArray) (normalB [| defaultToJSArray $(lift fnames) |]) []
+    , valD (varP 'fromJSArray) (normalB [| defaultFromJSArray fnames |]) []
+    ]
+
+-- | Generates 'DictObject' instance.
+genDictObject :: (Name -> Field -> Q Exp)  -- ^ a saving function
+              -> (Field -> Q Exp)          -- ^ a loading function
+              -> String                    -- ^ an object name
+              -> [Field]                   -- ^ a list of fields
+              -> Q [Dec]
+genDictObject save_fn load_fn sname fields = do
   let name = mkName sname
+  -- toDict
   fnames <- mapM (newName . fieldVariable) fields
   let pat = conP name (map varP fnames)
-  let tdname = toDictName sname
-  tdsigt <- [t| $(conT name) -> [(String, JSON.JSValue)] |]
+      tdexp = [| concat $(listE $ zipWith save_fn fnames fields) |]
+  tdclause <- clause [pat] (normalB tdexp) []
+  -- fromDict
+  fdexp <- loadConstructor name load_fn fields
+  let fdclause = Clause [VarP objVarName] (NormalB fdexp) []
+  -- the ArrayObject instance generated from DictObject
+  arrdec <- genArrayObjectInstance name fields
+  -- the final instance
+  return $ [InstanceD [] (AppT (ConT ''DictObject) (ConT name))
+             [ FunD 'toDict [tdclause]
+             , FunD 'fromDictWKeys [fdclause]
+             ]]
+         ++ [arrdec]
 
-  let felems = map (uncurry save_fn) (zip fnames fields)
-      flist = listE felems
-      -- and finally convert all this to a json object
-      tdlist = [| concat $flist |]
-      iname = mkName "i"
-  tclause <- clause [pat] (normalB tdlist) []
-  cclause <- [| $makeObjE . $(varE tdname) |]
+-- | Generates the save object functionality.
+genSaveObject :: String -> Q [Dec]
+genSaveObject sname = do
   let fname = mkName ("save" ++ sname)
-  sigt <- [t| $(conT name) -> JSON.JSValue |]
-  return [SigD tdname tdsigt, FunD tdname [tclause],
-          SigD fname sigt, ValD (VarP fname) (NormalB cclause) []]
+  sigt <- [t| $(conT $ mkName sname) -> JSON.JSValue |]
+  cclause <- [| showJSONtoDict |]
+  return [SigD fname sigt, ValD (VarP fname) (NormalB cclause) []]
 
 -- | Generates the code for saving an object's field, handling the
 -- various types of fields that we have.
 saveObjectField :: Name -> Field -> Q Exp
-saveObjectField fvar field =
+saveObjectField fvar field = do
+  let formatFn = fromMaybe [| JSON.showJSON &&& (const []) |] $
+                           fieldShow field
+      formatFnTyped = sigE formatFn
+        [t| $(fieldType field) -> (JSON.JSValue, [(String, JSON.JSValue)]) |]
+  let formatCode v = [| let (actual, extra) = $formatFnTyped $(v)
+                         in ($nameE, actual) : extra |]
   case fieldIsOptional field of
-    OptionalOmitNull -> [| case $(varE fvar) of
-                             Nothing -> []
-                             Just v  -> [( $nameE, JSON.showJSON v )]
-                         |]
-    OptionalSerializeNull -> [| case $(varE fvar) of
-                                  Nothing -> [( $nameE, JSON.JSNull )]
-                                  Just v  -> [( $nameE, JSON.showJSON v )]
+    OptionalOmitNull ->       [| case $(fvarE) of
+                                   Nothing -> []
+                                   Just v  -> $(formatCode [| v |])
                               |]
-    NotOptional ->
-      case fieldShow field of
-        -- Note: the order of actual:extra is important, since for
-        -- some serialisation types (e.g. Luxi), we use tuples
-        -- (positional info) rather than object (name info)
-        Nothing -> [| [( $nameE, JSON.showJSON $fvarE)] |]
-        Just fn -> [| let (actual, extra) = $fn $fvarE
-                      in ($nameE, JSON.showJSON actual):extra
-                    |]
+    OptionalSerializeNull ->  [| case $(fvarE) of
+                                   Nothing -> [( $nameE, JSON.JSNull )]
+                                   Just v  -> $(formatCode [| v |])
+                              |]
+    NotOptional ->            formatCode fvarE
     AndRestArguments -> [| M.toList $(varE fvar) |]
   where nameE = stringE (fieldName field)
         fvarE = varE fvar
@@ -972,68 +1069,66 @@ objectShowJSON name = do
   return $ FunD 'JSON.showJSON [Clause [] (NormalB body) []]
 
 -- | Generates the load object functionality.
-genLoadObject :: (Field -> Q (Name, Stmt))
-              -> String -> [Field] -> Q (Dec, Dec)
-genLoadObject load_fn sname fields = do
-  let name = mkName sname
-      funname = mkName $ "load" ++ sname
-      arg1 = mkName $ if null fields then "_" else "v"
-      objname = mkName "o"
-      opid = mkName "op_id"
-  st1 <- bindS (varP objname) [| liftM JSON.fromJSObject
-                                 (JSON.readJSON $(varE arg1)) |]
-  fbinds <- mapM load_fn fields
-  let (fnames, fstmts) = unzip fbinds
-  let cval = foldl (\accu fn -> AppE accu (VarE fn)) (ConE name) fnames
-      retstmt = [NoBindS (AppE (VarE 'return) cval)]
-      -- FIXME: should we require an empty dict for an empty type?
-      -- this allows any JSValue right now
-      fstmts' = if null fields
-                  then retstmt
-                  else st1:fstmts ++ retstmt
-  sigt <- [t| JSON.JSValue -> JSON.Result $(conT name) |]
-  return $ (SigD funname sigt,
-            FunD funname [Clause [VarP arg1] (NormalB (DoE fstmts')) []])
+genLoadObject :: String -> Q (Dec, Dec)
+genLoadObject sname = do
+  let fname = mkName $ "load" ++ sname
+  sigt <- [t| JSON.JSValue -> JSON.Result $(conT $ mkName sname) |]
+  cclause <- [| readJSONfromDict |]
+  return $ (SigD fname sigt,
+            FunD fname [Clause [] (NormalB cclause) []])
 
 -- | Generates code for loading an object's field.
-loadObjectField :: [Field] -> Field -> Q (Name, Stmt)
+loadObjectField :: [Field] -> Field -> Q Exp
 loadObjectField allFields field = do
-  let name = fieldVariable field
-      names = map fieldVariable allFields
-      otherNames = listE . map stringE $ names \\ [name]
-  fvar <- newName name
+  let otherNames = fieldsDictKeysQ . filter (on (/=) fieldName field)
+                                   $ allFields
   -- these are used in all patterns below
-  let objvar = varNameE "o"
+  let objvar = varE objVarName
       objfield = stringE (fieldName field)
-      loadexp =
-        case fieldIsOptional field of
-          NotOptional ->
-            case fieldDefault field of
-                 Just defv ->
-                   [| $(varE 'fromObjWithDefault) $objvar
-                      $objfield $defv |]
-                 Nothing -> [| $fromObjE $objvar $objfield |]
-          AndRestArguments -> [| return . M.fromList
-                                   $ filter (not . (`elem` $otherNames) . fst)
-                                            $objvar |]
-          _ -> [| $(varE 'maybeFromObj) $objvar $objfield |]
-          -- we treat both optional types the same, since
-          -- 'maybeFromObj' can deal with both missing and null values
-          -- appropriately (the same)
-  bexp <- loadFn field loadexp objvar
+  case (fieldDefault field, fieldIsOptional field) of
+            -- Only non-optional fields without defaults must have a value;
+            -- we treat both optional types the same, since
+            -- 'maybeFromObj' can deal with both missing and null values
+            -- appropriately (the same)
+            (Nothing, NotOptional) ->
+                  loadFn field [| fromObj $objvar $objfield |] objvar
+            -- AndRestArguments need not to be parsed at all,
+            -- they're just extracted from the list of other fields.
+            (Nothing, AndRestArguments) ->
+                  [| return . M.fromList
+                     . filter (not . (`S.member` $(otherNames)) . fst)
+                     $ $objvar |]
+            _ ->  loadFnOpt field [| maybeFromObj $objvar $objfield |] objvar
 
-  return (fvar, BindS (VarP fvar) bexp)
+-- | Generates the set of all used JSON dictionary keys for a field
+fieldDictKeys :: Field -> Exp
+fieldDictKeys field = AppE (VarE 'S.fromList)
+  . ListE . map (LitE . StringL) $ liftA2 (:) fieldName fieldExtraKeys field
+
+-- | Generates the list of all used JSON dictionary keys for a list of fields
+fieldsDictKeys :: [Field] -> Exp
+fieldsDictKeys fields =
+  AppE (VarE 'S.unions) . ListE . map fieldDictKeys $ fields
+
+-- | Generates the list of all used JSON dictionary keys for a list of fields
+fieldsDictKeysQ :: [Field] -> Q Exp
+fieldsDictKeysQ = return . fieldsDictKeys
+
+
+-- | Generates the list of all used JSON dictionary keys for a list of fields,
+-- depending on if any of them has 'AndRestArguments' flag.
+fieldsUsedKeysQ :: [Field] -> Q Exp
+fieldsUsedKeysQ fields
+  | any ((==) AndRestArguments . fieldIsOptional) fields
+              = [| allUsedKeys |]
+  | otherwise = [| mkUsedKeys $(fieldsDictKeysQ fields) |]
 
 -- | Builds the readJSON instance for a given object name.
 objectReadJSON :: String -> Q Dec
 objectReadJSON name = do
   let s = mkName "s"
-  body <- [| case JSON.readJSON $(varE s) of
-               JSON.Ok s' -> $(varE .mkName $ "load" ++ name) s'
-               JSON.Error e ->
-                 JSON.Error $ "Can't parse value for type " ++
-                       $(stringE name) ++ ": " ++ e
-           |]
+  body <- [| $(varE . mkName $ "load" ++ name) =<<
+             readJSONWithDesc $(stringE name) False $(varE s) |]
   return $ FunD 'JSON.readJSON [Clause [VarP s] (NormalB body) []]
 
 -- * Inheritable parameter tables implementation
@@ -1073,8 +1168,7 @@ buildParam sname field_pfx fields = do
   ser_decls_p <- buildPParamSerialisation sname_p fields
   fill_decls <- fillParam sname field_pfx fields
   return $ [declF, declP] ++ ser_decls_f ++ ser_decls_p ++ fill_decls ++
-           buildParamAllFields sname fields ++
-           buildDictObjectInst name_f sname_f
+           buildParamAllFields sname fields
 
 -- | Builds a list of all fields of a parameter.
 buildParamAllFields :: String -> [Field] -> [Dec]
@@ -1084,23 +1178,18 @@ buildParamAllFields sname fields =
       val = ListE $ map (LitE . StringL . fieldName) fields
   in [sig, ValD (VarP vname) (NormalB val) []]
 
--- | Builds the 'DictObject' instance for a filled parameter.
-buildDictObjectInst :: Name -> String -> [Dec]
-buildDictObjectInst name sname =
-  [InstanceD [] (AppT (ConT ''DictObject) (ConT name))
-   [ValD (VarP 'toDict) (NormalB (VarE (toDictName sname))) []]]
-
 -- | Generates the serialisation for a partial parameter.
 buildPParamSerialisation :: String -> [Field] -> Q [Dec]
 buildPParamSerialisation sname fields = do
   let name = mkName sname
-  savedecls <- genSaveObject savePParamField sname fields
-  (loadsig, loadfn) <- genLoadObject loadPParamField sname fields
+  dictdecls <- genDictObject savePParamField loadPParamField sname fields
+  savedecls <- genSaveObject sname
+  (loadsig, loadfn) <- genLoadObject sname
   shjson <- objectShowJSON sname
   rdjson <- objectReadJSON sname
   let instdecl = InstanceD [] (AppT (ConT ''JSON.JSON) (ConT name))
                  [rdjson, shjson]
-  return $ savedecls ++ [loadsig, loadfn, instdecl]
+  return $ dictdecls ++ savedecls ++ [loadsig, loadfn, instdecl]
 
 -- | Generates code to save an optional parameter field.
 savePParamField :: Name -> Field -> Q Exp
@@ -1117,19 +1206,15 @@ savePParamField fvar field = do
                              ]
 
 -- | Generates code to load an optional parameter field.
-loadPParamField :: Field -> Q (Name, Stmt)
+loadPParamField :: Field -> Q Exp
 loadPParamField field = do
   checkNonOptDef field
   let name = fieldName field
-  fvar <- newName name
   -- these are used in all patterns below
-  let objvar = varNameE "o"
+  let objvar = varE objVarName
       objfield = stringE name
       loadexp = [| $(varE 'maybeFromObj) $objvar $objfield |]
-      field' = field {fieldRead=fmap (appE (varE 'makeReadOptional))
-                                  $ fieldRead field}
-  bexp <- loadFn field' loadexp objvar
-  return (fvar, BindS (VarP fvar) bexp)
+  loadFnOpt field loadexp objvar
 
 -- | Builds a simple declaration of type @n_x = fromMaybe f_x p_x@.
 buildFromMaybe :: String -> Q Dec
@@ -1154,8 +1239,7 @@ fillParam sname field_pfx fields = do
                 (NormalB . VarE . mkName $ oname_f) []
       le_part = ValD (ConP name_p (map (VarP . mkName . ("p_" ++)) fnames))
                 (NormalB . VarE . mkName $ oname_p) []
-      obj_new = foldl (\accu vname -> AppE accu (VarE vname)) (ConE name_f)
-                $ map (mkName . ("n_" ++)) fnames
+      obj_new = appCons name_f $ map (VarE . mkName . ("n_" ++)) fnames
   le_new <- mapM buildFromMaybe fnames
   funt <- [t| $(conT name_f) -> $(conT name_p) -> $(conT name_f) |]
   let sig = SigD fun_name funt
@@ -1219,7 +1303,7 @@ loadExcConstructor inname sname fields = do
   let binds = case f_names of
                 [x] -> BindS (ListP [VarP x])
                 _   -> BindS (TupP (map VarP f_names))
-      cval = foldl (\accu fn -> AppE accu (VarE fn)) (ConE name) f_names
+      cval = appCons name $ map VarE f_names
   return $ DoE [binds read_args, NoBindS (AppE (VarE 'return) cval)]
 
 {-| Generates the loadException function.

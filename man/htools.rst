@@ -154,7 +154,11 @@ support all options. Some common options are:
   page **htools**\(1).
 
   The file should contain text data, line-based, with single empty lines
-  separating sections. The lines themselves are column-based, with the
+  separating sections. In particular, an empty section is described by
+  the empty string followed by the separating empty line, thus yielding
+  two consecutive empty lines. So the number of empty lines does matter
+  and cannot be changed arbitrarily.
+  The lines themselves are column-based, with the
   pipe symbol (``|``) acting as separator.
 
   The first section contains group data, with the following columns:
@@ -182,6 +186,8 @@ support all options. Some common options are:
   - exclusive storage value (``Y`` if active, ``N`` otherwise)
   - node free spindles
   - virtual CPUs used by the node OS
+  - CPU speed relative to that of a ``standard node`` in the node
+    group the node belongs to
 
   The third section contains instance data, with the fields:
 

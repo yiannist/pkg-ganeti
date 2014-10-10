@@ -36,6 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 module Ganeti.JSON
   ( fromJResult
   , fromJResultE
+  , readJSONWithDesc
   , readEitherString
   , JSRecord
   , loadJSArray
@@ -56,18 +57,33 @@ module Ganeti.JSON
   , toArray
   , optionalJSField
   , optFieldsToObj
+  , lookupContainer
+  , alterContainerL
+  , readContainer
+  , mkUsedKeys
+  , allUsedKeys
+  , DictObject(..)
+  , showJSONtoDict
+  , readJSONfromDict
+  , ArrayObject(..)
   , HasStringRepr(..)
   , GenericContainer(..)
   , Container
   , MaybeForJSON(..)
+  , TimeAsDoubleJSON(..)
   )
   where
 
+import Control.Applicative
 import Control.DeepSeq
-import Control.Monad (liftM)
 import Control.Monad.Error.Class
+import Control.Monad.Writer
+import qualified Data.Foldable as F
+import qualified Data.Traversable as F
 import Data.Maybe (fromMaybe, catMaybes)
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import System.Time (ClockTime(..))
 import Text.Printf (printf)
 
 import qualified Text.JSON as J
@@ -97,6 +113,21 @@ type JSField = (String, J.JSValue)
 
 -- | A type alias for the list-based representation of J.JSObject.
 type JSRecord = [JSField]
+
+-- | Annotate @readJSON@ error messages with descriptions of what
+-- is being parsed into what.
+readJSONWithDesc :: (J.JSON a)
+                 => String                    -- ^ description of @a@
+                 -> Bool                      -- ^ include input in
+                                              --   error messages
+                 -> J.JSValue                 -- ^ input value
+                 -> J.Result a
+readJSONWithDesc typ incInput input =
+  case J.readJSON input of
+    J.Ok r    -> J.Ok r
+    J.Error e -> J.Error $ if incInput then msg ++ " from " ++ show input
+                                       else msg
+      where msg = "Can't parse value for type " ++ typ ++ ": " ++ e
 
 -- | Converts a JSON Result into a monadic value.
 fromJResult :: Monad m => String -> J.Result a -> m a
@@ -287,8 +318,37 @@ newtype GenericContainer a b =
 instance (NFData a, NFData b) => NFData (GenericContainer a b) where
   rnf = rnf . Map.toList . fromContainer
 
+instance Functor (GenericContainer a) where
+  fmap f = GenericContainer . fmap f . fromContainer
+
+instance F.Foldable (GenericContainer a) where
+  foldMap f = F.foldMap f . fromContainer
+
+instance F.Traversable (GenericContainer a) where
+  traverse f = fmap GenericContainer . F.traverse f . fromContainer
+
 -- | Type alias for string keys.
 type Container = GenericContainer String
+
+-- | Looks up a value in a container with a default value.
+-- If a key has no value, a given monadic default is returned.
+-- This allows simple error handling, as the default can be
+-- 'mzero', 'failError' etc.
+lookupContainer :: (Monad m, Ord a)
+                => m b -> a -> GenericContainer a b -> m b
+lookupContainer dflt k = maybe dflt return . Map.lookup k . fromContainer
+
+-- | Updates a value inside a container.
+-- The signature of the function is crafted so that it can be directly
+-- used as a lens.
+alterContainerL :: (Functor f, Ord a)
+                => a
+                -> (Maybe b -> f (Maybe b))
+                -> GenericContainer a b
+                -> f (GenericContainer a b)
+alterContainerL key f (GenericContainer m) =
+  fmap (\v -> GenericContainer $ Map.alter (const v) key m)
+       (f $ Map.lookup key m)
 
 -- | Container loader.
 readContainer :: (Monad m, HasStringRepr a, Ord a, J.JSON b) =>
@@ -316,11 +376,81 @@ instance (HasStringRepr a, Ord a, J.JSON b) =>
   readJSON v = fail $ "Failed to load container, expected object but got "
                ++ show (pp_value v)
 
+-- * Types that (de)serialize in a special form of JSON
+
+newtype UsedKeys = UsedKeys (Maybe (Set.Set String))
+
+instance Monoid UsedKeys where
+  mempty = UsedKeys (Just Set.empty)
+  mappend (UsedKeys xs) (UsedKeys ys) = UsedKeys $ liftA2 Set.union xs ys
+
+mkUsedKeys :: Set.Set String -> UsedKeys
+mkUsedKeys = UsedKeys . Just
+
+allUsedKeys :: UsedKeys
+allUsedKeys = UsedKeys Nothing
+
+-- | Class of objects that can be converted from and to 'JSObject'
+-- lists-format.
+class DictObject a where
+  toDict :: a -> [(String, J.JSValue)]
+  fromDictWKeys :: [(String, J.JSValue)] -> WriterT UsedKeys J.Result a
+  fromDict :: [(String, J.JSValue)] -> J.Result a
+  fromDict = liftM fst . runWriterT . fromDictWKeys
+
+-- | A default implementation of 'showJSON' using 'toDict'.
+showJSONtoDict :: (DictObject a) => a -> J.JSValue
+showJSONtoDict = J.makeObj . toDict
+
+-- | A default implementation of 'readJSON' using 'fromDict'.
+-- Checks that the input value is a JSON object and
+-- converts it using 'fromDict'.
+-- Also checks the input contains only the used keys returned by 'fromDict'.
+readJSONfromDict :: (DictObject a)
+                 => J.JSValue -> J.Result a
+readJSONfromDict jsv = do
+  dict <- liftM J.fromJSObject $ J.readJSON jsv
+  (r, UsedKeys keys) <- runWriterT $ fromDictWKeys dict
+  -- check that no superfluous dictionary keys are present
+  case keys of
+    Just allowedSet | not (Set.null superfluous) ->
+        fail $ "Superfluous dictionary keys: "
+               ++ show (Set.toAscList superfluous) ++ ", but only "
+               ++ show (Set.toAscList allowedSet) ++ " allowed."
+      where
+        superfluous = Set.fromList (map fst dict) Set.\\ allowedSet
+    _ -> return ()
+  return r
+
+-- | Class of objects that can be converted from and to @[JSValue]@ with
+-- a fixed length and order.
+class ArrayObject a where
+  toJSArray :: a -> [J.JSValue]
+  fromJSArray :: [J.JSValue] -> J.Result a
+
+-- * General purpose data types for working with JSON
+
 -- | A Maybe newtype that allows for serialization more appropriate to the
 -- semantics of Maybe and JSON in our calls. Does not produce needless
 -- and confusing dictionaries.
 newtype MaybeForJSON a = MaybeForJSON { unMaybeForJSON :: Maybe a }
+  deriving (Show, Eq, Ord)
 instance (J.JSON a) => J.JSON (MaybeForJSON a) where
-  readJSON = J.readJSON
+  readJSON J.JSNull = return $ MaybeForJSON Nothing
+  readJSON x        = (MaybeForJSON . Just) `liftM` J.readJSON x
   showJSON (MaybeForJSON (Just x)) = J.showJSON x
   showJSON (MaybeForJSON Nothing)  = J.JSNull
+
+newtype TimeAsDoubleJSON
+    = TimeAsDoubleJSON { unTimeAsDoubleJSON :: ClockTime }
+  deriving (Show, Eq, Ord)
+instance J.JSON TimeAsDoubleJSON where
+  readJSON v = do
+      t <- J.readJSON v :: J.Result Double
+      return . TimeAsDoubleJSON . uncurry TOD
+             $ divMod (round $ t * pico) (pico :: Integer)
+    where
+      pico :: (Num a) => a
+      pico = 10^(12 :: Int)
+  showJSON (TimeAsDoubleJSON (TOD ss ps)) = J.showJSON
+      (fromIntegral ss + fromIntegral ps / 10^(12 :: Int) :: Double)

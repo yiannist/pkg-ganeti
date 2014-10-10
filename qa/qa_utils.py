@@ -216,7 +216,8 @@ def AssertRedirectedCommand(cmd, fail=False, node=None, log_cmd=True):
                        fail=fail, node=node, log_cmd=log_cmd)
 
 
-def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None):
+def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None,
+                  use_multiplexer=True):
   """Builds SSH command to be executed.
 
   @type node: string
@@ -230,6 +231,8 @@ def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None):
   @param opts: list of additional options
   @type tty: boolean or None
   @param tty: if we should use tty; if None, will be auto-detected
+  @type use_multiplexer: boolean
+  @param use_multiplexer: if the multiplexer for the node should be used
 
   """
   args = ["ssh", "-oEscapeChar=none", "-oBatchMode=yes", "-lroot"]
@@ -249,7 +252,7 @@ def GetSSHCommand(node, cmd, strict=True, opts=None, tty=None):
   args.append("-oForwardAgent=yes")
   if opts:
     args.extend(opts)
-  if node in _MULTIPLEXERS:
+  if node in _MULTIPLEXERS and use_multiplexer:
     spath = _MULTIPLEXERS[node][0]
     args.append("-oControlPath=%s" % spath)
     args.append("-oControlMaster=no")
@@ -326,7 +329,17 @@ def CloseMultiplexers():
     utils.RemoveFile(sname)
 
 
-def GetCommandOutput(node, cmd, tty=None, fail=False):
+def _GetCommandStdout(proc):
+  """Extract the stored standard error, print it and return it.
+
+  """
+  out = proc.stdout.read()
+  sys.stdout.write(out)
+  return out
+
+
+def GetCommandOutput(node, cmd, tty=None, use_multiplexer=True, log_cmd=True,
+                     fail=False):
   """Returns the output of a command executed on the given node.
 
   @type node: string
@@ -335,15 +348,22 @@ def GetCommandOutput(node, cmd, tty=None, fail=False):
   @param cmd: command to be executed in the node (cannot be empty or None)
   @type tty: bool or None
   @param tty: if we should use tty; if None, it will be auto-detected
+  @type use_multiplexer: bool
+  @param use_multiplexer: if the SSH multiplexer provided by the QA should be
+                          used or not
+  @type log_cmd: bool
+  @param log_cmd: if the command should be logged
   @type fail: bool
   @param fail: whether the command is expected to fail
   """
   assert cmd
-  p = StartLocalCommand(GetSSHCommand(node, cmd, tty=tty),
-                        stdout=subprocess.PIPE)
+  p = StartLocalCommand(GetSSHCommand(node, cmd, tty=tty,
+                                      use_multiplexer=use_multiplexer),
+                        stdout=subprocess.PIPE, log_cmd=log_cmd)
   rcode = p.wait()
+  out = _GetCommandStdout(p)
   _AssertRetCode(rcode, fail, cmd, node)
-  return p.stdout.read()
+  return out
 
 
 def GetObjectInfo(infocmd):
@@ -384,7 +404,7 @@ def UploadFile(node, src):
     AssertEqual(p.wait(), 0)
 
     # Return temporary filename
-    return p.stdout.read().strip()
+    return _GetCommandStdout(p).strip()
   finally:
     f.close()
 
@@ -413,7 +433,7 @@ def UploadData(node, data, mode=0600, filename=None):
   AssertEqual(p.wait(), 0)
 
   # Return temporary filename
-  return p.stdout.read().strip()
+  return _GetCommandStdout(p).strip()
 
 
 def BackupFile(node, path):

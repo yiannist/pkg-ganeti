@@ -49,24 +49,31 @@ module Ganeti.Ssconf
   , getEnabledUserShutdown
   , keyToFilename
   , sSFilePrefix
+  , SSConf(..)
+  , emptySSConf
   ) where
 
 import Control.Applicative ((<$>))
 import Control.Exception
 import Control.Monad (forM, liftM)
+import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import qualified Network.Socket as Socket
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
+import qualified Text.JSON as J
 
 import qualified AutoConf
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
+import Ganeti.JSON (GenericContainer(..), HasStringRepr(..))
 import qualified Ganeti.Path as Path
 import Ganeti.THH
 import Ganeti.Types (Hypervisor)
 import qualified Ganeti.Types as Types
 import Ganeti.Utils
+
+-- * Reading individual ssconf entries
 
 -- | Maximum ssconf file size we support.
 maxFileSize :: Int
@@ -84,6 +91,7 @@ $(declareSADT "SSKey"
   , ("SSGlusterStorageDir",    'C.ssGlusterStorageDir)
   , ("SSMasterCandidates",     'C.ssMasterCandidates)
   , ("SSMasterCandidatesIps",  'C.ssMasterCandidatesIps)
+  , ("SSMasterCandidatesCerts",'C.ssMasterCandidatesCerts)
   , ("SSMasterIp",             'C.ssMasterIp)
   , ("SSMasterNetdev",         'C.ssMasterNetdev)
   , ("SSMasterNetmask",        'C.ssMasterNetmask)
@@ -101,8 +109,13 @@ $(declareSADT "SSKey"
   , ("SSMaintainNodeHealth",   'C.ssMaintainNodeHealth)
   , ("SSUidPool",              'C.ssUidPool)
   , ("SSNodegroups",           'C.ssNodegroups)
+  , ("SSNetworks",             'C.ssNetworks)
   , ("SSEnabledUserShutdown",  'C.ssEnabledUserShutdown)
   ])
+
+instance HasStringRepr SSKey where
+  fromStringRepr = sSKeyFromRaw
+  toStringRepr = sSKeyToRaw
 
 -- | Convert a ssconf key into a (full) file path.
 keyToFilename :: FilePath     -- ^ Config path root
@@ -184,7 +197,7 @@ getMasterCandidatesIps optPath = do
 getMasterNode :: Maybe FilePath -> IO (Result String)
 getMasterNode optPath = do
   result <- readSSConfFile optPath Nothing SSMasterNode
-  return $ liftM rStripSpace result
+  return (liftM rStripSpace result)
 
 -- | Parse the list of enabled hypervisors from a 'String'.
 parseHypervisorList :: String -> Result [Hypervisor]
@@ -207,3 +220,16 @@ getEnabledUserShutdown :: Maybe FilePath -> IO (Result Bool)
 getEnabledUserShutdown optPath =
   (parseEnabledUserShutdown =<<) <$>
     readSSConfFile optPath Nothing SSEnabledUserShutdown
+
+-- * Working with the whole ssconf map
+
+-- | The data type used for representing the ssconf.
+newtype SSConf = SSConf { getSSConf :: M.Map SSKey [String] }
+  deriving (Eq, Ord, Show)
+
+instance J.JSON SSConf where
+  showJSON = J.showJSON . GenericContainer . getSSConf
+  readJSON = liftM (SSConf . fromContainer) . J.readJSON
+
+emptySSConf :: SSConf
+emptySSConf = SSConf M.empty

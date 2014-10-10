@@ -51,7 +51,8 @@ def ListOS(opts, args):
   @return: the desired exit code
 
   """
-  op = opcodes.OpOsDiagnose(output_fields=["name", "variants"], names=[])
+  op = opcodes.OpOsDiagnose(output_fields=["name", "variants"],
+                            names=[])
   result = SubmitOpCode(op, opts=opts)
 
   if not opts.no_headers:
@@ -84,17 +85,24 @@ def ShowOSInfo(opts, args):
   """
   op = opcodes.OpOsDiagnose(output_fields=["name", "valid", "variants",
                                            "parameters", "api_versions",
-                                           "blacklisted", "hidden"],
+                                           "blacklisted", "hidden", "os_hvp",
+                                           "osparams", "trusted"],
                             names=[])
   result = SubmitOpCode(op, opts=opts)
 
-  if not result:
+  if result is None:
     ToStderr("Can't get the OS list")
     return 1
 
   do_filter = bool(args)
 
-  for (name, valid, variants, parameters, api_versions, blk, hid) in result:
+  total_os_hvp = {}
+  total_osparams = {}
+
+  for (name, valid, variants, parameters, api_versions, blk, hid, os_hvp,
+       osparams, trusted) in result:
+    total_os_hvp.update(os_hvp)
+    total_osparams.update(osparams)
     if do_filter:
       if name not in args:
         continue
@@ -114,11 +122,22 @@ def ShowOSInfo(opts, args):
       ToStdout("  - parameters:")
       for pname, pdesc in parameters:
         ToStdout("    - %s: %s", pname, pdesc)
+    ToStdout("  - trusted: %s", trusted)
     ToStdout("")
 
   if args:
+    all_names = total_os_hvp.keys() + total_osparams.keys()
     for name in args:
-      ToStdout("%s: ", name)
+      if not name in all_names:
+        ToStdout("%s: ", name)
+      else:
+        info = [
+          (name, [
+            ("OS-specific hypervisor parameters", total_os_hvp.get(name, {})),
+            ("OS parameters", total_osparams.get(name, {})),
+            ]),
+          ]
+        PrintGenericInfo(info)
       ToStdout("")
 
   return 0
@@ -156,7 +175,7 @@ def DiagnoseOS(opts, args):
                                            "blacklisted"], names=[])
   result = SubmitOpCode(op, opts=opts)
 
-  if not result:
+  if result is None:
     ToStderr("Can't get the OS list")
     return 1
 
@@ -170,7 +189,7 @@ def DiagnoseOS(opts, args):
       nodes_hidden[node_name] = []
       if node_info: # at least one entry in the per-node list
         (fo_path, fo_status, fo_msg, fo_variants,
-         fo_params, fo_api) = node_info.pop(0)
+         fo_params, fo_api, fo_trusted) = node_info.pop(0)
         fo_msg = "%s (path: %s)" % (_OsStatus(fo_status, fo_msg), fo_path)
         if fo_api:
           max_os_api = max(fo_api)
@@ -190,6 +209,10 @@ def DiagnoseOS(opts, args):
                        utils.CommaJoin([v[0] for v in fo_params]))
           else:
             fo_msg += " [no parameters]"
+        if fo_trusted:
+          fo_msg += " [trusted]"
+        else:
+          fo_msg += " [untrusted]"
         if fo_status:
           nodes_valid[node_name] = fo_msg
         else:
@@ -254,6 +277,11 @@ def ModifyOS(opts, args):
   else:
     osp = None
 
+  if opts.osparams_private:
+    osp_private = {os: opts.osparams_private}
+  else:
+    osp_private = None
+
   if opts.hidden is not None:
     if opts.hidden:
       ohid = [(constants.DDM_ADD, os)]
@@ -270,13 +298,14 @@ def ModifyOS(opts, args):
   else:
     oblk = None
 
-  if not (os_hvp or osp or ohid or oblk):
+  if not (os_hvp or osp or osp_private or ohid or oblk):
     ToStderr("At least one of OS parameters or hypervisor parameters"
              " must be passed")
     return 1
 
   op = opcodes.OpClusterSetParams(os_hvp=os_hvp,
                                   osparams=osp,
+                                  osparams_private_cluster=osp_private,
                                   hidden_os=ohid,
                                   blacklisted_os=oblk)
   SubmitOrSend(op, opts)
@@ -297,8 +326,8 @@ commands = {
     "operating systems"),
   "modify": (
     ModifyOS, ARGS_ONE_OS,
-    [HVLIST_OPT, OSPARAMS_OPT, DRY_RUN_OPT, PRIORITY_OPT,
-     HID_OS_OPT, BLK_OS_OPT] + SUBMIT_OPTS,
+    [HVLIST_OPT, OSPARAMS_OPT, OSPARAMS_PRIVATE_OPT,
+     DRY_RUN_OPT, PRIORITY_OPT, HID_OS_OPT, BLK_OS_OPT] + SUBMIT_OPTS,
     "", "Modify the OS parameters"),
   }
 

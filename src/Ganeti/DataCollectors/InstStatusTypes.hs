@@ -42,6 +42,7 @@ module Ganeti.DataCollectors.InstStatusTypes
 import Ganeti.DataCollectors.Types
 import Ganeti.Hypervisor.Xen.Types
 import Ganeti.THH
+import Ganeti.THH.Field
 import Ganeti.Types
 
 -- | Data type representing the status of an instance to be returned.
@@ -52,7 +53,7 @@ $(buildObject "InstStatus" "iStat"
   , simpleField "actualState"  [t| ActualState |]
   , optionalNullSerField $
     simpleField "uptime"       [t| String |]
-  , simpleField "mtime"        [t| Double |]
+  , timeAsDoubleField "mtime"
   , simpleField "state_reason" [t| ReasonTrail |]
   , simpleField "status"       [t| DCStatus |]
   ])

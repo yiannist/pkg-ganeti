@@ -359,6 +359,11 @@ Node name
 .RS
 .RE
 .TP
+.B \f[C]ndp/cpu_speed\f[]
+The "cpu_speed" node parameter
+.RS
+.RE
+.TP
 .B \f[C]ndp/exclusive_storage\f[]
 The "exclusive_storage" node parameter
 .RS

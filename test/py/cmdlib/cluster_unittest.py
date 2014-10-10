@@ -37,6 +37,7 @@ import OpenSSL
 import copy
 import unittest
 import operator
+import re
 
 from ganeti.cmdlib import cluster
 from ganeti import constants
@@ -412,6 +413,23 @@ class TestLUClusterSetParams(CmdlibTestCase):
     self.ExecOpCode(op)
     self.assertEqual(additional_pool, self.cluster.uid_pool)
 
+  def testMacPrefix(self):
+    mac_prefix = "aa:01:02"
+    op = opcodes.OpClusterSetParams(mac_prefix=mac_prefix)
+    self.ExecOpCode(op)
+    self.assertEqual(mac_prefix, self.cluster.mac_prefix)
+
+  def testEmptyMacPrefix(self):
+    mac_prefix = ""
+    op = opcodes.OpClusterSetParams(mac_prefix=mac_prefix)
+    self.ExecOpCodeExpectOpPrereqError(
+      op, "Parameter 'OP_CLUSTER_SET_PARAMS.mac_prefix' fails validation")
+
+  def testInvalidMacPrefix(self):
+    mac_prefix = "az:00:00"
+    op = opcodes.OpClusterSetParams(mac_prefix=mac_prefix)
+    self.ExecOpCodeExpectOpPrereqError(op, "Invalid MAC address prefix")
+
   def testMasterNetmask(self):
     op = opcodes.OpClusterSetParams(master_netmask=26)
     self.ExecOpCode(op)
@@ -761,6 +779,7 @@ class TestLUClusterSetParams(CmdlibTestCase):
       }
     }
     self.cluster.osparams = {"other_os": {"param1": "value1"}}
+    self.cluster.osparams_private_cluster = {}
     op = opcodes.OpClusterSetParams(osparams=osparams)
     self.ExecOpCode(op)
 
@@ -970,6 +989,23 @@ class TestLUClusterSetParams(CmdlibTestCase):
     self.ExecOpCode(op)
 
     self.mcpu.assertLogContainsRegex("Could not disable the master ip")
+
+  def testCompressionToolSuccess(self):
+    compression_tools = ["certainly_not_a_default", "gzip"]
+    op = opcodes.OpClusterSetParams(compression_tools=compression_tools)
+    self.ExecOpCode(op)
+    self.assertEqual(compression_tools, self.cluster.compression_tools)
+
+  def testCompressionToolCompatibility(self):
+    compression_tools = ["not_gzip", "not_not_not_gzip"]
+    op = opcodes.OpClusterSetParams(compression_tools=compression_tools)
+    self.ExecOpCodeExpectOpPrereqError(op, ".*the gzip utility must be.*")
+
+  def testCompressionToolForbiddenValues(self):
+    for value in ["none", "\"rm -rf all.all\"", "ls$IFS-la"]:
+      compression_tools = [value, "gzip"]
+      op = opcodes.OpClusterSetParams(compression_tools=compression_tools)
+      self.ExecOpCodeExpectOpPrereqError(op, re.escape(value))
 
 
 class TestLUClusterVerify(CmdlibTestCase):
@@ -1541,22 +1577,25 @@ class TestLUClusterVerifyGroupVerifyInstance(TestLUClusterVerifyGroupMethods):
     self.master_img.volumes = ["/".join(disk.logical_id)
                                for inst in [self.running_inst,
                                             self.diskless_inst]
-                               for disk in inst.disks]
+                               for disk in
+                                 self.cfg.GetInstanceDisks(inst.uuid)]
+    drbd_inst_disks = self.cfg.GetInstanceDisks(self.drbd_inst.uuid)
     self.master_img.volumes.extend(
-      ["/".join(disk.logical_id) for disk in self.drbd_inst.disks[0].children])
+      ["/".join(disk.logical_id) for disk in drbd_inst_disks[0].children])
     self.master_img.instances = [self.running_inst.uuid]
     self.node1_img = \
       cluster.LUClusterVerifyGroup.NodeImage(uuid=self.node1.uuid)
     self.node1_img.volumes = \
-      ["/".join(disk.logical_id) for disk in self.drbd_inst.disks[0].children]
+      ["/".join(disk.logical_id) for disk in drbd_inst_disks[0].children]
     self.node_imgs = {
       self.master_uuid: self.master_img,
       self.node1.uuid: self.node1_img
     }
+    running_inst_disks = self.cfg.GetInstanceDisks(self.running_inst.uuid)
     self.diskstatus = {
       self.master_uuid: [
         (True, objects.BlockDevStatus(ldisk_status=constants.LDS_OKAY))
-        for _ in self.running_inst.disks
+        for _ in running_inst_disks
       ]
     }
 
@@ -1624,7 +1663,10 @@ class TestLUClusterVerifyGroupVerifyInstance(TestLUClusterVerifyGroupMethods):
   @withLockedLU
   def testExclusiveStorageWithValidInstance(self, lu):
     self.master.ndparams[constants.ND_EXCLUSIVE_STORAGE] = True
-    self.running_inst.disks[0].spindles = 1
+    running_inst_disks = self.cfg.GetInstanceDisks(self.running_inst.uuid)
+    running_inst_disks[0].spindles = 1
+    feedback_fn = lambda _: None
+    self.cfg.Update(running_inst_disks[0], feedback_fn)
     lu._VerifyInstance(self.running_inst, self.node_imgs, self.diskstatus)
     self.mcpu.assertLogIsEmpty()
 
@@ -1801,65 +1843,6 @@ class TestLUClusterVerifyGroupVerifyFiles(TestLUClusterVerifyGroupMethods):
       self.mcpu.assertLogContainsInLine(expected_msg)
 
 
-class TestLUClusterVerifyGroupVerifyNodeDrbd(TestLUClusterVerifyGroupMethods):
-  def setUp(self):
-    super(TestLUClusterVerifyGroupVerifyNodeDrbd, self).setUp()
-
-    self.node1 = self.cfg.AddNewNode()
-    self.node2 = self.cfg.AddNewNode()
-    self.inst = self.cfg.AddNewInstance(
-      disks=[self.cfg.CreateDisk(dev_type=constants.DT_DRBD8,
-                                 primary_node=self.node1,
-                                 secondary_node=self.node2)],
-      admin_state=constants.ADMINST_UP)
-
-  @withLockedLU
-  def testNoDrbdHelper(self, lu):
-    lu._VerifyNodeDrbd(self.master, {}, self.cfg.GetAllInstancesInfo(), None,
-                       self.cfg.ComputeDRBDMap())
-    self.mcpu.assertLogIsEmpty()
-
-  @withLockedLU
-  def testDrbdHelperInvalidNodeResult(self, lu):
-    for ndata, expected in [({}, "no drbd usermode helper returned"),
-                            ({constants.NV_DRBDHELPER: (False, "")},
-                             "drbd usermode helper check unsuccessful"),
-                            ({constants.NV_DRBDHELPER: (True, "/bin/false")},
-                             "wrong drbd usermode helper")]:
-      self.mcpu.ClearLogMessages()
-      lu._VerifyNodeDrbd(self.master, ndata, self.cfg.GetAllInstancesInfo(),
-                         "/bin/true", self.cfg.ComputeDRBDMap())
-      self.mcpu.assertLogContainsRegex(expected)
-
-  @withLockedLU
-  def testNoNodeResult(self, lu):
-    lu._VerifyNodeDrbd(self.node1, {}, self.cfg.GetAllInstancesInfo(),
-                         None, self.cfg.ComputeDRBDMap())
-    self.mcpu.assertLogContainsRegex("drbd minor 1 of .* is not active")
-
-  @withLockedLU
-  def testInvalidNodeResult(self, lu):
-    lu._VerifyNodeDrbd(self.node1, {constants.NV_DRBDLIST: ""},
-                       self.cfg.GetAllInstancesInfo(), None,
-                       self.cfg.ComputeDRBDMap())
-    self.mcpu.assertLogContainsRegex("cannot parse drbd status file")
-
-  @withLockedLU
-  def testWrongMinorInUse(self, lu):
-    lu._VerifyNodeDrbd(self.node1, {constants.NV_DRBDLIST: [2]},
-                       self.cfg.GetAllInstancesInfo(), None,
-                       self.cfg.ComputeDRBDMap())
-    self.mcpu.assertLogContainsRegex("drbd minor 1 of .* is not active")
-    self.mcpu.assertLogContainsRegex("unallocated drbd minor 2 is in use")
-
-  @withLockedLU
-  def testValidResult(self, lu):
-    lu._VerifyNodeDrbd(self.node1, {constants.NV_DRBDLIST: [1]},
-                       self.cfg.GetAllInstancesInfo(), None,
-                       self.cfg.ComputeDRBDMap())
-    self.mcpu.assertLogIsEmpty()
-
-
 class TestLUClusterVerifyGroupVerifyNodeOs(TestLUClusterVerifyGroupMethods):
   @withLockedLU
   def testUpdateNodeOsInvalidNodeResult(self, lu):
@@ -1875,9 +1858,10 @@ class TestLUClusterVerifyGroupVerifyNodeOs(TestLUClusterVerifyGroupMethods):
     ndata = {
       constants.NV_OSLIST: [
         ["mock_OS", "/mocked/path", True, "", ["default"], [],
-         [constants.OS_API_V20]],
+         [constants.OS_API_V20], True],
         ["Another_Mock", "/random", True, "", ["var1", "var2"],
-         [{"param1": "val1"}, {"param2": "val2"}], constants.OS_API_VERSIONS]
+         [{"param1": "val1"}, {"param2": "val2"}], constants.OS_API_VERSIONS,
+         True]
       ]
     }
     nimage = cluster.LUClusterVerifyGroup.NodeImage(uuid=self.master_uuid)
@@ -1893,27 +1877,29 @@ class TestLUClusterVerifyGroupVerifyNodeOs(TestLUClusterVerifyGroupMethods):
     nimg_root.os_fail = False
     nimg_root.oslist = {
       "mock_os": [("/mocked/path", True, "", set(["default"]), set(),
-                   set([constants.OS_API_V20]))],
+                   set([constants.OS_API_V20]), True)],
       "broken_base_os": [("/broken", False, "", set(), set(),
-                         set([constants.OS_API_V20]))],
-      "only_on_root": [("/random", True, "", set(), set(), set())],
+                         set([constants.OS_API_V20]), True)],
+      "only_on_root": [("/random", True, "", set(), set(), set(), True)],
       "diffing_os": [("/pinky", True, "", set(["var1", "var2"]),
                       set([("param1", "val1"), ("param2", "val2")]),
-                      set([constants.OS_API_V20]))]
+                      set([constants.OS_API_V20]), True)],
+      "trust_os": [("/trust/mismatch", True, "", set(), set(), set(), True)],
     }
     nimg.os_fail = False
     nimg.oslist = {
       "mock_os": [("/mocked/path", True, "", set(["default"]), set(),
-                   set([constants.OS_API_V20]))],
-      "only_on_test": [("/random", True, "", set(), set(), set())],
+                   set([constants.OS_API_V20]), True)],
+      "only_on_test": [("/random", True, "", set(), set(), set(), True)],
       "diffing_os": [("/bunny", True, "", set(["var1", "var3"]),
                       set([("param1", "val1"), ("param3", "val3")]),
-                      set([constants.OS_API_V15]))],
+                      set([constants.OS_API_V15]), True)],
       "broken_os": [("/broken", False, "", set(), set(),
-                     set([constants.OS_API_V20]))],
+                     set([constants.OS_API_V20]), True)],
       "multi_entries": [
-        ("/multi1", True, "", set(), set(), set([constants.OS_API_V20])),
-        ("/multi2", True, "", set(), set(), set([constants.OS_API_V20]))]
+        ("/multi1", True, "", set(), set(), set([constants.OS_API_V20]), True),
+        ("/multi2", True, "", set(), set(), set([constants.OS_API_V20]), True)],
+      "trust_os": [("/trust/mismatch", True, "", set(), set(), set(), False)],
     }
 
     lu._VerifyNodeOS(node, nimg, nimg_root)
@@ -1928,7 +1914,8 @@ class TestLUClusterVerifyGroupVerifyNodeOs(TestLUClusterVerifyGroupMethods):
       "Invalid OS broken_os",
       "Extra OS broken_os not present on reference node",
       "OS 'multi_entries' has multiple entries",
-      "Extra OS multi_entries not present on reference node"
+      "Extra OS multi_entries not present on reference node",
+      "OS trusted for trust_os differs from reference node "
     ]
 
     self.assertEqual(len(expected_msgs), len(self.mcpu.GetLogMessages()))

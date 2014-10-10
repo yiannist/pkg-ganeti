@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2012, 2013 Google Inc.
+Copyright (C) 2012, 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -41,8 +41,10 @@ module Ganeti.Query.Server
 import Control.Applicative
 import Control.Concurrent
 import Control.Exception
-import Control.Monad (forever, when, zipWithM, liftM)
+import Control.Monad (forever, when, mzero, guard, zipWithM, liftM, void)
 import Control.Monad.IO.Class
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Maybe
 import Data.Bits (bitSize)
 import qualified Data.Set as Set (toList)
 import Data.IORef
@@ -51,30 +53,35 @@ import qualified Text.JSON as J
 import Text.JSON (encode, showJSON, JSValue(..))
 import System.Info (arch)
 import System.Directory
+import System.Posix.Signals as P
 
 import qualified Ganeti.Constants as C
 import qualified Ganeti.ConstantUtils as ConstantUtils (unFrozenSet)
 import Ganeti.Errors
 import qualified Ganeti.Path as Path
 import Ganeti.Daemon
+import Ganeti.Daemon.Utils (handleMasterVerificationOptions)
 import Ganeti.Objects
 import qualified Ganeti.Config as Config
 import Ganeti.ConfigReader
 import Ganeti.BasicTypes
 import Ganeti.JQueue
 import Ganeti.JQScheduler
+import Ganeti.JSON (TimeAsDoubleJSON(..))
 import Ganeti.Logging
 import Ganeti.Luxi
 import qualified Ganeti.Query.Language as Qlang
 import qualified Ganeti.Query.Cluster as QCluster
-import Ganeti.Path ( queueDir, jobQueueLockFile, jobQueueDrainFile
-                   , defaultMasterSocket)
+import Ganeti.Path ( queueDir, jobQueueLockFile, jobQueueDrainFile )
 import Ganeti.Rpc
+import qualified Ganeti.Query.Exec as Exec
 import Ganeti.Query.Query
 import Ganeti.Query.Filter (makeSimpleFilter)
 import Ganeti.Types
 import qualified Ganeti.UDSServer as U (Handler(..), listener)
-import Ganeti.Utils (lockFile, exitIfBad, watchFile, safeRenameFile)
+import Ganeti.Utils ( lockFile, exitIfBad, exitUnless, watchFile
+                    , safeRenameFile )
+import Ganeti.Utils.MVarLock
 import qualified Ganeti.Version as Version
 
 -- | Helper for classic queries.
@@ -94,7 +101,7 @@ handleClassicQuery cfg qkind names fields _ = do
   return $ showJSON <$> (qr >>= queryCompat)
 
 -- | Minimal wrapper to handle the missing config case.
-handleCallWrapper :: MVar () -> JQStatus ->  Result ConfigData
+handleCallWrapper :: Lock -> JQStatus ->  Result ConfigData
                      -> LuxiOp -> IO (ErrorResult JSValue)
 handleCallWrapper _ _ (Bad msg) _ =
   return . Bad . ConfigurationError $
@@ -103,7 +110,7 @@ handleCallWrapper _ _ (Bad msg) _ =
 handleCallWrapper qlock qstat (Ok config) op = handleCall qlock qstat config op
 
 -- | Actual luxi operation handler.
-handleCall :: MVar () -> JQStatus
+handleCall :: Lock -> JQStatus
               -> ConfigData -> LuxiOp -> IO (ErrorResult JSValue)
 handleCall _ _ cdata QueryClusterInfo =
   let cluster = configCluster cdata
@@ -142,6 +149,9 @@ handleCall _ _ cdata QueryClusterInfo =
                showJSON $ clusterCandidatePoolSize cluster)
             , ("max_running_jobs",
                showJSON $ clusterMaxRunningJobs cluster)
+            , ("max_tracked_jobs",
+               showJSON $ clusterMaxTrackedJobs cluster)
+            , ("mac_prefix",  showJSON $ clusterMacPrefix cluster)
             , ("master_netdev",  showJSON $ clusterMasterNetdev cluster)
             , ("master_netmask", showJSON $ clusterMasterNetmask cluster)
             , ("use_external_mip_script",
@@ -157,8 +167,8 @@ handleCall _ _ cdata QueryClusterInfo =
                showJSON $ clusterGlusterStorageDir cluster)
             , ("maintain_node_health",
                showJSON $ clusterMaintainNodeHealth cluster)
-            , ("ctime", showJSON $ clusterCtime cluster)
-            , ("mtime", showJSON $ clusterMtime cluster)
+            , ("ctime", showJSON . TimeAsDoubleJSON $ clusterCtime cluster)
+            , ("mtime", showJSON . TimeAsDoubleJSON $ clusterMtime cluster)
             , ("uuid", showJSON $ clusterUuid cluster)
             , ("tags", showJSON $ clusterTags cluster)
             , ("uid_pool", showJSON $ clusterUidPool cluster)
@@ -174,6 +184,12 @@ handleCall _ _ cdata QueryClusterInfo =
             , ("hidden_os", showJSON $ clusterHiddenOs cluster)
             , ("blacklisted_os", showJSON $ clusterBlacklistedOs cluster)
             , ("enabled_disk_templates", showJSON diskTemplates)
+            , ("install_image", showJSON $ clusterInstallImage cluster)
+            , ("instance_communication_network",
+               showJSON (clusterInstanceCommunicationNetwork cluster))
+            , ("zeroing_image", showJSON $ clusterZeroingImage cluster)
+            , ("compression_tools",
+               showJSON $ clusterCompressionTools cluster)
             , ("enabled_user_shutdown",
                showJSON $ clusterEnabledUserShutdown cluster)
             ]
@@ -232,24 +248,19 @@ handleCall _ _ cfg (QueryConfigValues fields) = do
   answerEval <- sequence answer
   return . Ok . showJSON $ answerEval
 
-handleCall qlock qstat cfg (SubmitJobToDrainedQueue ops) =
-  do
-    let mcs = Config.getMasterCandidates cfg
-    jobid <- allocateJobId mcs qlock
-    case jobid of
-      Bad s -> return . Bad . GenericError $ s
-      Ok jid -> do
-        ts <- currentTimestamp
-        job <- liftM (extendJobReasonTrail . setReceivedTimestamp ts)
-                 $ queuedJobFromOpCodes jid ops
-        qDir <- queueDir
-        write_result <- writeJobToDisk qDir job
-        case write_result of
-          Bad s -> return . Bad . GenericError $ s
-          Ok () -> do
-            _ <- replicateManyJobs qDir mcs [job]
-            _ <- forkIO $ enqueueNewJobs qstat [job]
-            return . Ok . showJSON . fromJobId $ jid
+handleCall _ _ cfg (QueryExports nodes lock) =
+  handleClassicQuery cfg (Qlang.ItemTypeOpCode Qlang.QRExport)
+    (map Left nodes) ["node", "export"] lock
+
+handleCall qlock qstat cfg (SubmitJobToDrainedQueue ops) = runResultT $ do
+    jid <- mkResultT $ allocateJobId (Config.getMasterCandidates cfg) qlock
+    ts <- liftIO currentTimestamp
+    job <- liftM (extendJobReasonTrail . setReceivedTimestamp ts)
+             $ queuedJobFromOpCodes jid ops
+    qDir <- liftIO queueDir
+    _ <- writeAndReplicateJob cfg qDir job
+    _ <- liftIO . forkIO $ enqueueNewJobs qstat [job]
+    return . showJSON . fromJobId $ jid
 
 handleCall qlock qstat cfg (SubmitJob ops) =
   do
@@ -293,6 +304,7 @@ handleCall _ _ cfg (WaitForJobChange jid fields prev_job prev_log tmout) = do
   -- verify if the job is finalized, and return immediately in this case
   jobresult <- loadJobFromDisk qDir False jid
   case jobresult of
+    Bad s -> return . Bad $ JobLost s
     Ok (job, _) | not (jobFinalized job) -> do
       let jobfile = liveJobFile qDir jid
       answer <- watchFile jobfile (min tmout C.luxiWfjcTimeout)
@@ -301,12 +313,9 @@ handleCall _ _ cfg (WaitForJobChange jid fields prev_job prev_log tmout) = do
     _ -> liftM (Ok . showJSON) compute_fn
 
 handleCall _ _ cfg (SetWatcherPause time) = do
-  let mcs = Config.getMasterCandidates cfg
-      masters = genericResult (const []) return
-                  . Config.getNode cfg . clusterMasterNode
-                  $ configCluster cfg
-  _ <- executeRpcCall (masters ++ mcs) $ RpcCallSetWatcherPause time
-  return . Ok . maybe JSNull showJSON $ time
+  let mcs = Config.getMasterOrCandidates cfg
+  _ <- executeRpcCall mcs $ RpcCallSetWatcherPause time
+  return . Ok . maybe JSNull showJSON $ fmap TimeAsDoubleJSON time
 
 handleCall _ _ cfg (SetDrainFlag value) = do
   let mcs = Config.getMasterCandidates cfg
@@ -318,6 +327,7 @@ handleCall _ _ cfg (SetDrainFlag value) = do
   return . Ok . showJSON $ True
 
 handleCall _ qstat cfg (ChangeJobPriority jid prio) = do
+  let jName = (++) "job " . show $ fromJobId jid
   maybeJob <- setJobPriority qstat jid prio
   case maybeJob of
     Bad s -> return . Ok $ showJSON (False, s)
@@ -325,85 +335,68 @@ handleCall _ qstat cfg (ChangeJobPriority jid prio) = do
       let mcs = Config.getMasterCandidates cfg
       qDir <- liftIO queueDir
       liftIO $ replicateManyJobs qDir mcs [job]
-      return $ showJSON (True, "Priorities of pending opcodes for job "
-                               ++ show (fromJobId jid) ++ " have been changed"
+      return $ showJSON (True, "Priorities of pending opcodes for "
+                               ++ jName ++ " have been changed"
                                ++ " to " ++ show prio)
-    Ok Nothing -> runResultT $ do
-      -- Job has already started; so we have to forward the request
-      -- to the job, currently handled by masterd.
-      socketpath <- liftIO defaultMasterSocket
-      cl <- liftIO $ getLuxiClient socketpath
-      ResultT $ callMethod (ChangeJobPriority jid prio) cl
+    Ok Nothing -> do
+      logDebug $ jName ++ " started, will signal"
+      fmap showJSON <$> tellJobPriority (jqLivelock qstat) jid prio
 
 handleCall _ qstat  cfg (CancelJob jid) = do
   let jName = (++) "job " . show $ fromJobId jid
   dequeueResult <- dequeueJob qstat jid
   case dequeueResult of
-    Ok True -> do
-      logDebug $ jName ++ " dequeued, marking as canceled"
-      qDir <- queueDir
-      readResult <- loadJobFromDisk qDir True jid
-      let jobFileFailed = return . Ok . showJSON . (,) False
-                            . (++) ("Dequeued " ++ jName
-                                    ++ ", but failed to mark as cancelled: ")
-                          :: String -> IO (ErrorResult JSValue)
-      case readResult of
-        Bad s -> jobFileFailed s
-        Ok (job, _) -> do
-          now <- currentTimestamp
-          let job' = cancelQueuedJob now job
-              mcs = Config.getMasterCandidates cfg
-          write_result <- writeJobToDisk qDir job'
-          case write_result of
-            Bad s -> jobFileFailed s
-            Ok () -> do
-              replicateManyJobs qDir mcs [job']
-              return . Ok . showJSON $ (True, "Dequeued " ++ jName)
+    Ok True ->
+      let jobFileFailed = (,) False
+                          . (++) ("Dequeued " ++ jName
+                                  ++ ", but failed to mark as cancelled: ")
+          jobFileSucceeded _ = (True, "Dequeued " ++ jName)
+      in liftM (Ok . showJSON . genericResult jobFileFailed jobFileSucceeded)
+         . runResultT $ do
+            logDebug $ jName ++ " dequeued, marking as canceled"
+            qDir <- liftIO queueDir
+            (job, _) <- ResultT $ loadJobFromDisk qDir True jid
+            now <- liftIO currentTimestamp
+            let job' = cancelQueuedJob now job
+            writeAndReplicateJob cfg qDir job'
     Ok False -> do
       logDebug $ jName ++ " not queued; trying to cancel directly"
-      cancelJob jid
+      fmap showJSON <$> cancelJob (jqLivelock qstat) jid
     Bad s -> return . Ok . showJSON $ (False, s)
 
-handleCall qlock _ cfg (ArchiveJob jid) = do
-  let archiveFailed = putMVar qlock  () >> (return . Ok $ showJSON False)
-                      :: IO (ErrorResult JSValue)
-  qDir <- queueDir
-  takeMVar qlock
-  result <- loadJobFromDisk qDir False jid
-  case result of
-    Bad _ -> archiveFailed
-    Ok (job, _) -> if jobFinalized job
-                     then do
-                       let mcs = Config.getMasterCandidates cfg
-                           live = liveJobFile qDir jid
-                           archive = archivedJobFile qDir jid
-                       renameResult <- safeRenameFile queueDirPermissions
-                                         live archive
-                       putMVar qlock ()
-                       case renameResult of
-                         Bad s -> return . Bad . JobQueueError
-                                    $ "Archiving failed in an unexpected way: "
-                                        ++ s
-                         Ok () -> do
-                           _ <- executeRpcCall mcs
-                                  $ RpcCallJobqueueRename [(live, archive)]
-                           return . Ok $ showJSON True
-                     else archiveFailed
+handleCall qlock _ cfg (ArchiveJob jid) =
+  -- By adding a layer of MaybeT, we can prematurely end a computation
+  -- using 'mzero' or other 'MonadPlus' primitive and return 'Ok False'.
+  runResultT . liftM (showJSON . fromMaybe False) . runMaybeT $ do
+    qDir <- liftIO queueDir
+    let mcs = Config.getMasterCandidates cfg
+        live = liveJobFile qDir jid
+        archive = archivedJobFile qDir jid
+    withLock qlock $ do
+      (job, _) <- (lift . mkResultT $ loadJobFromDisk qDir False jid)
+                  `orElse` mzero
+      guard $ jobFinalized job
+      lift . withErrorT JobQueueError
+           . annotateError "Archiving failed in an unexpected way"
+           . mkResultT $ safeRenameFile queueDirPermissions live archive
+    _ <- liftIO . executeRpcCall mcs
+                $ RpcCallJobqueueRename [(live, archive)]
+    return True
 
 handleCall qlock _ cfg (AutoArchiveJobs age timeout) = do
   qDir <- queueDir
-  eitherJids <- getJobIDs [qDir]
-  case eitherJids of
-    Left s -> return . Bad . JobQueueError $ show s
-    Right jids -> do
-      result <- bracket_ (takeMVar qlock) (putMVar qlock ())
+  resultJids <- getJobIDs [qDir]
+  case resultJids of
+    Bad s -> return . Bad . JobQueueError $ show s
+    Ok jids -> do
+      result <- withLock qlock
                   . archiveJobs cfg age timeout
                   $ sortJobIDs jids
       return . Ok $ showJSON result
 
-handleCall _ _ _ op =
-  return . Bad $
-    GenericError ("Luxi call '" ++ strOfOp op ++ "' not implemented")
+handleCall _ _ _ (PickupJob _) =
+  return . Bad
+    $ GenericError "Luxi call 'PickupJob' is for internal use only"
 
 {-# ANN handleCall "HLint: ignore Too strict if" #-}
 
@@ -430,7 +423,7 @@ computeJobUpdate cfg jid fields prev_log = do
   return (JSArray rfields, rlogs)
 
 
-type LuxiConfig = (MVar (), JQStatus, ConfigReader)
+type LuxiConfig = (Lock, JQStatus, ConfigReader)
 
 luxiExec
     :: LuxiConfig
@@ -441,7 +434,7 @@ luxiExec (qlock, qstat, creader) args = do
   result <- handleCallWrapper qlock qstat cfg args
   return (True, result)
 
-luxiHandler :: LuxiConfig -> U.Handler LuxiOp JSValue
+luxiHandler :: LuxiConfig -> U.Handler LuxiOp IO JSValue
 luxiHandler cfg = U.Handler { U.hParse         = decodeLuxiCall
                             , U.hInputLogShort = strOfOp
                             , U.hInputLogLong  = show
@@ -451,13 +444,31 @@ luxiHandler cfg = U.Handler { U.hParse         = decodeLuxiCall
 -- | Type alias for prepMain results
 type PrepResult = (Server, IORef (Result ConfigData), JQStatus)
 
+-- | Activate the master IP address.
+activateMasterIP :: IO (Result ())
+activateMasterIP = runResultT $ do
+  liftIO $ logDebug "Activating master IP address"
+  conf_file <- liftIO Path.clusterConfFile
+  config <- mkResultT $ Config.loadConfig conf_file
+  let mnp = Config.getMasterNetworkParameters config
+      masters = Config.getMasterNodes config
+      ems = clusterUseExternalMipScript $ configCluster config
+  liftIO . logDebug $ "Master IP params: " ++ show mnp
+  res <- liftIO . executeRpcCall masters $ RpcCallNodeActivateMasterIp mnp ems
+  _ <- liftIO $ logRpcErrors res
+  liftIO $ logDebug "finished activating master IP address"
+  return ()
+
 -- | Check function for luxid.
 checkMain :: CheckFn ()
-checkMain _ = return $ Right ()
+checkMain = handleMasterVerificationOptions
 
 -- | Prepare function for luxid.
 prepMain :: PrepFn () PrepResult
 prepMain _ _ = do
+  Exec.isForkSupported
+    >>= flip exitUnless "The daemon must be compiled without -threaded"
+
   socket_path <- Path.defaultQuerySocket
   cleanupSocket socket_path
   s <- describeError "binding to the Luxi socket"
@@ -471,11 +482,16 @@ main :: MainFn () PrepResult
 main _ _ (server, cref, jq) = do
   initConfigReader id cref
   let creader = readIORef cref
-  initJQScheduler jq
 
   qlockFile <- jobQueueLockFile
-  lockFile qlockFile >>= exitIfBad "Failed to obtain the job-queue lock"
-  qlock <- newMVar ()
+  _ <- lockFile qlockFile >>= exitIfBad "Failed to obtain the job-queue lock"
+  qlock <- newLock
+
+  _ <- P.installHandler P.sigCHLD P.Ignore Nothing
+
+  _ <- forkIO . void $ activateMasterIP
+
+  initJQScheduler jq
 
   finally
     (forever $ U.listener (luxiHandler (qlock, jq, creader)) server)

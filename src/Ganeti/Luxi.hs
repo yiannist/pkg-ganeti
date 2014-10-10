@@ -44,6 +44,7 @@ module Ganeti.Luxi
   , makeJobId
   , RecvResult(..)
   , strOfOp
+  , opToArgs
   , getLuxiClient
   , getLuxiServer
   , acceptClient
@@ -61,9 +62,8 @@ module Ganeti.Luxi
   , allLuxiCalls
   ) where
 
+import Control.Applicative (optional)
 import Control.Monad
-import qualified Data.ByteString.UTF8 as UTF8
-import Text.JSON (encodeStrict, decodeStrict)
 import qualified Text.JSON as J
 import Text.JSON.Pretty (pp_value)
 import Text.JSON.Types
@@ -78,6 +78,7 @@ import Ganeti.OpCodes
 import qualified Ganeti.Query.Language as Qlang
 import Ganeti.Runtime (GanetiDaemon(..))
 import Ganeti.THH
+import Ganeti.THH.Field
 import Ganeti.Types
 
 
@@ -166,7 +167,7 @@ $(genLuxiOp "LuxiOp"
     )
   , (luxiReqSetWatcherPause,
      [ optionalNullSerField
-         $ simpleField "duration" [t| Double |] ]
+         $ timeAsDoubleField "duration" ]
     )
   ])
 
@@ -179,29 +180,19 @@ $(genAllConstr (drop 3) ''LuxiReq "allLuxiCalls")
 $(genStrOfOp ''LuxiOp "strOfOp")
 
 
-luxiConnectConfig :: ConnectConfig
-luxiConnectConfig = ConnectConfig { connDaemon = GanetiLuxid
-                                  , recvTmo    = luxiDefRwto
-                                  , sendTmo    = luxiDefRwto
-                                  }
+luxiConnectConfig :: ServerConfig
+luxiConnectConfig = ServerConfig GanetiLuxid
+                      ConnectConfig { recvTmo    = luxiDefRwto
+                                    , sendTmo    = luxiDefRwto
+                                    }
 
 -- | Connects to the master daemon and returns a luxi Client.
 getLuxiClient :: String -> IO Client
-getLuxiClient = connectClient luxiConnectConfig luxiDefCtmo
+getLuxiClient = connectClient (connConfig luxiConnectConfig) luxiDefCtmo
 
 -- | Creates and returns a server endpoint.
 getLuxiServer :: Bool -> FilePath -> IO Server
 getLuxiServer = connectServer luxiConnectConfig
-
--- | Serialize a request to String.
-buildCall :: LuxiOp  -- ^ The method
-          -> String  -- ^ The serialized form
-buildCall lo =
-  let ja = [ (strOfKey Method, J.showJSON $ strOfOp lo)
-           , (strOfKey Args, opToArgs lo)
-           ]
-      jo = toJSObject ja
-  in encodeStrict jo
 
 
 -- | Converts Luxi call arguments into a 'LuxiOp' data structure.
@@ -297,42 +288,17 @@ decodeLuxiCall method args = do
               [flag] <- fromJVal args
               return $ SetDrainFlag flag
     ReqSetWatcherPause -> do
-              let duration = case args of
-                               JSArray [JSRational _ x]
-                                 -> Just (fromRational x :: Double)
-                               _ -> Nothing
+              duration <- optional $ do
+                [x] <- fromJVal args
+                liftM unTimeAsDoubleJSON $ fromJVal x
               return $ SetWatcherPause duration
 
--- | Check that luxi responses contain the required keys and that the
--- call was successful.
-validateResult :: String -> ErrorResult JSValue
-validateResult s = do
-  when (UTF8.replacement_char `elem` s) $
-       fail "Failed to decode UTF-8, detected replacement char after decoding"
-  oarr <- fromJResult "Parsing LUXI response" (decodeStrict s)
-  let arr = J.fromJSObject oarr
-  status <- fromObj arr (strOfKey Success)
-  result <- fromObj arr (strOfKey Result)
-  if status
-    then return result
-    else decodeError result
-
--- | Try to decode an error from the server response. This function
--- will always fail, since it's called only on the error path (when
--- status is False).
-decodeError :: JSValue -> ErrorResult JSValue
-decodeError val =
-  case fromJVal val of
-    Ok e -> Bad e
-    Bad msg -> Bad $ GenericError msg
-
--- | Generic luxi method call.
+-- | Generic luxi method call
 callMethod :: LuxiOp -> Client -> IO (ErrorResult JSValue)
 callMethod method s = do
-  sendMsg s $ buildCall method
+  sendMsg s $ buildCall (strOfOp method) (opToArgs method)
   result <- recvMsg s
-  let rval = validateResult result
-  return rval
+  return $ parseResponse result
 
 -- | Parse job submission result.
 parseSubmitJobResult :: JSValue -> ErrorResult JobId

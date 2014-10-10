@@ -519,8 +519,12 @@ class _RpcClientBase:
     # name to the prep_fn, and serialise its return value
     encode_args_fn = lambda node: map(compat.partial(self._encoder, node),
                                       zip(map(compat.snd, argdefs), args))
-    pnbody = dict((n, serializer.DumpJson(prep_fn(n, encode_args_fn(n))))
-                  for n in node_list)
+    pnbody = dict(
+      (n,
+       serializer.DumpJson(prep_fn(n, encode_args_fn(n)),
+                           private_encoder=serializer.EncodeWithPrivateFields))
+      for n in node_list
+    )
 
     result = self._proc(node_list, procedure, pnbody, read_timeout,
                         req_resolver_opts)
@@ -882,6 +886,8 @@ class RpcRunner(_RpcClientBase,
     idict = instance.ToDict()
     cluster = self._cfg.GetClusterInfo()
     idict["hvparams"] = cluster.FillHV(instance)
+    idict["secondary_nodes"] = \
+      self._cfg.GetInstanceSecondaryNodes(instance.uuid)
     if hvp is not None:
       idict["hvparams"].update(hvp)
     idict["beparams"] = cluster.FillBE(instance)
@@ -890,7 +896,8 @@ class RpcRunner(_RpcClientBase,
     idict["osparams"] = cluster.SimpleFillOS(instance.os, instance.osparams)
     if osp is not None:
       idict["osparams"].update(osp)
-    idict["disks"] = self._DisksDictDP(node, (instance.disks, instance))
+    disks = self._cfg.GetInstanceDisks(instance.uuid)
+    idict["disks_info"] = self._DisksDictDP(node, (disks, instance))
     for nic in idict["nics"]:
       nic["nicparams"] = objects.FillDict(
         cluster.nicparams[constants.PP_DEFAULT],
@@ -973,7 +980,7 @@ class JobQueueRunner(_RpcClientBase, _generated_rpc.RpcClientJobQueue):
   """RPC wrappers for job queue.
 
   """
-  def __init__(self, context, address_list):
+  def __init__(self, _context, address_list):
     """Initializes this class.
 
     """
@@ -984,7 +991,7 @@ class JobQueueRunner(_RpcClientBase, _generated_rpc.RpcClientJobQueue):
       resolver = _StaticResolver(address_list)
 
     _RpcClientBase.__init__(self, resolver, _ENCODERS.get,
-                            lock_monitor_cb=context.glm.AddToLockMonitor)
+                            lock_monitor_cb=lambda _: None)
     _generated_rpc.RpcClientJobQueue.__init__(self)
 
 
@@ -1025,15 +1032,12 @@ class ConfigRunner(_RpcClientBase, _generated_rpc.RpcClientConfig):
   """RPC wrappers for L{config}.
 
   """
-  def __init__(self, context, address_list, _req_process_fn=None,
+  def __init__(self, _context, address_list, _req_process_fn=None,
                _getents=None):
     """Initializes this class.
 
     """
-    if context:
-      lock_monitor_cb = context.glm.AddToLockMonitor
-    else:
-      lock_monitor_cb = None
+    lock_monitor_cb = None
 
     if address_list is None:
       resolver = compat.partial(_SsconfResolver, True)

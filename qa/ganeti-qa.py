@@ -253,6 +253,7 @@ def RunClusterTests():
     ("cluster-modify", qa_cluster.TestClusterModifyDiskTemplates),
     ("cluster-modify", qa_cluster.TestClusterModifyFileStorageDir),
     ("cluster-modify", qa_cluster.TestClusterModifySharedFileStorageDir),
+    ("cluster-modify", qa_cluster.TestClusterModifyInstallImage),
     ("cluster-modify", qa_cluster.TestClusterModifyUserShutdown),
     ("cluster-rename", qa_cluster.TestClusterRename),
     ("cluster-info", qa_cluster.TestClusterVersion),
@@ -268,6 +269,7 @@ def RunClusterTests():
      qa_cluster.TestClusterMasterFailoverWithDrainedQueue),
     (["cluster-oob", qa_config.NoVirtualCluster],
      qa_cluster.TestClusterOob),
+    ("cluster-instance-communication", qa_cluster.TestInstanceCommunication),
     (qa_rapi.Enabled, qa_rapi.TestVersion),
     (qa_rapi.Enabled, qa_rapi.TestEmptyCluster),
     (qa_rapi.Enabled, qa_rapi.TestRapiQuery),
@@ -811,6 +813,10 @@ def RunInstanceTests():
         try:
           RunTestIf("instance-user-down", qa_instance.TestInstanceUserDown,
                     instance)
+          RunTestIf("instance-communication",
+                    qa_instance.TestInstanceCommunication,
+                    instance,
+                    qa_config.GetMasterNode())
           RunTestIf("cluster-epo", qa_cluster.TestClusterEpo)
           RunDaemonTests(instance)
           for node in inodes:
@@ -894,7 +900,6 @@ def RunPerformanceTests():
           RunTest(qa_performance.TestParallelInstanceReinstall, instance)
           RunTest(qa_performance.TestParallelInstanceRename, instance)
         finally:
-          qa_instance.TestInstanceRemove(instance)
           instance.Release()
       finally:
         qa_config.ReleaseManyNodes(inodes)

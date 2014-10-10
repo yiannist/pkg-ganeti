@@ -4,7 +4,7 @@
 
 {-
 
-Copyright (C) 2011, 2012, 2013 Google Inc.
+Copyright (C) 2011, 2012, 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,7 @@ module Ganeti.Runtime
   ( GanetiDaemon(..)
   , MiscGroup(..)
   , GanetiGroup(..)
-  , RuntimeEnts
+  , RuntimeEnts(..)
   , daemonName
   , daemonOnlyOnMaster
   , daemonLogBase
@@ -51,13 +51,12 @@ module Ganeti.Runtime
   , verifyDaemonUser
   ) where
 
-import Control.Exception
 import Control.Monad
+import Control.Monad.Error
 import qualified Data.Map as M
 import System.Exit
 import System.FilePath
 import System.IO
-import System.IO.Error
 import System.Posix.Types
 import System.Posix.User
 import Text.Printf
@@ -69,9 +68,11 @@ import Ganeti.BasicTypes
 import AutoConf
 
 data GanetiDaemon = GanetiMasterd
+                  | GanetiMetad
                   | GanetiNoded
                   | GanetiRapi
                   | GanetiConfd
+                  | GanetiWConfd
                   | GanetiKvmd
                   | GanetiLuxid
                   | GanetiMond
@@ -85,14 +86,21 @@ data GanetiGroup = DaemonGroup GanetiDaemon
                  | ExtraGroup MiscGroup
                    deriving (Show, Eq, Ord)
 
-type RuntimeEnts = (M.Map GanetiDaemon UserID, M.Map GanetiGroup GroupID)
+data RuntimeEnts = RuntimeEnts
+  { reUserToUid :: M.Map GanetiDaemon UserID
+  , reUidToUser :: M.Map UserID String
+  , reGroupToGid :: M.Map GanetiGroup GroupID
+  , reGidToGroup :: M.Map GroupID String
+  }
 
 -- | Returns the daemon name for a given daemon.
 daemonName :: GanetiDaemon -> String
 daemonName GanetiMasterd = "ganeti-masterd"
+daemonName GanetiMetad   = "ganeti-metad"
 daemonName GanetiNoded   = "ganeti-noded"
 daemonName GanetiRapi    = "ganeti-rapi"
 daemonName GanetiConfd   = "ganeti-confd"
+daemonName GanetiWConfd  = "ganeti-wconfd"
 daemonName GanetiKvmd    = "ganeti-kvmd"
 daemonName GanetiLuxid   = "ganeti-luxid"
 daemonName GanetiMond    = "ganeti-mond"
@@ -100,9 +108,11 @@ daemonName GanetiMond    = "ganeti-mond"
 -- | Returns whether the daemon only runs on the master node.
 daemonOnlyOnMaster :: GanetiDaemon -> Bool
 daemonOnlyOnMaster GanetiMasterd = True
+daemonOnlyOnMaster GanetiMetad   = False
 daemonOnlyOnMaster GanetiNoded   = False
 daemonOnlyOnMaster GanetiRapi    = False
 daemonOnlyOnMaster GanetiConfd   = False
+daemonOnlyOnMaster GanetiWConfd  = True
 daemonOnlyOnMaster GanetiKvmd    = False
 daemonOnlyOnMaster GanetiLuxid   = True
 daemonOnlyOnMaster GanetiMond    = False
@@ -110,9 +120,11 @@ daemonOnlyOnMaster GanetiMond    = False
 -- | Returns the log file base for a daemon.
 daemonLogBase :: GanetiDaemon -> String
 daemonLogBase GanetiMasterd = "master-daemon"
+daemonLogBase GanetiMetad   = "meta-daemon"
 daemonLogBase GanetiNoded   = "node-daemon"
 daemonLogBase GanetiRapi    = "rapi-daemon"
 daemonLogBase GanetiConfd   = "conf-daemon"
+daemonLogBase GanetiWConfd  = "wconf-daemon"
 daemonLogBase GanetiKvmd    = "kvm-daemon"
 daemonLogBase GanetiLuxid   = "luxi-daemon"
 daemonLogBase GanetiMond    = "monitoring-daemon"
@@ -120,9 +132,11 @@ daemonLogBase GanetiMond    = "monitoring-daemon"
 -- | Returns the configured user name for a daemon.
 daemonUser :: GanetiDaemon -> String
 daemonUser GanetiMasterd = AutoConf.masterdUser
+daemonUser GanetiMetad   = AutoConf.metadUser
 daemonUser GanetiNoded   = AutoConf.nodedUser
 daemonUser GanetiRapi    = AutoConf.rapiUser
 daemonUser GanetiConfd   = AutoConf.confdUser
+daemonUser GanetiWConfd  = AutoConf.wconfdUser
 daemonUser GanetiKvmd    = AutoConf.kvmdUser
 daemonUser GanetiLuxid   = AutoConf.luxidUser
 daemonUser GanetiMond    = AutoConf.mondUser
@@ -130,9 +144,11 @@ daemonUser GanetiMond    = AutoConf.mondUser
 -- | Returns the configured group for a daemon.
 daemonGroup :: GanetiGroup -> String
 daemonGroup (DaemonGroup GanetiMasterd) = AutoConf.masterdGroup
+daemonGroup (DaemonGroup GanetiMetad)   = AutoConf.metadGroup
 daemonGroup (DaemonGroup GanetiNoded)   = AutoConf.nodedGroup
 daemonGroup (DaemonGroup GanetiRapi)    = AutoConf.rapiGroup
 daemonGroup (DaemonGroup GanetiConfd)   = AutoConf.confdGroup
+daemonGroup (DaemonGroup GanetiWConfd)  = AutoConf.wconfdGroup
 daemonGroup (DaemonGroup GanetiLuxid)   = AutoConf.luxidGroup
 daemonGroup (DaemonGroup GanetiKvmd)    = AutoConf.kvmdGroup
 daemonGroup (DaemonGroup GanetiMond)    = AutoConf.mondGroup
@@ -172,35 +188,19 @@ allGroups :: [GanetiGroup]
 allGroups = map DaemonGroup [minBound..maxBound] ++
             map ExtraGroup  [minBound..maxBound]
 
-ignoreDoesNotExistErrors :: IO a -> IO (Result a)
-ignoreDoesNotExistErrors value = do
-  result <- tryJust (\e -> if isDoesNotExistError e
-                             then Just (show e)
-                             else Nothing) value
-  return $ eitherToResult result
-
 -- | Computes the group/user maps.
-getEnts :: IO (Result RuntimeEnts)
+getEnts :: (Error e) => ResultT e IO RuntimeEnts
 getEnts = do
-  users <- mapM (\daemon -> do
-                   entry <- ignoreDoesNotExistErrors .
-                            getUserEntryForName .
-                            daemonUser $ daemon
-                   return (entry >>= \e -> return (daemon, userID e))
-                ) [minBound..maxBound]
-  groups <- mapM (\group -> do
-                    entry <- ignoreDoesNotExistErrors .
-                             getGroupEntryForName .
-                             daemonGroup $ group
-                    return (entry >>= \e -> return (group, groupID e))
-                 ) allGroups
-  return $ do -- 'Result' monad
-    users'  <- sequence users
-    groups' <- sequence groups
-    let usermap = M.fromList users'
-        groupmap = M.fromList groups'
-    return (usermap, groupmap)
-
+  let userOf = liftM userID . liftIO . getUserEntryForName . daemonUser
+  let groupOf = liftM groupID . liftIO . getGroupEntryForName . daemonGroup
+  let allDaemons = [minBound..maxBound] :: [GanetiDaemon]
+  users <- mapM userOf allDaemons
+  groups <- mapM groupOf allGroups
+  return $ RuntimeEnts
+            (M.fromList $ zip allDaemons users)
+            (M.fromList $ zip users (map daemonUser allDaemons))
+            (M.fromList $ zip allGroups groups)
+            (M.fromList $ zip groups (map daemonGroup allGroups))
 
 -- | Checks whether a daemon runs as the right user.
 verifyDaemonUser :: GanetiDaemon -> RuntimeEnts -> IO ()
@@ -208,7 +208,7 @@ verifyDaemonUser daemon ents = do
   myuid <- getEffectiveUserID
   -- note: we use directly ! as lookup failues shouldn't happen, due
   -- to the above map construction
-  checkUidMatch (daemonName daemon) ((M.!) (fst ents) daemon) myuid
+  checkUidMatch (daemonName daemon) ((M.!) (reUserToUid ents) daemon) myuid
 
 -- | Check that two UIDs are matching or otherwise exit.
 checkUidMatch :: String -> UserID -> UserID -> IO ()

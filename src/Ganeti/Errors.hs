@@ -46,6 +46,7 @@ module Ganeti.Errors
   , errorExitCode
   , excName
   , formatError
+  , ResultG
   , maybeToError
   ) where
 
@@ -79,6 +80,7 @@ $(genException "GanetiException"
   , ("ProgrammerError", [excErrMsg])
   , ("BlockDeviceError", [excErrMsg])
   , ("ConfigurationError", [excErrMsg])
+  , ("ConfigVerifyError", [excErrMsg, ("allErrors", [t| [String] |])])
   , ("ConfigVersionMismatch", [ ("expVer", [t| Int |])
                               , ("actVer", [t| Int |])])
   , ("ReservationError", [excErrMsg])
@@ -136,12 +138,16 @@ $(genStrOfOp ''GanetiException "excName")
 -- back an exception from masterd.
 errorExitCode :: GanetiException -> ExitCode
 errorExitCode (ConfigurationError {}) = ExitFailure 2
+errorExitCode (ConfigVerifyError {}) = ExitFailure 2
 errorExitCode _ = ExitFailure 1
 
 -- | Formats an exception.
 formatError :: GanetiException -> String
 formatError (ConfigurationError msg) =
-  "Corrup configuration file: " ++ msg ++ "\nAborting."
+  "Corrupt configuration file: " ++ msg ++ "\nAborting."
+formatError (ConfigVerifyError msg es) =
+  "Corrupt configuration file: " ++ msg ++ "\nAborting. Details:\n"
+  ++ unlines es
 formatError (HooksAbort errs) =
   unlines $
   "Failure: hooks execution failed:":
@@ -182,6 +188,11 @@ formatError (GenericError msg) =
   "Unhandled Ganeti error: " ++ msg
 formatError err =
   "Unhandled exception: " ++ show err
+
+-- | A type for IO actions with errors properly handled as
+-- 'GanetiException's.
+-- TODO: Move to Errors.hs
+type ResultG = ResultT GanetiException IO
 
 -- | Convert from an 'ErrorResult' to a standard 'Result'.
 errToResult :: ErrorResult a -> Result a

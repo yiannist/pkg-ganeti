@@ -41,8 +41,10 @@ import Test.QuickCheck
 import qualified Test.HUnit as HUnit
 
 import Data.List
+import qualified Data.Map as M
 
 import Test.Ganeti.TestHelper
+import Test.Ganeti.TestCommon
 
 import qualified Ganeti.Ssconf as Ssconf
 import qualified Ganeti.Types as Types
@@ -50,6 +52,11 @@ import qualified Ganeti.Types as Types
 -- * Ssconf tests
 
 $(genArbitrary ''Ssconf.SSKey)
+
+instance Arbitrary Ssconf.SSConf where
+  arbitrary = fmap (Ssconf.SSConf . M.fromList) arbitrary
+
+-- * Reading SSConf
 
 prop_filename :: Ssconf.SSKey -> Property
 prop_filename key =
@@ -81,9 +88,16 @@ caseParseEnabledUserShutdown = do
   HUnit.assertEqual "Mismatch in parsed and expected result"
     (return False) result2
 
+-- * Creating and writing SSConf
+
+-- | Verify that for SSConf we have readJSON . showJSON = Ok.
+prop_ReadShow :: Ssconf.SSConf -> Property
+prop_ReadShow = testSerialisation
+
 testSuite "Ssconf"
   [ 'prop_filename
   , 'caseParseNodesVmCapable
   , 'caseParseHypervisorList
   , 'caseParseEnabledUserShutdown
+  , 'prop_ReadShow
   ]

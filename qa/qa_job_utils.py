@@ -37,8 +37,7 @@ import sys
 import threading
 import time
 
-# (only used in later branches)
-# from ganeti import constants
+from ganeti import constants
 from ganeti import locking
 from ganeti import utils
 from ganeti.utils import retry
@@ -52,10 +51,7 @@ from qa_utils import AssertCommand, GetCommandOutput, GetObjectInfo
 AVAILABLE_LOCKS = [locking.LEVEL_NODE, ]
 
 
-def GetOutputFromMaster(cmd,
-                        # pylint: disable=W0613
-                        # (only in later branches required)
-                        use_multiplexer=True, log_cmd=True):
+def GetOutputFromMaster(cmd, use_multiplexer=True, log_cmd=True):
   """ Gets the output of a command executed on master.
 
   """
@@ -68,7 +64,8 @@ def GetOutputFromMaster(cmd,
   # buildbot
   cmdstr += " 2>&1"
 
-  return GetCommandOutput(qa_config.GetMasterNode().primary, cmdstr)
+  return GetCommandOutput(qa_config.GetMasterNode().primary, cmdstr,
+                          use_multiplexer=use_multiplexer, log_cmd=log_cmd)
 
 
 def ExecuteJobProducingCommand(cmd):
@@ -126,9 +123,8 @@ def _RetrieveTerminationInfo(job_id):
   if not execution_logs:
     return None
 
-  # ELOG_DELAY_TEST constant is only introduced in later branches
   is_termination_info_fn = \
-    lambda e: e["Content"][1] == "delay-test" # constants.ELOG_DELAY_TEST
+    lambda e: e["Content"][1] == constants.ELOG_DELAY_TEST
 
   filtered_logs = filter(is_termination_info_fn, execution_logs)
 
@@ -235,7 +231,7 @@ def _GetBlockingLocks():
   # threads, we turn it off, and block most of the logging to improve the
   # visibility of the other thread's output
   locks_output = GetOutputFromMaster("gnt-debug locks", use_multiplexer=False,
-                                      log_cmd=False)
+                                     log_cmd=False)
 
   # The first non-empty line is the header, which we do not need
   lock_lines = locks_output.splitlines()[1:]

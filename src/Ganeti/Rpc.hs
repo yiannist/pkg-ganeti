@@ -43,6 +43,7 @@ module Ganeti.Rpc
   , explainRpcError
   , executeRpcCall
   , executeRpcCalls
+  , rpcErrors
   , logRpcErrors
 
   , rpcCallName
@@ -51,6 +52,14 @@ module Ganeti.Rpc
   , rpcCallAcceptOffline
 
   , rpcResultFill
+
+  , Compressed
+  , packCompressed
+  , toCompressed
+  , getCompressed
+
+  , RpcCallNodeActivateMasterIp(..)
+  , RpcResultNodeActivateMasterIp(..)
 
   , RpcCallInstanceInfo(..)
   , InstanceState(..)
@@ -76,6 +85,9 @@ module Ganeti.Rpc
   , RpcCallVersion(..)
   , RpcResultVersion(..)
 
+  , RpcCallMasterNodeName(..)
+  , RpcResultMasterNodeName(..)
+
   , RpcCallStorageList(..)
   , RpcResultStorageList(..)
 
@@ -89,30 +101,42 @@ module Ganeti.Rpc
   , RpcCallJobqueueRename(..)
   , RpcCallSetWatcherPause(..)
   , RpcCallSetDrainFlag(..)
+
+  , RpcCallUploadFile(..)
+  , prepareRpcCallUploadFile
+  , RpcCallWriteSsconfFiles(..)
   ) where
 
 import Control.Arrow (second)
-import qualified Codec.Compression.Zlib as Zlib
+import Control.Monad
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Text.JSON as J
 import Text.JSON.Pretty (pp_value)
 import qualified Data.ByteString.Base64.Lazy as Base64
 import System.Directory
+import System.Posix.Files ( modificationTime, accessTime, fileOwner
+                          , fileGroup, fileMode, getFileStatus)
 
 import Network.Curl hiding (content)
 import qualified Ganeti.Path as P
 
 import Ganeti.BasicTypes
 import qualified Ganeti.Constants as C
+import Ganeti.Codec
+import Ganeti.Curl.Multi
+import Ganeti.Errors
 import Ganeti.JSON
 import Ganeti.Logging
 import Ganeti.Objects
+import Ganeti.Runtime
+import Ganeti.Ssconf
 import Ganeti.THH
+import Ganeti.THH.Field
 import Ganeti.Types
-import Ganeti.Curl.Multi
 import Ganeti.Utils
+import Ganeti.VCluster
 
 -- * Base RPC functionality and types
 
@@ -148,13 +172,14 @@ explainRpcError OfflineNodeError =
 type ERpcError = Either RpcError
 
 -- | A generic class for RPC calls.
-class (J.JSON a) => RpcCall a where
+class (ArrayObject a) => RpcCall a where
   -- | Give the (Python) name of the procedure.
   rpcCallName :: a -> String
   -- | Calculate the timeout value for the call execution.
   rpcCallTimeout :: a -> Int
   -- | Prepare arguments of the call to be send as POST.
   rpcCallData :: Node -> a -> String
+  rpcCallData _ = J.encode . J.JSArray . toJSArray
   -- | Whether we accept offline nodes when making a call.
   rpcCallAcceptOffline :: a -> Bool
 
@@ -216,14 +241,24 @@ parseHttpResponse call res =
        J.JSString msg -> Left $ RpcResultError (J.fromJSString msg)
        _ -> Left . JsonDecodeError $ show (pp_value jerr)
 
+-- | Scan the list of results produced by executeRpcCall and extract
+-- all the RPC errors.
+rpcErrors :: [(a, ERpcError b)] -> [(a, RpcError)]
+rpcErrors =
+  let rpcErr (node, Left err) = Just (node, err)
+      rpcErr _                = Nothing
+  in mapMaybe rpcErr
+
 -- | Scan the list of results produced by executeRpcCall and log all the RPC
--- errors.
-logRpcErrors :: [(a, ERpcError b)] -> IO ()
-logRpcErrors allElems =
-  let logOneRpcErr (_, Right _) = return ()
-      logOneRpcErr (_, Left err) =
-        logError $ "Error in the RPC HTTP reply: " ++ show err
-  in mapM_ logOneRpcErr allElems
+-- errors. Returns the list of errors for further processing.
+logRpcErrors :: (MonadLog m, Show a) => [(a, ERpcError b)]
+                                     -> m [(a, RpcError)]
+logRpcErrors rs =
+  let logOneRpcErr (node, err) =
+        logError $ "Error in the RPC HTTP reply from '" ++
+                   show node ++ "': " ++ show err
+      errs = rpcErrors rs
+  in mapM_ logOneRpcErr errs >> return errs
 
 -- | Get options for RPC call
 getOptionsForCall :: (Rpc a b) => FilePath -> FilePath -> a -> [CurlOption]
@@ -265,7 +300,7 @@ executeRpcCalls nodeCalls = do
   -- now parse the replies
   let results'' = zipWith parseHttpReply calls results'
       pairedList = zip nodes results''
-  logRpcErrors pairedList
+  _ <- logRpcErrors pairedList
   return pairedList
 
 -- | Execute an RPC call for many nodes in parallel.
@@ -290,6 +325,37 @@ fromJResultToRes (J.Ok v) f = Right $ f v
 -- | Helper function transforming JSValue to Rpc result type.
 fromJSValueToRes :: (J.JSON a) => J.JSValue -> (a -> b) -> ERpcError b
 fromJSValueToRes val = fromJResultToRes (J.readJSON val)
+
+-- | An opaque data type for representing data that should be compressed
+-- over the wire.
+--
+-- On Python side it is decompressed by @backend._Decompress@.
+newtype Compressed = Compressed { getCompressed :: BL.ByteString }
+  deriving (Eq, Ord, Show)
+
+-- TODO Add a unit test for all octets
+instance J.JSON Compressed where
+  showJSON = J.showJSON
+             . (,) C.rpcEncodingZlibBase64
+             . Base64.encode . compressZlib . getCompressed
+  readJSON = J.readJSON >=> decompress
+    where
+      decompress (enc, cont)
+        | enc == C.rpcEncodingNone =
+            return $ Compressed cont
+        | enc == C.rpcEncodingZlibBase64 =
+            liftM Compressed
+            . either fail return . decompressZlib
+            <=< either (fail . ("Base64: " ++)) return . Base64.decode
+            $ cont
+        | otherwise =
+            fail $ "Unknown RPC encoding type: " ++ show enc
+
+packCompressed :: BL.ByteString -> Compressed
+packCompressed = Compressed
+
+toCompressed :: String -> Compressed
+toCompressed = packCompressed . BL.pack
 
 -- * RPC calls and results
 
@@ -327,10 +393,6 @@ instance RpcCall RpcCallInstanceInfo where
   rpcCallName _          = "instance_info"
   rpcCallTimeout _       = rpcTimeoutToRaw Urgent
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode
-    ( rpcCallInstInfoInstance call
-    , rpcCallInstInfoHname call
-    )
 
 instance Rpc RpcCallInstanceInfo RpcResultInstanceInfo where
   rpcResultFill _ res =
@@ -438,7 +500,6 @@ instance RpcCall RpcCallInstanceList where
   rpcCallName _          = "instance_list"
   rpcCallTimeout _       = rpcTimeoutToRaw Urgent
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode [rpcCallInstListHypervisors call]
 
 instance Rpc RpcCallInstanceList RpcResultInstanceList where
   rpcResultFill _ res = fromJSValueToRes res RpcResultInstanceList
@@ -458,11 +519,14 @@ $(buildObject "StorageInfo" "storageInfo"
   , optionalField $ simpleField "storage_size" [t| Int |]
   ])
 
--- | We only provide common fields as described in hv_base.py.
+-- | Common fields (as described in hv_base.py) are mandatory,
+-- other fields are optional.
 $(buildObject "HvInfo" "hvInfo"
-  [ simpleField "memory_total" [t| Int |]
+  [ optionalField $ simpleField C.hvNodeinfoKeyVersion [t| [Int] |]
+  , simpleField "memory_total" [t| Int |]
   , simpleField "memory_free" [t| Int |]
   , simpleField "memory_dom0" [t| Int |]
+  , optionalField $ simpleField "memory_hv" [t| Int |]
   , simpleField "cpu_total" [t| Int |]
   , simpleField "cpu_nodes" [t| Int |]
   , simpleField "cpu_sockets" [t| Int |]
@@ -527,12 +591,6 @@ instance RpcCall RpcCallStorageList where
   rpcCallName _          = "storage_list"
   rpcCallTimeout _       = rpcTimeoutToRaw Normal
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode
-    ( rpcCallStorageListSuName call
-    , rpcCallStorageListSuArgs call
-    , rpcCallStorageListName call
-    , rpcCallStorageListFields call
-    )
 
 instance Rpc RpcCallStorageList RpcResultStorageList where
   rpcResultFill call res =
@@ -560,7 +618,6 @@ instance RpcCall RpcCallTestDelay where
   rpcCallName _          = "test_delay"
   rpcCallTimeout         = ceiling . (+ 5) . rpcCallTestDelayDuration
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode [rpcCallTestDelayDuration call]
 
 instance Rpc RpcCallTestDelay RpcResultTestDelay where
   rpcResultFill _ res = fromJSValueToRes res id
@@ -602,10 +659,7 @@ instance RpcCall RpcCallJobqueueUpdate where
   rpcCallAcceptOffline _ = False
   rpcCallData _ call     = J.encode
     ( rpcCallJobqueueUpdateFileName call
-    , ( C.rpcEncodingZlibBase64
-      , BL.unpack . Base64.encode . Zlib.compress . BL.pack
-          $ rpcCallJobqueueUpdateContent call
-      )
+    , toCompressed $ rpcCallJobqueueUpdateContent call
     )
 
 instance Rpc RpcCallJobqueueUpdate RpcResultJobQueueUpdate where
@@ -627,7 +681,6 @@ instance RpcCall RpcCallJobqueueRename where
   rpcCallName _          = "jobqueue_rename"
   rpcCallTimeout _       = rpcTimeoutToRaw Fast
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode [ rpcCallJobqueueRenameRename call ]
 
 instance Rpc RpcCallJobqueueRename RpcResultJobqueueRename where
   rpcResultFill call res =
@@ -646,15 +699,13 @@ instance Rpc RpcCallJobqueueRename RpcResultJobqueueRename where
 -- | Set the watcher status
       
 $(buildObject "RpcCallSetWatcherPause" "rpcCallSetWatcherPause"
-  [ simpleField "time" [t| Maybe Double |]
+  [ optionalField $ timeAsDoubleField "time"
   ])
 
 instance RpcCall RpcCallSetWatcherPause where
   rpcCallName _          = "set_watcher_pause"
   rpcCallTimeout _       = rpcTimeoutToRaw Fast
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode
-    [ maybe J.JSNull J.showJSON $ rpcCallSetWatcherPauseTime call ]
 
 $(buildObject "RpcResultSetWatcherPause" "rpcResultSetWatcherPause" [])
 
@@ -677,7 +728,6 @@ instance RpcCall RpcCallSetDrainFlag where
   rpcCallName _          = "jobqueue_set_drain_flag"
   rpcCallTimeout _       = rpcTimeoutToRaw Fast
   rpcCallAcceptOffline _ = False
-  rpcCallData _ call     = J.encode [ rpcCallSetDrainFlagValue call ]
 
 $(buildObject "RpcResultSetDrainFlag" "rpcResultSetDrainFalg" [])
 
@@ -688,3 +738,116 @@ instance Rpc RpcCallSetDrainFlag RpcResultSetDrainFlag where
       _ -> Left $ JsonDecodeError
            ("Expected JSNull, got " ++ show (pp_value res))
 
+-- ** Configuration files upload to nodes
+
+-- | Upload a configuration file to nodes
+
+$(buildObject "RpcCallUploadFile" "rpcCallUploadFile"
+  [ simpleField "file_name" [t| FilePath |]
+  , simpleField "content" [t| Compressed |]
+  , optionalField $ fileModeAsIntField "mode"
+  , simpleField "uid" [t| String |]
+  , simpleField "gid" [t| String |]
+  , timeAsDoubleField "atime"
+  , timeAsDoubleField "mtime"
+  ])
+
+instance RpcCall RpcCallUploadFile where
+  rpcCallName _          = "upload_file_single"
+  rpcCallTimeout _       = rpcTimeoutToRaw Normal
+  rpcCallAcceptOffline _ = False
+
+$(buildObject "RpcResultUploadFile" "rpcResultUploadFile" [])
+
+instance Rpc RpcCallUploadFile RpcResultUploadFile where
+  rpcResultFill _ res =
+    case res of
+      J.JSNull -> Right RpcResultUploadFile
+      _ -> Left $ JsonDecodeError
+           ("Expected JSNull, got " ++ show (pp_value res))
+
+-- | Reads a file and constructs the corresponding 'RpcCallUploadFile' value.
+prepareRpcCallUploadFile :: RuntimeEnts -> FilePath
+                         -> ResultG RpcCallUploadFile
+prepareRpcCallUploadFile re path = do
+  status <- liftIO $ getFileStatus path
+  content <- liftIO $ BL.readFile path
+  let lookupM x m = maybe (failError $ "Uid/gid " ++ show x ++
+                                       " not found, probably file " ++
+                                       show path ++ " isn't a Ganeti file")
+                          return
+                          (Map.lookup x m)
+  uid <- lookupM (fileOwner status) (reUidToUser re)
+  gid <- lookupM (fileGroup status) (reGidToGroup re)
+  vpath <- liftIO $ makeVirtualPath path
+  return $ RpcCallUploadFile
+    vpath
+    (packCompressed content)
+    (Just $ fileMode status)
+    uid
+    gid
+    (cTimeToClockTime $ accessTime status)
+    (cTimeToClockTime $ modificationTime status)
+
+-- | Upload ssconf files to nodes
+
+$(buildObject "RpcCallWriteSsconfFiles" "rpcCallWriteSsconfFiles"
+  [ simpleField "values" [t| SSConf |]
+  ])
+
+instance RpcCall RpcCallWriteSsconfFiles where
+  rpcCallName _          = "write_ssconf_files"
+  rpcCallTimeout _       = rpcTimeoutToRaw Fast
+  rpcCallAcceptOffline _ = False
+
+$(buildObject "RpcResultWriteSsconfFiles" "rpcResultWriteSsconfFiles" [])
+
+instance Rpc RpcCallWriteSsconfFiles RpcResultWriteSsconfFiles where
+  rpcResultFill _ res =
+    case res of
+      J.JSNull -> Right RpcResultWriteSsconfFiles
+      _ -> Left $ JsonDecodeError
+           ("Expected JSNull, got " ++ show (pp_value res))
+
+-- | Activate the master IP address
+
+$(buildObject "RpcCallNodeActivateMasterIp" "rpcCallNodeActivateMasterIp"
+  [ simpleField "params" [t| MasterNetworkParameters |]
+  , simpleField "ems"    [t| Bool |]
+  ])
+
+instance RpcCall RpcCallNodeActivateMasterIp where
+  rpcCallName _          = "node_activate_master_ip"
+  rpcCallTimeout _       = rpcTimeoutToRaw Fast
+  rpcCallAcceptOffline _ = False
+
+$(buildObject "RpcResultNodeActivateMasterIp" "rpcResultNodeActivateMasterIp"
+  [])
+
+instance Rpc RpcCallNodeActivateMasterIp RpcResultNodeActivateMasterIp where
+  rpcResultFill _ res =
+    case res of
+      J.JSNull -> Right RpcResultNodeActivateMasterIp
+      _ -> Left $ JsonDecodeError
+           ("Expected JSNull, got " ++ show (pp_value res))
+
+-- | Ask who the node believes is the master.
+
+$(buildObject "RpcCallMasterNodeName" "rpcCallMasterNodeName" [])
+
+instance RpcCall RpcCallMasterNodeName where
+  rpcCallName _           = "master_node_name"
+  rpcCallTimeout _        = rpcTimeoutToRaw Slow
+  rpcCallAcceptOffline _  = True
+
+$(buildObject "RpcResultMasterNodeName" "rpcResultMasterNodeName"
+    [ simpleField "master" [t| String |]
+    ])
+
+instance Rpc RpcCallMasterNodeName RpcResultMasterNodeName where
+  rpcResultFill _ res =
+    case res of
+      J.JSString master -> Right . RpcResultMasterNodeName
+                                     $ J.fromJSString master
+      _ -> Left . JsonDecodeError . (++) "expected string, but got " . show
+                                            $ pp_value res

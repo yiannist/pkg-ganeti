@@ -7,7 +7,7 @@
 
 {-
 
-Copyright (C) 2009, 2010, 2011, 2012, 2013 Google Inc.
+Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Google Inc.
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -56,13 +56,15 @@ module Ganeti.OpCodes
   , setOpPriority
   ) where
 
+import Control.Applicative
 import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Text.JSON
-import Text.JSON (readJSON, JSObject, JSON, JSValue(..), makeObj, fromJSObject)
+import Text.JSON (readJSON, JSObject, JSON, JSValue(..), fromJSObject)
 
 import qualified Ganeti.Constants as C
 import qualified Ganeti.Hs2Py.OpDoc as OpDoc
+import Ganeti.JSON (DictObject(..), readJSONfromDict, showJSONtoDict)
 import Ganeti.OpParams
 import Ganeti.PyValue ()
 import Ganeti.Query.Language (queryTypeOpToRaw)
@@ -209,7 +211,7 @@ $(genOpCode "OpCode"
      ],
      "name")
   , ("OpClusterSetParams",
-     [t| () |],
+     [t| Either () JobIdListOnly |],
      OpDoc.opClusterSetParams,
      [ pForce
      , pHvState
@@ -220,9 +222,11 @@ $(genOpCode "OpCode"
      , pClusterBeParams
      , pOsHvp
      , pClusterOsParams
-     , pDiskParams
+     , pClusterOsParamsPrivate
+     , pGroupDiskParams
      , pCandidatePoolSize
      , pMaxRunningJobs
+     , pMaxTrackedJobs
      , pUidPool
      , pAddUids
      , pRemoveUids
@@ -234,6 +238,7 @@ $(genOpCode "OpCode"
      , pDrbdHelper
      , pDefaultIAllocator
      , pDefaultIAllocatorParams
+     , pNetworkMacPrefix
      , pMasterNetdev
      , pMasterNetmask
      , pReservedLvs
@@ -245,6 +250,10 @@ $(genOpCode "OpCode"
      , pClusterFileStorageDir
      , pClusterSharedFileStorageDir
      , pClusterGlusterStorageDir
+     , pInstallImage
+     , pInstanceCommunicationNetwork
+     , pZeroingImage
+     , pCompressionTools
      , pEnabledUserShutdown
      ],
      [])
@@ -341,7 +350,7 @@ $(genOpCode "OpCode"
      [t| [[JSValue]] |],
      OpDoc.opNodeQueryStorage,
      [ pOutputFields
-     , pStorageTypeOptional
+     , pOptStorageType
      , withDoc
        "Empty list to query all, list of names to query otherwise"
        pNodes
@@ -445,6 +454,8 @@ $(genOpCode "OpCode"
      , pInstNics
      , pNoInstall
      , pInstOsParams
+     , pInstOsParamsPrivate
+     , pInstOsParamsSecret
      , pInstOs
      , pPrimaryNode
      , pPrimaryNodeUuid
@@ -460,6 +471,9 @@ $(genOpCode "OpCode"
      , pBackupCompress
      , pStartInstance
      , pInstTags
+     , pInstanceCommunication
+     , pHelperStartupTimeout
+     , pHelperShutdownTimeout
      ],
      "instance_name")
   , ("OpInstanceMultiAlloc",
@@ -478,6 +492,8 @@ $(genOpCode "OpCode"
      , pForceVariant
      , pInstOs
      , pTempOsParams
+     , pTempOsParamsPrivate
+     , pTempOsParamsSecret
      ],
      "instance_name")
   , ("OpInstanceRemove",
@@ -658,11 +674,13 @@ $(genOpCode "OpCode"
        pRemoteNodeUuid
      , pOsNameChange
      , pInstOsParams
+     , pInstOsParamsPrivate
      , pWaitForSync
      , withDoc "Whether to mark the instance as offline" pOffline
      , pIpConflictsCheck
      , pHotplug
      , pHotplugIfPossible
+     , pOptInstanceCommunication
      ],
      "instance_name")
   , ("OpInstanceGrowDisk",
@@ -687,12 +705,12 @@ $(genOpCode "OpCode"
      ],
      "instance_name")
   , ("OpGroupAdd",
-     [t| () |],
+     [t| Either () JobIdListOnly |],
      OpDoc.opGroupAdd,
      [ pGroupName
      , pNodeGroupAllocPolicy
      , pGroupNodeParams
-     , pDiskParams
+     , pGroupDiskParams
      , pHvState
      , pDiskState
      , withDoc "Group-wide ipolicy specs" pIpolicy
@@ -713,7 +731,7 @@ $(genOpCode "OpCode"
      [ pGroupName
      , pNodeGroupAllocPolicy
      , pGroupNodeParams
-     , pDiskParams
+     , pGroupDiskParams
      , pHvState
      , pDiskState
      , withDoc "Group-wide ipolicy specs" pIpolicy
@@ -780,6 +798,9 @@ $(genOpCode "OpCode"
      , defaultField [| ExportModeLocal |] pExportMode
      , pX509KeyName
      , pX509DestCA
+     , pZeroFreeSpace
+     , pZeroingTimeoutFixed
+     , pZeroingTimeoutPerMiB
      ],
      "instance_name")
   , ("OpBackupRemove",
@@ -827,6 +848,7 @@ $(genOpCode "OpCode"
      , pDelayOnNodes
      , pDelayOnNodeUuids
      , pDelayRepeat
+     , pDelayInterruptible
      , pDelayNoLocks
      ],
      "duration")
@@ -934,8 +956,8 @@ $(genAllOpIDs ''OpCode "allOpIDs")
 $(genOpLowerStrip (C.opcodeReasonSrcOpcode ++ ":") ''OpCode "opReasonSrcID")
 
 instance JSON OpCode where
-  readJSON = loadOpCode
-  showJSON = saveOpCode
+  readJSON = readJSONfromDict
+  showJSON = showJSONtoDict
 
 -- | Generates the summary value for an opcode.
 opSummaryVal :: OpCode -> Maybe String
@@ -1039,23 +1061,14 @@ resolveDependencies mopc jid = do
   mpar <- resolveDependsCommon (metaParams mopc) jid
   return (mopc { metaParams = mpar })
 
--- | JSON serialisation for 'MetaOpCode'.
-showMeta :: MetaOpCode -> JSValue
-showMeta (MetaOpCode params op) =
-  let objparams = toDictCommonOpParams params
-      objop = toDictOpCode op
-  in makeObj (objparams ++ objop)
-
--- | JSON deserialisation for 'MetaOpCode'
-readMeta :: JSValue -> Text.JSON.Result MetaOpCode
-readMeta v = do
-  meta <- readJSON v
-  op <- readJSON v
-  return $ MetaOpCode meta op
+instance DictObject MetaOpCode where
+  toDict (MetaOpCode meta op) = toDict meta ++ toDict op
+  fromDictWKeys dict = MetaOpCode <$> fromDictWKeys dict
+                                  <*> fromDictWKeys dict
 
 instance JSON MetaOpCode where
-  showJSON = showMeta
-  readJSON = readMeta
+  readJSON = readJSONfromDict
+  showJSON = showJSONtoDict
 
 -- | Wraps an 'OpCode' with the default parameters to build a
 -- 'MetaOpCode'.

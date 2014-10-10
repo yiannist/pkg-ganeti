@@ -104,6 +104,7 @@ import Ganeti.HTools.Types
 import Ganeti.Compat
 import qualified Ganeti.OpCodes as OpCodes
 import Ganeti.Utils
+import Ganeti.Utils.Statistics
 import Ganeti.Types (EvacMode(..), mkNonEmpty)
 
 -- * Types
@@ -377,7 +378,7 @@ compDetailedCVNode node =
       ipri = fromIntegral . length $ Node.pList node
       isec = fromIntegral . length $ Node.sList node
       ioff = ipri + isec
-      cpu = Node.pCpu node
+      cpu = Node.pCpuEff node
       DynUtil c1 m1 d1 nn1 = Node.utilLoad node
       DynUtil c2 m2 d2 nn2 = Node.utilPool node
       (c_load, m_load, d_load, n_load) = (c1/c2, m1/m2, d1/d2, nn1/nn2)

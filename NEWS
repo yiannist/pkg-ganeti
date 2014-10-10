@@ -2,6 +2,177 @@ News
 ====
 
 
+Version 2.12.0
+--------------
+
+*(Released Fri, 10 Oct 2014)*
+
+Incompatible/important changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Ganeti is now distributed under the 2-clause BSD license.
+  See the COPYING file.
+- Do not use debug mode in production. Certain daemons will issue warnings
+  when launched in debug mode. Some debug logging violates some of the new
+  invariants in the system (see "New features"). The logging has been kept as
+  it aids diagnostics and development.
+
+New features
+~~~~~~~~~~~~
+
+- OS install script parameters now come in public, private and secret
+  varieties:
+
+  - Public parameters are like all other parameters in Ganeti.
+  - Ganeti will not log private and secret parameters, *unless* it is running
+    in debug mode.
+  - Ganeti will not save secret parameters to configuration. Secret parameters
+    must be supplied every time you install, or reinstall, an instance.
+  - Attempting to override public parameters with private or secret parameters
+    results in an error. Similarly, you may not use secret parameters to
+    override private parameters.
+
+- The move-instance tool can now attempt to allocate an instance by using
+  opportunistic locking when an iallocator is used.
+- The build system creates sample systemd unit files, available under
+  doc/examples/systemd. These unit files allow systemd to natively
+  manage and supervise all Ganeti processes.
+- Different types of compression can be applied during instance moves, including
+  user-specified ones.
+- Ganeti jobs now run as separate processes. The jobs are coordinated by
+  a new daemon "WConfd" that manages cluster's configuration and locks
+  for individual jobs. A consequence is that more jobs can run in parallel;
+  the number is run-time configurable, see "New features" entry
+  of 2.11.0. To avoid luxid being overloaded with tracking running jobs, it
+  backs of and only occasionally, in a sequential way, checks if jobs have
+  finished and schedules new ones. In this way, luxid keeps responsive under
+  high cluster load. The limit as when to start backing of is also run-time
+  configurable.
+- The metadata daemon is now optionally available, as part of the
+  partial implementation of the OS-installs design. It allows pass
+  information to OS install scripts or to instances.
+  It is also possible to run Ganeti without the daemon, if desired.
+- Detection of user shutdown of instances has been implemented for Xen
+  as well.
+
+New dependencies
+~~~~~~~~~~~~~~~~
+
+- The KVM CPU pinning no longer uses the affinity python package, but psutil
+  instead. The package is still optional and needed only if the feature is to
+  be used.
+
+Incomplete features
+~~~~~~~~~~~~~~~~~~~
+
+The following issues are related to features which are not completely
+implemented in 2.12:
+
+- Issue 885: Network hotplugging on KVM sometimes makes an instance
+  unresponsive
+- Issues 708 and 602: The secret parameters are currently still written
+  to disk in the job queue.
+- Setting up the metadata network interface under Xen isn't fully
+  implemented yet.
+
+Known issues
+~~~~~~~~~~~~
+
+- *Wrong UDP checksums in DHCP network packets:*
+  If an instance communicates with the metadata daemon and uses DHCP to
+  obtain its IP address on the provided virtual network interface,
+  it can happen that UDP packets have a wrong checksum, due to
+  a bug in virtio. See for example https://bugs.launchpad.net/bugs/930962
+
+  Ganeti works around this bug by disabling the UDP checksums on the way
+  from a host to instances (only on the special metadata communication
+  network interface) using the ethtool command. Therefore if using
+  the metadata daemon the host nodes should have this tool available.
+- The metadata daemon is run as root in the split-user mode, to be able
+  to bind to port 80.
+  This should be improved in future versions, see issue #949.
+
+Since 2.12.0 rc2
+~~~~~~~~~~~~~~~~
+
+The following issues have been fixed:
+
+- Fixed passing additional parameters to RecreateInstanceDisks over
+  RAPI.
+- Fixed the permissions of WConfd when running in the split-user mode.
+  As WConfd takes over the previous master daemon to manage the
+  configuration, it currently runs under the masterd user.
+- Fixed the permissions of the metadata daemon  wn running in the
+  split-user mode (see Known issues).
+- Watcher now properly adds a reason trail entry when initiating disk
+  checks.
+- Fixed removing KVM parameters introduced in 2.12 when downgrading a
+  cluster to 2.11: "migration_caps", "disk_aio" and "virtio_net_queues".
+- Improved retrying of RPC calls that fail due to network errors.
+
+
+Version 2.12.0 rc2
+------------------
+
+*(Released Mon, 22 Sep 2014)*
+
+This was the second release candidate of the 2.12 series.
+All important changes are listed in the latest 2.12 entry.
+
+Since 2.12.0 rc1
+~~~~~~~~~~~~~~~~
+
+The following issues have been fixed:
+
+- Watcher now checks if WConfd is running and functional.
+- Watcher now properly adds reason trail entries.
+- Fixed NIC options in Xen's config files.
+
+Inherited from the 2.10 branch:
+
+- Fixed handling of the --online option
+- Add warning against hvparam changes with live migrations, which might
+  lead to dangerous situations for instances.
+- Only the LVs in the configured VG are checked during cluster verify.
+
+
+Version 2.12.0 rc1
+------------------
+
+*(Released Wed, 20 Aug 2014)*
+
+This was the first release candidate of the 2.12 series.
+All important changes are listed in the latest 2.12 entry.
+
+Since 2.12.0 beta1
+~~~~~~~~~~~~~~~~~~
+
+The following issues have been fixed:
+
+- Issue 881: Handle communication errors in mcpu
+- Issue 883: WConfd leaks memory for some long operations
+- Issue 884: Under heavy load the IAllocator fails with a "missing
+  instance" error
+
+Inherited from the 2.10 branch:
+
+- Improve the recognition of Xen domU states
+- Automatic upgrades:
+  - Create the config backup archive in a safe way
+  - On upgrades, check for upgrades to resume first
+  - Pause watcher during upgrade
+- Allow instance disks to be added with --no-wait-for-sync
+
+
+Version 2.12.0 beta1
+--------------------
+
+*(Released Mon, 21 Jul 2014)*
+
+This was the first beta release of the 2.12 series. All important changes
+are listed in the latest 2.12 entry.
+
+
 Version 2.11.6
 --------------
 
@@ -245,6 +416,10 @@ For Haskell:
 
 - ``base64-bytestring`` library (http://hackage.haskell.org/package/zlib),
   at least version 1.0.0.0
+
+- ``lifted-base`` library (http://hackage.haskell.org/package/lifted-base)
+
+- ``lens`` library (http://hackage.haskell.org/package/lens)
 
 Since 2.11.0 rc1
 ~~~~~~~~~~~~~~~~

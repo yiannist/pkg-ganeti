@@ -35,7 +35,6 @@
 import grp
 import pwd
 import threading
-import os
 import platform
 
 from ganeti import constants
@@ -89,6 +88,8 @@ class GetentResolver(object):
   @ivar masterd_gid: The resolved gid of the masterd group
   @ivar confd_uid: The resolved uid of the confd user
   @ivar confd_gid: The resolved gid of the confd group
+  @ivar wconfd_uid: The resolved uid of the wconfd user
+  @ivar wconfd_gid: The resolved gid of the wconfd group
   @ivar luxid_uid: The resolved uid of the luxid user
   @ivar luxid_gid: The resolved gid of the luxid group
   @ivar rapi_uid: The resolved uid of the rapi user
@@ -109,6 +110,9 @@ class GetentResolver(object):
     self.confd_uid = GetUid(constants.CONFD_USER, _getpwnam)
     self.confd_gid = GetGid(constants.CONFD_GROUP, _getgrnam)
 
+    self.wconfd_uid = GetUid(constants.WCONFD_USER, _getpwnam)
+    self.wconfd_gid = GetGid(constants.WCONFD_GROUP, _getgrnam)
+
     self.luxid_uid = GetUid(constants.LUXID_USER, _getpwnam)
     self.luxid_gid = GetGid(constants.LUXID_GROUP, _getgrnam)
 
@@ -128,6 +132,7 @@ class GetentResolver(object):
     self._uid2user = {
       self.masterd_uid: constants.MASTERD_USER,
       self.confd_uid: constants.CONFD_USER,
+      self.wconfd_uid: constants.WCONFD_USER,
       self.luxid_uid: constants.LUXID_USER,
       self.rapi_uid: constants.RAPI_USER,
       self.noded_uid: constants.NODED_USER,
@@ -137,6 +142,7 @@ class GetentResolver(object):
     self._gid2group = {
       self.masterd_gid: constants.MASTERD_GROUP,
       self.confd_gid: constants.CONFD_GROUP,
+      self.wconfd_gid: constants.WCONFD_GROUP,
       self.luxid_gid: constants.LUXID_GROUP,
       self.rapi_gid: constants.RAPI_GROUP,
       self.noded_gid: constants.NODED_GROUP,
@@ -251,31 +257,12 @@ def GetArchInfo():
   return _arch
 
 
-def GetClient(query=True):
+def GetClient():
   """Connects to the a luxi socket and returns a client.
 
-  @type query: boolean
-  @param query: this signifies that the client will only be
-      used for queries; if the build-time parameter
-      enable-split-queries is enabled, then the client will be
-      connected to the query socket instead of the masterd socket
-
   """
-  override_socket = os.getenv(constants.LUXI_OVERRIDE, "")
-  if override_socket:
-    if override_socket == constants.LUXI_OVERRIDE_MASTER:
-      address = pathutils.MASTER_SOCKET
-    elif override_socket == constants.LUXI_OVERRIDE_QUERY:
-      address = pathutils.QUERY_SOCKET
-    else:
-      address = override_socket
-  elif query:
-    address = pathutils.QUERY_SOCKET
-  else:
-    address = None
-  # TODO: Cache object?
   try:
-    client = luxi.Client(address=address)
+    client = luxi.Client(address=pathutils.QUERY_SOCKET)
   except NoMasterError:
     ss = ssconf.SimpleStore()
 
