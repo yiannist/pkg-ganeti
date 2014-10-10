@@ -6,7 +6,7 @@ Author: Iustin Pop <iustin@debian.org>
 Last-Update: 2010-10-24
 --- a/tools/cfgupgrade12
 +++ b/tools/cfgupgrade12
-@@ -407,6 +407,10 @@
+@@ -328,6 +328,10 @@
          logging.debug("Writing RAPI certificate to %s", options.RAPI_CERT_FILE)
          utils.GenerateSelfSignedSslCert(options.RAPI_CERT_FILE, 1)
  

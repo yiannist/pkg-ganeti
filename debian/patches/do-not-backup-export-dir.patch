@@ -14,7 +14,7 @@ Date:   Fri Jul 11 12:37:12 2014 +0300
 
 --- a/lib/client/gnt_cluster.py
 +++ b/lib/client/gnt_cluster.py
-@@ -1888,6 +1888,7 @@
+@@ -1956,6 +1956,7 @@
    (_, tmp_name) = tempfile.mkstemp(prefix=backuptar, dir=pathutils.BACKUP_DIR)
    if not _RunCommandAndReport(["tar", "-cf", tmp_name,
                                 "--exclude=queue/archive",
