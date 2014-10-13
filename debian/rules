@@ -132,6 +132,9 @@ override_dh_link:
 	# Now let dh_link fix all symlinks
 	dh_link
 
+	# Finally ship a compatibility symlink for masterd
+	ln -s ../share/ganeti/default/ganeti-masterd debian/ganeti/usr/sbin/ganeti-masterd
+
 # Disable dh_sphinxdoc for binary-arch, as it will raise an error
 override_dh_sphinxdoc-arch:
 
