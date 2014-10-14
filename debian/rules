@@ -90,6 +90,9 @@ override_dh_install-indep:
 	   $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/rapi/
 	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/__init__.py
 	touch $(CURDIR)/debian/python-ganeti-rapi/usr/share/pyshared/ganeti/rapi/__init__.py
+	
+	# Finally ship a compatibility symlink for masterd
+	ln -s ../share/ganeti/default/ganeti-masterd debian/ganeti/usr/sbin/ganeti-masterd
 
 override_dh_python2:
 	dh_python2
@@ -131,9 +134,6 @@ override_dh_link:
 
 	# Now let dh_link fix all symlinks
 	dh_link
-
-	# Finally ship a compatibility symlink for masterd
-	ln -s ../share/ganeti/default/ganeti-masterd debian/ganeti/usr/sbin/ganeti-masterd
 
 # Disable dh_sphinxdoc for binary-arch, as it will raise an error
 override_dh_sphinxdoc-arch:
