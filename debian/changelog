@@ -1,3 +1,9 @@
+ganeti (2.12.0-3) unstable; urgency=medium
+
+  * Use proper groups for wconfd and metad (closes: #765764).
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Sat, 18 Oct 2014 00:46:26 +0300
+
 ganeti (2.12.0-2) unstable; urgency=medium
 
   * d/copyright: fix jquery.js license.  Thanks to Thorsten Alteholz.
