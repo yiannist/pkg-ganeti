@@ -71,12 +71,23 @@ def main():
             sys.stderr.write("W: unable to list %s instances: %s\n" %
                              (hv_type, str(err)))
 
-    if instances:
-        sys.stdout.write("W: The following Ganeti instances will be"
-                         " terminated abnormally if you %s this system:\n" %
-                         action)
-        for instance in sorted(instances):
-            sys.stdout.write("   - %s\n" % instance)
+    current_master = conf.GetMasterNode()
+
+    node_is_current_master = False
+    if hostname == current_master:
+        node_is_current_master = True
+
+    if instances or node_is_current_master:
+        if instances:
+            sys.stdout.write("W: The following Ganeti instances will be"
+                             " terminated abnormally if you %s this system:\n" %
+                             action)
+            for instance in sorted(instances):
+                sys.stdout.write("   - %s\n" % instance)
+
+        if node_is_current_master:
+            sys.stdout.write("W: This system is the current Ganeti master"
+                             " for this cluster\n")
 
         try:
             response = raw_input("Type YES to %s the system: " % action)
