@@ -1,0 +1,57 @@
+# Translation of ganeti debconf template to Swedish
+# Copyright (C) 2014 Martin Bagge <brother@bsnet.se>
+# This file is distributed under the same license as the ganeti package.
+#
+# Martin Bagge <brother@bsnet.se>, 2014
+msgid ""
+msgstr ""
+"Project-Id-Version: ganeti\n"
+"Report-Msgid-Bugs-To: ganeti@packages.debian.org\n"
+"POT-Creation-Date: 2014-04-08 08:41+0200\n"
+"PO-Revision-Date: 2014-11-17 09:44+0100\n"
+"Last-Translator: Martin Bagge / brother <brother@bsnet.se>\n"
+"Language-Team: Swedish <debian-l10n-swedish@lists.debian.org>\n"
+"Language: sv\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 1.6.10\n"
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid "Abort ${package} removal?"
+msgstr "Avbryt radering av ${package}?"
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid ""
+"You are attempting to remove ${package}, but it seems that the running "
+"Ganeti version is still ${version}."
+msgstr ""
+"Du försöker ta bort ${package} men det verkar som att Ganeti kör version "
+"${version} fortfarande."
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid ""
+"This can happen if you upgrade the ganeti package to a new minor version, "
+"but have not run \"gnt-cluster upgrade\" yet. Removing ${package} will cause "
+"Ganeti to stop functioning correctly."
+msgstr ""
+"Detta kan inträffa vid en mindre uppdatering av ganeti-paketet utan att ha "
+"kört \"gnt-cluster upgrade\" än. Tas ${package} bort kommer Ganeti att sluta "
+"fungera korrekt."
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid ""
+"It is highly recommended to abort the removal now and upgrade the cluster "
+"before removing ${package}."
+msgstr ""
+"En stark rekommendation är att avbryta raderingen nu och uppgradera klustret "
+"innan ${package} tas bort."
