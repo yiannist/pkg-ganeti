@@ -1,0 +1,57 @@
+# Dutch translation of ganeti debconf templates.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the ganeti package.
+# Frans Spiesschaert <Frans.Spiesschaert@yucom.be>, 2014.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: ganeti\n"
+"Report-Msgid-Bugs-To: ganeti@packages.debian.org\n"
+"POT-Creation-Date: 2014-04-08 08:41+0200\n"
+"PO-Revision-Date: 2014-10-06 12:04+0200\n"
+"Last-Translator: Frans Spiesschaert <Frans.Spiesschaert@yucom.be>\n"
+"Language-Team: Debian Dutch l10n Team <debian-l10n-dutch@lists.debian.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid "Abort ${package} removal?"
+msgstr "Verwijderen van ${package} afbreken?"
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid ""
+"You are attempting to remove ${package}, but it seems that the running "
+"Ganeti version is still ${version}."
+msgstr ""
+"U probeert ${package} te verwijderen, maar het ziet er naar uit dat de "
+"actieve versie van Ganeti nog altijd ${version} is."
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid ""
+"This can happen if you upgrade the ganeti package to a new minor version, "
+"but have not run \"gnt-cluster upgrade\" yet. Removing ${package} will cause "
+"Ganeti to stop functioning correctly."
+msgstr ""
+"Dit fenomeen kan zich voordoen als u het pakket ganeti opwaardeert naar een "
+"nieuwe onderversie, maar nog niet de opdracht \"gnt-cluster upgrade\" "
+"uitgevoerd heeft. Als u ${package} verwijdert zal Ganeti niet langer correct "
+"functioneren."
+
+#. Type: boolean
+#. Description
+#: ../templates/versioned.templates:2001
+msgid ""
+"It is highly recommended to abort the removal now and upgrade the cluster "
+"before removing ${package}."
+msgstr ""
+"Het wordt stellig aanbevolen om nu het verwijderen af te breken en eerst de "
+"cluster op te waarderen voor u ${package} verwijdert."
