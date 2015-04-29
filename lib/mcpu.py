@@ -57,6 +57,7 @@ from ganeti import wconfd
 
 
 sighupReceived = [False]
+lusExecuting = [0]
 
 _OP_PREFIX = "Op"
 _LU_PREFIX = "LU"
@@ -412,6 +413,8 @@ class Processor(object):
     else:
       request = [[lock, "exclusive"] for lock in locks]
 
+    self.cfg.OutDate()
+
     if timeout is None:
       ## Note: once we are so desperate for locks to request them
       ## unconditionally, we no longer care about an original plan
@@ -485,6 +488,7 @@ class Processor(object):
 
     """
     write_count = self.cfg.write_count
+    lu.cfg.OutDate()
     lu.CheckPrereq()
 
     hm = self.BuildHooksManager(lu)
@@ -505,6 +509,7 @@ class Processor(object):
     else:
       submit_mj_fn = _FailingSubmitManyJobs
 
+    lusExecuting[0] += 1
     try:
       result = _ProcessResult(submit_mj_fn, lu.op, lu.Exec(self.Log))
       h_results = hm.RunPhase(constants.HOOKS_PHASE_POST)
@@ -512,6 +517,7 @@ class Processor(object):
                                 self.Log, result)
     finally:
       # FIXME: This needs locks if not lu_class.REQ_BGL
+      lusExecuting[0] -= 1
       if write_count != self.cfg.write_count:
         hm.RunConfigUpdate()
 

@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti 2.12.0 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti 2.12.3 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.12.0',
+        VERSION:     '2.12.3',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.12.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.12.3 documentation" href="index.html" />
     <link rel="next" title="Ganeti quick installation guide" href="install-quick.html" />
     <link rel="prev" title="Ganeti automatic instance allocation" href="iallocator.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -349,9 +349,11 @@ $ <span class="gs">m-a</span> <span class="gs">a-i</span> <span class="gs">drbd8
 <blockquote>
 <div>$ apt-get install drbd8-utils</div></blockquote>
 <p>Then to configure it for Ganeti:</p>
-<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">echo</span> <span class="gs">drbd</span> <span class="gs">minor_count=128</span> <span class="gs">usermode_helper=/bin/true</span> <span class="gs">&gt;&gt;</span> <span class="gs">/etc/modules</span>
+<div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">echo</span> <span class="gs">&quot;options</span> <span class="gs">drbd</span> <span class="gs">minor_count=128</span> <span class="gs">usermode_helper=/bin/true&quot;</span> <span class="gs">\</span>
+   <span class="gs">&gt;</span> <span class="gs">/etc/modprobe.d/drbd.conf</span>
+$ <span class="gs">echo</span> <span class="gs">&quot;drbd&quot;</span> <span class="gs">&gt;&gt;</span> <span class="gs">/etc/modules</span>
 $ <span class="gs">depmod</span> <span class="gs">-a</span>
-$ <span class="gs">modprobe</span> <span class="gs">drbd</span> <span class="gs">minor_count=128</span> <span class="gs">usermode_helper=/bin/true</span>
+$ <span class="gs">modprobe</span> <span class="gs">drbd</span>
 </pre></div>
 </div>
 <p>It is also recommended that you comment out the default resources (if any)
@@ -637,7 +639,7 @@ want to use it.</p>
 <h3><a class="toc-backref" href="#id25">Installing Ganeti</a><a class="headerlink" href="#installing-ganeti" title="Permalink to this headline">¶</a></h3>
 <p><strong>Mandatory</strong> on all nodes.</p>
 <p>It&#8217;s now time to install the Ganeti software itself.  Download the
-source from the project page at <a class="reference external" href="http://code.google.com/p/ganeti/">http://code.google.com/p/ganeti/</a>,
+source from the project page at <a class="reference external" href="http://downloads.ganeti.org/releases/">http://downloads.ganeti.org/releases/</a>,
 and install it (replace 2.6.0 with the latest version):</p>
 <div class="highlight-shell-example"><div class="highlight"><pre>$ <span class="gs">tar</span> <span class="gs">xvzf</span> <span class="gs">ganeti-</span><span class="nv">2.6.0</span><span class="gs">.tar.gz</span>
 $ <span class="gs">cd</span> <span class="gs">ganeti-</span><span class="nv">2.6.0</span>
@@ -969,7 +971,7 @@ instance level.</td></tr>
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

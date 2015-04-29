@@ -74,6 +74,7 @@ from ganeti import query
 from ganeti import qlang
 from ganeti import pathutils
 from ganeti import vcluster
+from ganeti.cmdlib import cluster
 
 
 JOBQUEUE_THREADS = 1
@@ -1396,6 +1397,7 @@ class JobQueue(object):
         data and other ganeti objects
 
     """
+    self.primary_jid = None
     self.context = context
     self._memcache = weakref.WeakValueDictionary()
     self._my_hostname = netutils.Hostname.GetSysName()
@@ -1442,6 +1444,12 @@ class JobQueue(object):
     Pick up a job that already is in the job queue and start/resume it.
 
     """
+    if self.primary_jid:
+      logging.warning("Job process asked to pick up %s, but already has %s",
+                      job_id, self.primary_jid)
+
+    self.primary_jid = int(job_id)
+
     job = self._LoadJobUnlocked(job_id)
 
     if job is None:
@@ -1779,6 +1787,16 @@ class JobQueue(object):
         break
 
     if not raw_data:
+      logging.debug("No data available for job %s", job_id)
+      if int(job_id) == self.primary_jid:
+        logging.warning("My own job file (%s) disappeared;"
+                        " this should only happy at cluster desctruction",
+                        job_id)
+        if mcpu.lusExecuting[0] == 0:
+          logging.warning("Not in execution; cleaning up myself due to missing"
+                          " job file")
+          logging.shutdown()
+          os._exit(1) # pylint: disable=W0212
       return None
 
     if writable is None:
@@ -1900,7 +1918,8 @@ class JobQueue(object):
     # Try to load from disk
     job = self.SafeLoadJobFromDisk(job_id, True, writable=False)
 
-    assert not job.writable, "Got writable job" # pylint: disable=E1101
+    if job:
+      assert not job.writable, "Got writable job" # pylint: disable=E1101
 
     if job:
       return job.CalcStatus()
@@ -1945,6 +1964,11 @@ class JobQueue(object):
     job = self.SafeLoadJobFromDisk(job_id, True, writable=False)
     if job is not None:
       return job.CalcStatus() in constants.JOBS_FINALIZED
+    elif cluster.LUClusterDestroy.clusterHasBeenDestroyed:
+      # FIXME: The above variable is a temporary workaround until the Python job
+      # queue is completely removed. When removing the job queue, also remove
+      # the variable from LUClusterDestroy.
+      return True
     else:
       return None
 

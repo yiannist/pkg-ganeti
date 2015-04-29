@@ -245,6 +245,7 @@ DIRCHECK_EXCLUDE = \
 	ganeti-[0-9]*.[0-9]*.[0-9]* \
 	doc/html/_* \
 	doc/man-html/_* \
+	tools/shebang \
 	autom4te.cache
 
 # some helper vars
@@ -271,6 +272,7 @@ CLEANFILES = \
 	$(addsuffix /*.o,$(HS_DIRS)) \
 	$(addsuffix /*.$(HTEST_SUFFIX)_hi,$(HS_DIRS)) \
 	$(addsuffix /*.$(HTEST_SUFFIX)_o,$(HS_DIRS)) \
+	hs-pkg-versions \
 	Makefile.ghc \
 	Makefile.ghc.bak \
 	$(PYTHON_BOOTSTRAP) \
@@ -295,9 +297,11 @@ CLEANFILES = \
 	tools/kvm-ifup-os \
 	tools/xen-ifup-os \
 	tools/vif-ganeti \
+	tools/vif-ganeti-metad \
 	tools/net-common \
 	tools/users-setup \
 	tools/vcluster-setup \
+	$(python_scripts_shebang) \
 	stamp-directories \
 	stamp-srclinks \
 	$(nodist_pkgpython_PYTHON) \
@@ -318,6 +322,9 @@ GENERATED_FILES = \
 	$(built_python_sources) \
 	$(PYTHON_BOOTSTRAP) \
 	$(gnt_python_sbin_SCRIPTS)
+
+clean-local:
+	rm -rf tools/shebang
 
 HS_GENERATED_FILES = $(HS_PROGS) src/hluxid src/ganeti-luxid
 if ENABLE_CONFD
@@ -710,10 +717,13 @@ HS_PROG_SRCS = $(patsubst %,%.hs,$(HS_DEFAULT_PROGS)) src/mon-collector.hs
 HS_BUILT_TEST_HELPERS = $(HS_BIN_ROLES:%=test/hs/%) test/hs/hail
 
 HFLAGS = \
-	-O -Wall -Werror -isrc \
+	-O -Wall -isrc \
 	-fwarn-monomorphism-restriction \
 	-fwarn-tabs \
 	$(GHC_BYVERSION_FLAGS)
+if DEVELOPER_MODE
+HFLAGS += -Werror
+endif
 
 HTEST_SUFFIX = hpc
 HPROF_SUFFIX = prof
@@ -1162,38 +1172,71 @@ install-exec-hook:
 
 HS_SRCS = $(HS_LIBTESTBUILT_SRCS)
 
+# select the last line of output and extract the version number,
+# padding with 0s if needed
+hs-pkg-versions:
+	ghc-pkg list --simple-output lens \
+	| sed -r -e '$$!d' \
+	  -e 's/^lens-([0-9]+(\.[0-9]+)*)/\1 0 0 0/' \
+	  -e 's/\./ /g' -e 's/([0-9]+) *([0-9]+) *([0-9]+) .*/\
+	      -DLENS_MAJOR=\1 -DLENS_MINOR=\2 -DLENS_REV=\3/' \
+	  -e 's/^\s*//' \
+	> $@
+	ghc-pkg list --simple-output monad-control \
+	| sed -r -e '$$!d' \
+	  -e 's/^monad-control-([0-9]+(\.[0-9]+)*)/\1 0 0 0/' \
+	  -e 's/\./ /g' -e 's/([0-9]+) *([0-9]+) *([0-9]+) .*/\
+	   -DMONAD_CONTROL_MAJOR=\1 -DMONAD_CONTROL_MINOR=\2 -DMONAD_CONTROL_REV=\3/'\
+	  -e 's/^\s*//' \
+	>> $@
+
 HS_MAKEFILE_GHC_SRCS = $(HS_SRC_PROGS:%=%.hs)
 if WANT_HSTESTS
 HS_MAKEFILE_GHC_SRCS += $(HS_TEST_PROGS:%=%.hs)
 endif
-Makefile.ghc: $(HS_MAKEFILE_GHC_SRCS) Makefile \
+Makefile.ghc: $(HS_MAKEFILE_GHC_SRCS) Makefile hs-pkg-versions \
               | $(built_base_sources) $(HS_BUILT_SRCS)
 	$(GHC) -M -dep-makefile $@ -dep-suffix $(HPROF_SUFFIX) \
 		-dep-suffix $(HTEST_SUFFIX) $(HFLAGS) -itest/hs \
+	  $(shell cat hs-pkg-versions) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(HS_MAKEFILE_GHC_SRCS)
+# Since ghc -M does not generate dependency line for object files, dependencies
+# from a target executable seed object (e.g. src/hluxid.o) to objects which
+# finally will be linked to the target object (e.g. src/Ganeti/Daemon.o) are
+# missing in Makefile.ghc.
+# see: https://www.haskell.org/ghc/docs/7.6.2/html/users_guide/separate-compilation.html#makefile-dependencies
+# Following substitutions will add dependencies between object files which
+# corresponds to the interface file already there as a dependency for each
+# object listed in Makefile.ghc.
+# e.g. src/hluxid.o : src/Ganeti/Daemon.hi
+#        => src/hluxid.o : src/Ganeti/Daemon.hi src/Ganeti/Daemon.o
+	sed -i -r -e 's/([^ ]+)\.hi$$/\1.hi \1.o/' -e 's/([^ ]+)_hi$$/\1_hi \1_o/' $@
 
 @include_makefile_ghc@
 
-%.o:
+%.o: hs-pkg-versions
 	@echo '[GHC]: $@ <- $^'
 	@$(GHC) -c $(HFLAGS) \
+	  $(shell cat hs-pkg-versions) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(@:%.o=%.hs)
 
 # For TH+profiling we need to compile twice: Once without profiling,
 # and then once with profiling. See
 # http://www.haskell.org/ghc/docs/7.0.4/html/users_guide/template-haskell.html#id636646
 if HPROFILE
-%.$(HPROF_SUFFIX)_o: %.o
+%.$(HPROF_SUFFIX)_o: %.o hs-pkg-versions
 	@echo '[GHC|prof]: $@ <- $^'
 	@$(GHC) -c $(HFLAGS) \
+	  $(shell cat hs-pkg-versions) \
 	  $(HPROFFLAGS) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) \
 		$(@:%.$(HPROF_SUFFIX)_o=%.hs)
 endif
 
-%.$(HTEST_SUFFIX)_o:
+%.$(HTEST_SUFFIX)_o: hs-pkg-versions
 	@echo '[GHC|test]: $@ <- $^'
 	@$(GHC) -c $(HTEST_FLAGS) \
+	  $(shell cat hs-pkg-versions) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(@:%.$(HTEST_SUFFIX)_o=%.hs)
 
 %.hi: %.o ;
@@ -1203,16 +1246,17 @@ endif
 if HPROFILE
 $(HS_SRC_PROGS): %: %.$(HPROF_SUFFIX)_o | stamp-directories
 else
-$(HS_SRC_PROGS): %: %.o | stamp-directories
+$(HS_SRC_PROGS): %: %.o hs-pkg-versions | stamp-directories
 endif
 	@echo '[GHC-link]: $@'
 	$(GHC) $(HFLAGS) \
+	  $(shell cat hs-pkg-versions) \
 		$(HPROFFLAGS) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) --make $(@:%=%.hs)
 	@rm -f $(notdir $@).tix
 	@touch "$@"
 
-$(HS_TEST_PROGS): %: %.$(HTEST_SUFFIX)_o \
+$(HS_TEST_PROGS): %: %.$(HTEST_SUFFIX)_o hs-pkg-versions \
 	                   | stamp-directories $(built_python_sources)
 	@if [ "$(HS_NODEV)" ]; then \
 	  echo "Error: cannot run unittests without the development" \
@@ -1221,6 +1265,7 @@ $(HS_TEST_PROGS): %: %.$(HTEST_SUFFIX)_o \
 	fi
 	@echo '[GHC-link|test]: $@'
 	$(GHC) $(HTEST_FLAGS) \
+	  $(shell cat hs-pkg-versions) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) --make $(@:%=%.hs)
 	@rm -f $(notdir $@).tix
 	@touch "$@"
@@ -1270,20 +1315,31 @@ python_scripts = \
 	tools/post-upgrade \
 	tools/sanitize-config
 
+python_scripts_shebang = \
+	$(patsubst tools/%,tools/shebang/%, $(python_scripts))
+
+tools/shebang/%: tools/%
+	mkdir -p tools/shebang
+	head -1 $< | sed 's|#!/usr/bin/python|#!$(PYTHON)|' > $@
+	echo '# Generated file; do not edit.' >> $@
+	tail -n +2 $< >> $@
+
 dist_tools_SCRIPTS = \
 	tools/kvm-console-wrapper \
 	tools/master-ip-setup \
 	tools/xen-console-wrapper
 
 dist_tools_python_SCRIPTS = \
-	$(python_scripts) \
 	tools/burnin
 
 nodist_tools_python_SCRIPTS = \
-	tools/node-cleanup
+	tools/node-cleanup \
+        $(python_scripts_shebang)
 
-tools_python_basenames = $(patsubst tools/%,%,\
-	$(dist_tools_python_SCRIPTS) $(nodist_tools_python_SCRIPTS))
+tools_python_basenames = \
+	$(patsubst shebang/%,%,\
+	$(patsubst tools/%,%,\
+	$(dist_tools_python_SCRIPTS) $(nodist_tools_python_SCRIPTS)))
 
 nodist_tools_SCRIPTS = \
 	tools/users-setup \
@@ -1310,6 +1366,7 @@ myexeclib_SCRIPTS = \
 	tools/kvm-ifup-os \
 	tools/xen-ifup-os \
 	tools/vif-ganeti \
+	tools/vif-ganeti-metad \
 	tools/net-common \
 	$(HS_MYEXECLIB_PROGS)
 
@@ -1344,13 +1401,16 @@ EXTRA_DIST = \
 	daemons/daemon-util.in \
 	daemons/ganeti-cleaner.in \
 	$(pkglib_python_scripts) \
+	devel/build_chroot \
 	devel/upload \
 	devel/webserver \
 	tools/kvm-ifup.in \
 	tools/ifup-os.in \
 	tools/vif-ganeti.in \
+	tools/vif-ganeti-metad.in \
 	tools/net-common.in \
 	tools/vcluster-setup.in \
+        $(python_scripts) \
 	$(docinput) \
 	doc/html \
 	$(BUILT_EXAMPLES:%=%.in) \
@@ -1360,6 +1420,10 @@ EXTRA_DIST = \
 	doc/examples/gnt-debug/README \
 	doc/examples/gnt-debug/delay0.json \
 	doc/examples/gnt-debug/delay50.json \
+	doc/examples/systemd/ganeti-master.target \
+	doc/examples/systemd/ganeti-node.target \
+	doc/examples/systemd/ganeti.service \
+	doc/examples/systemd/ganeti.target \
 	doc/users/groupmemberships.in \
 	doc/users/groups.in \
 	doc/users/users.in \
@@ -1701,6 +1765,7 @@ python_test_support = \
 	test/py/cmdlib/testsupport/iallocator_mock.py \
 	test/py/cmdlib/testsupport/livelock_mock.py \
 	test/py/cmdlib/testsupport/netutils_mock.py \
+	test/py/cmdlib/testsupport/pathutils_mock.py \
 	test/py/cmdlib/testsupport/processor_mock.py \
 	test/py/cmdlib/testsupport/rpc_runner_mock.py \
 	test/py/cmdlib/testsupport/ssh_mock.py \
@@ -1856,6 +1921,10 @@ tools/xen-ifup-os: tools/ifup-os.in $(REPLACE_VARS_SED)
 	chmod +x $@
 
 tools/vif-ganeti: tools/vif-ganeti.in $(REPLACE_VARS_SED)
+	sed -f $(REPLACE_VARS_SED) < $< > $@
+	chmod +x $@
+
+tools/vif-ganeti-metad: tools/vif-ganeti-metad.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod +x $@
 
@@ -2084,8 +2153,8 @@ src/AutoConf.hs: Makefile src/AutoConf.hs.in $(PRINT_PY_CONSTANTS) \
 	    -DMAN_PAGES="$$(for i in $(notdir $(man_MANS)); do \
 	                    echo -n "$$i" | sed -re 's/^(.*)\.([0-9]+)$$/("\1",\2):/g'; \
 	                    done)" \
-	    -DAF_INET4="$$(PYTHONPATH=. python $(PRINT_PY_CONSTANTS) AF_INET4)" \
-	    -DAF_INET6="$$(PYTHONPATH=. python $(PRINT_PY_CONSTANTS) AF_INET6)" \
+	    -DAF_INET4="$$(PYTHONPATH=. $(PYTHON) $(PRINT_PY_CONSTANTS) AF_INET4)" \
+	    -DAF_INET6="$$(PYTHONPATH=. $(PYTHON) $(PRINT_PY_CONSTANTS) AF_INET6)" \
 	$(abs_top_srcdir)/src/AutoConf.hs.in > $@
 
 lib/_vcsversion.py: Makefile vcs-version | stamp-directories
@@ -2194,7 +2263,7 @@ $(HS_BUILT_TEST_HELPERS): TESTROLE = $(patsubst test/hs/%,%,$@)
 $(PYTHON_BOOTSTRAP) $(gnt_scripts) $(gnt_python_sbin_SCRIPTS): Makefile | stamp-directories
 	test -n "$(MODULE)" || { echo Missing module; exit 1; }
 	set -e; \
-	{ echo '#!/usr/bin/python'; \
+	{ echo '#!${PYTHON}'; \
 	  echo '# This file is automatically generated, do not edit!'; \
 	  echo "# Edit $(MODULE) instead."; \
 	  echo; \
@@ -2276,7 +2345,8 @@ check-news:
 .PHONY: check-local
 check-local: check-dirs check-news $(GENERATED_FILES)
 	$(CHECK_PYTHON_CODE) $(check_python_code)
-	PYTHONPATH=. $(CHECK_HEADER) $(check_python_code)
+	PYTHONPATH=. $(CHECK_HEADER) \
+	    $(filter-out $(GENERATED_FILES),$(check_python_code))
 	$(CHECK_VERSION) $(VERSION) $(top_srcdir)/NEWS
 	PYTHONPATH=. $(RUN_IN_TEMPDIR) $(CURDIR)/$(CHECK_IMPORTS) . $(standalone_python_modules)
 	error= ; \
@@ -2321,6 +2391,14 @@ hs-test-%: test/hs/htest
 hs-tests: test/hs/htest
 	@rm -f htest.tix
 	./test/hs/htest
+
+.PHONY: py-tests
+py-tests: $(python_tests) ganeti $(built_python_sources)
+	error=; \
+	for file in $(python_tests); \
+	  do if ! $(TESTS_ENVIRONMENT) $$file; then error=1; fi; \
+	done; \
+	test -z "$$error"
 
 .PHONY: hs-shell-%
 hs-shell-%: test/hs/hpc-htools test/hs/hpc-mon-collector \
@@ -2572,10 +2650,11 @@ $(APIDOC_HS_DIR)/index.html: $(HS_LIBTESTBUILT_SRCS) Makefile
 	  $(HS_LIBTESTBUILT_SRCS)
 
 .PHONY: TAGS
-TAGS: $(GENERATED_FILES)
+TAGS: $(GENERATED_FILES) hs-pkg-versions
 	rm -f TAGS
 	$(GHC) -e ":etags TAGS_hs" -v0 \
 	  $(filter-out -O -Werror,$(HFLAGS)) \
+	  $(shell cat hs-pkg-versions) \
 		-osuf tags.o \
 		-hisuf tags.hi \
     -lcurl \
@@ -2672,5 +2751,10 @@ really-all: all $(check_SCRIPTS) $(haskell_tests) $(HS_ALL_PROGS)
 %: SCCS/s.%
 
 -include ./Makefile.local
+
+# support inspecting the value of a make variable
+
+print-%:
+	@echo $($*)
 
 # vim: set noet :

@@ -485,7 +485,7 @@ class LUInstanceCreate(LogicalUnit):
     # set default file_driver if unset and required
     if (not self.op.file_driver and
         self.op.disk_template in constants.DTS_FILEBASED):
-      self.op.file_driver = constants.FD_LOOP
+      self.op.file_driver = constants.FD_DEFAULT
 
     ### Node/iallocator related checks
     CheckIAllocatorOrNode(self, "iallocator", "pnode")
@@ -3679,11 +3679,17 @@ class LUInstanceSetParams(LogicalUnit):
 
     """
     secondary_nodes = self.cfg.GetInstanceSecondaryNodes(self.instance.uuid)
-    assert len(secondary_nodes) == 1
+
     assert self.instance.disk_template == constants.DT_DRBD8
+    assert len(secondary_nodes) == 1 or not self.instance.disks
 
     pnode_uuid = self.instance.primary_node
-    snode_uuid = secondary_nodes[0]
+
+    # it will not be possible to calculate the snode_uuid later
+    snode_uuid = None
+    if secondary_nodes:
+      snode_uuid = secondary_nodes[0]
+
     feedback_fn("Converting template to plain")
 
     disks = self.cfg.GetInstanceDisks(self.instance.uuid)

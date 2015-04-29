@@ -262,10 +262,11 @@ def _WaitForMasterDaemon():
                              " %s seconds" % _DAEMON_READY_TIMEOUT)
 
 
-def _WaitForSshDaemon(hostname, port, family):
+def _WaitForSshDaemon(hostname, port):
   """Wait for SSH daemon to become responsive.
 
   """
+  family = ssconf.SimpleStore().GetPrimaryIPFamily()
   hostip = netutils.GetHostname(name=hostname, family=family).ip
 
   def _CheckSshDaemon():
@@ -345,9 +346,7 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
   if port is None:
     port = netutils.GetDaemonPort(constants.SSH)
 
-  family = ssconf.SimpleStore().GetPrimaryIPFamily()
-  srun = ssh.SshRunner(cluster_name,
-                       ipv6=(family == netutils.IP6Address.family))
+  srun = ssh.SshRunner(cluster_name)
   scmd = srun.BuildCmd(node, constants.SSH_LOGIN_USER,
                        utils.ShellQuoteArgs(
                            utils.ShellCombineCommands(all_cmds)),
@@ -369,7 +368,7 @@ def RunNodeSetupCmd(cluster_name, node, basecmd, debug, verbose,
     raise errors.OpExecError("Command '%s' failed: %s" %
                              (result.cmd, result.fail_reason))
 
-  _WaitForSshDaemon(node, port, family)
+  _WaitForSshDaemon(node, port)
 
 
 def _InitFileStorageDir(file_storage_dir):
@@ -1010,6 +1009,7 @@ def MasterFailover(no_voting=False):
   @param no_voting: force the operation without remote nodes agreement
                       (dangerous)
 
+  @returns: the pair of an exit code and warnings to display
   """
   sstore = ssconf.SimpleStore()
 
@@ -1050,6 +1050,7 @@ def MasterFailover(no_voting=False):
   # end checks
 
   rcode = 0
+  warnings = []
 
   logging.info("Setting master to %s, old master: %s", new_master, old_master)
 
@@ -1103,24 +1104,30 @@ def MasterFailover(no_voting=False):
 
     msg = result.fail_msg
     if msg:
-      logging.warning("Could not disable the master IP: %s", msg)
+      warning = "Could not disable the master IP: %s" % (msg,)
+      logging.warning("%s", warning)
+      warnings.append(warning)
 
     result = runner.call_node_stop_master(old_master)
     msg = result.fail_msg
     if msg:
-      logging.error("Could not disable the master role on the old master"
-                    " %s, please disable manually: %s", old_master, msg)
+      warning = ("Could not disable the master role on the old master"
+                 " %s, please disable manually: %s" % (old_master, msg))
+      logging.error("%s", warning)
+      warnings.append(warning)
   except errors.ConfigurationError, err:
     logging.error("Error while trying to set the new master: %s",
                   str(err))
-    return 1
+    return 1, warnings
   finally:
     # stop WConfd again:
     result = utils.RunCmd([pathutils.DAEMON_UTIL, "stop", constants.WCONFD])
     if result.failed:
-      logging.error("Could not stop the configuration daemon,"
-                    " command %s had exitcode %s and error %s",
-                    result.cmd, result.exit_code, result.output)
+      warning = ("Could not stop the configuration daemon,"
+                 " command %s had exitcode %s and error %s"
+                 % (result.cmd, result.exit_code, result.output))
+      logging.error("%s", warning)
+      rcode = 1
 
   logging.info("Checking master IP non-reachability...")
 
@@ -1128,16 +1135,19 @@ def MasterFailover(no_voting=False):
   total_timeout = 30
 
   # Here we have a phase where no master should be running
-  def _check_ip():
-    if netutils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT):
+  def _check_ip(expected):
+    if netutils.TcpPing(master_ip, constants.DEFAULT_NODED_PORT) != expected:
       raise utils.RetryAgain()
 
   try:
-    utils.Retry(_check_ip, (1, 1.5, 5), total_timeout)
+    utils.Retry(_check_ip, (1, 1.5, 5), total_timeout, args=[False])
   except utils.RetryTimeout:
-    logging.warning("The master IP is still reachable after %s seconds,"
-                    " continuing but activating the master on the current"
-                    " node will probably fail", total_timeout)
+    warning = ("The master IP is still reachable after %s seconds,"
+               " continuing but activating the master IP on the current"
+               " node will probably fail" % total_timeout)
+    logging.warning("%s", warning)
+    warnings.append(warning)
+    rcode = 1
 
   if jstore.CheckDrainFlag():
     logging.info("Undraining job queue")
@@ -1153,8 +1163,21 @@ def MasterFailover(no_voting=False):
                   " %s, please check: %s", new_master, msg)
     rcode = 1
 
+  # Finally verify that the new master managed to set up the master IP
+  # and warn if it didn't.
+  try:
+    utils.Retry(_check_ip, (1, 1.5, 5), total_timeout, args=[True])
+  except utils.RetryTimeout:
+    warning = ("The master IP did not come up within %s seconds; the"
+               " cluster should still be working and reachable via %s,"
+               " but not via the master IP address"
+               % (total_timeout, new_master))
+    logging.warning("%s", warning)
+    warnings.append(warning)
+    rcode = 1
+
   logging.info("Master failed over from %s to %s", old_master, new_master)
-  return rcode
+  return rcode, warnings
 
 
 def GetMaster():
@@ -1183,10 +1206,6 @@ def GatherMasterVotes(node_names):
   knows, whereas the number of entries in the list could be different
   (if some nodes vote for another master).
 
-  We remove ourselves from the list since we know that (bugs aside)
-  since we use the same source for configuration information for both
-  backend and boostrap, we'll always vote for ourselves.
-
   @type node_names: list
   @param node_names: the list of nodes to query for master info; the current
       node will be removed if it is in the list
@@ -1194,13 +1213,8 @@ def GatherMasterVotes(node_names):
   @return: list of (node, votes)
 
   """
-  myself = netutils.Hostname.GetSysName()
-  try:
-    node_names.remove(myself)
-  except ValueError:
-    pass
   if not node_names:
-    # no nodes left (eventually after removing myself)
+    # no nodes
     return []
   results = rpc.BootstrapRunner().call_master_node_name(node_names)
   if not isinstance(results, dict):

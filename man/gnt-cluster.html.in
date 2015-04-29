@@ -77,7 +77,7 @@
 <h2 id="copyfile"><a href="#TOC">COPYFILE</a></h2>
 <p><strong>copyfile</strong> [--use-replication-network] [-n <em>node</em>] [-g <em>group</em>]<br />{<em>file</em>}</p>
 <p>Copies a file to all or to some nodes. The argument specifies the source file (on the current system), the <code>-n</code> argument specifies the target node, or nodes if the option is given multiple times. If <code>-n</code> is not given at all, the file will be copied to all nodes. The <code>-g</code> option can be used to only select nodes in a specific node group. Passing the <code>--use-replication-network</code> option will cause the copy to be done over the replication network (only matters if the primary/secondary IPs are different). Example:</p>
-<pre><code># gnt-cluster -n node1.example.com -n node2.example.com copyfile /tmp/test</code></pre>
+<pre><code># gnt-cluster copyfile -n node1.example.com -n node2.example.com /tmp/test</code></pre>
 <p>This will copy the file /tmp/test from the current node to the two named nodes.</p>
 <h2 id="deactivate-master-ip"><a href="#TOC">DEACTIVATE-MASTER-IP</a></h2>
 <p><strong>deactivate-master-ip</strong> [--yes]</p>

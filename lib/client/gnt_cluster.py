@@ -858,7 +858,10 @@ def MasterFailover(opts, args):
     if not AskUser(usertext):
       return 1
 
-  return bootstrap.MasterFailover(no_voting=opts.no_voting)
+  rvlaue, msgs = bootstrap.MasterFailover(no_voting=opts.no_voting)
+  for msg in msgs:
+    ToStderr(msg)
+  return rvlaue
 
 
 def MasterPing(opts, args):
@@ -2082,7 +2085,7 @@ def _UpgradeAfterConfigurationChange(oldversion):
   if not _RunCommandAndReport([pathutils.POST_UPGRADE, oldversion]):
     returnvalue = 1
 
-  ToStdout("Unpasuing the watcher.")
+  ToStdout("Unpausing the watcher.")
   if not _RunCommandAndReport(["gnt-cluster", "watcher", "continue"]):
     returnvalue = 1
 

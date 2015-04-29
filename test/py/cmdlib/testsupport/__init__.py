@@ -40,6 +40,7 @@ from cmdlib.testsupport.livelock_mock import LiveLockMock
 from cmdlib.testsupport.utils_mock import patchUtils
 from cmdlib.testsupport.netutils_mock import patchNetutils, HostnameMock
 from cmdlib.testsupport.processor_mock import ProcessorMock
+from cmdlib.testsupport.pathutils_mock import patchPathutils
 from cmdlib.testsupport.rpc_runner_mock import CreateRpcRunnerMock, \
   RpcResultsBuilder
 from cmdlib.testsupport.ssh_mock import patchSsh
@@ -54,6 +55,7 @@ __all__ = ["CmdlibTestCase",
            "patchUtils",
            "patchNetutils",
            "patchSsh",
+           "patchPathutils",
            "ProcessorMock",
            "RpcResultsBuilder",
            "LiveLockMock",
