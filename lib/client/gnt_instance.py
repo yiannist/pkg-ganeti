@@ -608,7 +608,9 @@ def GrowDisk(opts, args):
   op = opcodes.OpInstanceGrowDisk(instance_name=instance,
                                   disk=disk, amount=amount,
                                   wait_for_sync=opts.wait_for_sync,
-                                  absolute=opts.absolute)
+                                  absolute=opts.absolute,
+                                  ignore_ipolicy=opts.ignore_ipolicy
+                                  )
   SubmitOrSend(op, opts)
   return 0
 
@@ -864,14 +866,17 @@ def ConnectToInstanceConsole(opts, args):
   cl = GetClient()
   try:
     cluster_name = cl.QueryConfigValues(["cluster_name"])[0]
-    ((console_data, oper_state), ) = \
-      cl.QueryInstances([instance_name], ["console", "oper_state"], False)
+    idata = cl.QueryInstances([instance_name], ["console", "oper_state"], False)
+    if not idata:
+      raise errors.OpPrereqError("Instance '%s' does not exist" % instance_name,
+                                 errors.ECODE_NOENT)
   finally:
     # Ensure client connection is closed while external commands are run
     cl.Close()
 
   del cl
 
+  ((console_data, oper_state), ) = idata
   if not console_data:
     if oper_state:
       # Instance is running
@@ -1638,7 +1643,8 @@ commands = {
     GrowDisk,
     [ArgInstance(min=1, max=1), ArgUnknown(min=1, max=1),
      ArgUnknown(min=1, max=1)],
-    SUBMIT_OPTS + [NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT, ABSOLUTE_OPT],
+    SUBMIT_OPTS +
+    [NWSYNC_OPT, DRY_RUN_OPT, PRIORITY_OPT, ABSOLUTE_OPT, IGNORE_IPOLICY_OPT],
     "<instance> <disk> <size>", "Grow an instance's disk"),
   "change-group": (
     ChangeGroup, ARGS_ONE_INSTANCE,

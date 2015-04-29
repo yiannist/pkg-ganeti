@@ -2,6 +2,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE CPP #-}
 
 {-
 
@@ -44,6 +46,7 @@ module Ganeti.BasicTypes
   , toError
   , toErrorBase
   , toErrorStr
+  , tryError
   , Error(..) -- re-export from Control.Monad.Error
   , MonadIO(..) -- re-export from Control.Monad.IO.Class
   , isOk
@@ -71,6 +74,14 @@ module Ganeti.BasicTypes
   , ListSet(..)
   , emptyListSet
   ) where
+
+-- The following macro is just a temporary solution for 2.12 and 2.13.
+-- Since 2.14 cabal creates proper macros for all dependencies.
+#define MIN_VERSION_monad_control(maj,min,rev) \
+  (((maj)<MONAD_CONTROL_MAJOR)|| \
+   (((maj)==MONAD_CONTROL_MAJOR)&&((min)<=MONAD_CONTROL_MINOR))|| \
+   (((maj)==MONAD_CONTROL_MAJOR)&&((min)==MONAD_CONTROL_MINOR)&& \
+    ((rev)<=MONAD_CONTROL_REV)))
 
 import Control.Applicative
 import Control.Exception (try)
@@ -196,18 +207,33 @@ instance (MonadBase IO m, Error a) => MonadBase IO (ResultT a m) where
                    . (try :: IO a -> IO (Either IOError a))
 
 instance (Error a) => MonadTransControl (ResultT a) where
+#if MIN_VERSION_monad_control(1,0,0)
+-- Needs Undecidable instances
+  type StT (ResultT a) b = GenericResult a b
+  liftWith f = ResultT . liftM return $ f runResultT
+  restoreT = ResultT
+#else
   newtype StT (ResultT a) b = StResultT { runStResultT :: GenericResult a b }
   liftWith f = ResultT . liftM return $ f (liftM StResultT . runResultT)
   restoreT = ResultT . liftM runStResultT
+#endif
   {-# INLINE liftWith #-}
   {-# INLINE restoreT #-}
 
 instance (Error a, MonadBaseControl IO m)
          => MonadBaseControl IO (ResultT a m) where
+#if MIN_VERSION_monad_control(1,0,0)
+-- Needs Undecidable instances
+  type StM (ResultT a m) b
+    = ComposeSt (ResultT a) m b
+  liftBaseWith = defaultLiftBaseWith
+  restoreM = defaultRestoreM
+#else
   newtype StM (ResultT a m) b
     = StMResultT { runStMResultT :: ComposeSt (ResultT a) m b }
   liftBaseWith = defaultLiftBaseWith StMResultT
   restoreM = defaultRestoreM runStMResultT
+#endif
   {-# INLINE liftBaseWith #-}
   {-# INLINE restoreM #-}
 
@@ -250,6 +276,13 @@ toErrorBase = (toError =<<) . liftBase . runResultT
 -- to a monad stack. See also 'annotateResult'.
 toErrorStr :: (MonadError e m, Error e) => Result a -> m a
 toErrorStr = withError strMsg
+
+-- | Run a given computation and if an error occurs, return it as `Left` of
+-- `Either`.
+-- This is a generalized version of 'try'.
+tryError :: (MonadError e m) => m a -> m (Either e a)
+tryError = flip catchError (return . Left) . liftM Right
+{-# INLINE tryError #-}
 
 -- | Converts a monadic result with a 'String' message into
 -- a 'ResultT' with an arbitrary 'Error'.

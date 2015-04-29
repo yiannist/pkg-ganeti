@@ -5,6 +5,123 @@ News
 ====
 
 
+Version 2.12.3
+--------------
+
+*(Released Wed, 29 Apr 2015)*
+
+- Fixed Issue #1019: upgrade from 2.6.2 to 2.12 fails. cfgupgrade
+  doesn't migrate the config.data file properly
+- Fixed Issue 1023: Master master-capable option bug
+- Fixed Issue 1068: gnt-network info outputs wrong external reservations
+- Fixed Issue 1070: Upgrade of Ganeti 2.5.2 to 2.12.0 fails due to
+  missing UUIDs for disks
+- Fixed Issue 1073: ssconf_hvparams_* not distributed with ssconf
+
+Inherited from the 2.11 branch:
+
+- Fixed Issue 1032: Renew-crypto --new-node-certificates sometimes does not
+  complete.
+  The operation 'gnt-cluster renew-crypto --new-node-certificates' is
+  now more robust against intermitten reachability errors. Nodes that
+  are temporarily not reachable, are contacted with several retries.
+  Nodes which are marked as offline are omitted right away.
+
+Inherited from the 2.10 branch:
+
+- Fixed Issue 1057: master-failover succeeds, but IP remains assigned to
+  old master
+- Fixed Issue 1058: Python's os.minor() does not support devices with
+  high minor numbers
+- Fixed Issue 1059: Luxid fails if DNS returns an IPv6 address that does
+  not reverse resolve
+
+Known issues
+~~~~~~~~~~~~
+
+Pending since 2.12.2:
+
+- GHC 7.8 introduced some incompatible changes, so currently Ganeti
+  2.12. doesn't compile on GHC 7.8
+- Under certain conditions instance doesn't get unpaused after live
+  migration (issue #1050)
+- GlusterFS support breaks at upgrade to 2.12 - switches back to
+  shared-file (issue #1030)
+
+
+Version 2.12.2
+--------------
+
+*(Released Wed, 25 Mar 2015)*
+
+- Support for the lens Haskell library up to version 4.7 (issue #1028)
+- SSH keys are now distributed only to master and master candidates
+  (issue #377)
+- Improved performance for operations that frequently read the
+  cluster configuration
+- Improved robustness of spawning job processes that occasionally caused
+  newly-started jobs to timeout
+- Fixed race condition during cluster verify which occasionally caused
+  it to fail
+
+Inherited from the 2.11 branch:
+
+- Fix failing automatic glusterfs mounts (issue #984)
+- Fix watcher failing to read its status file after an upgrade
+  (issue #1022)
+- Improve Xen instance state handling, in particular of somewhat exotic
+  transitional states
+
+Inherited from the 2.10 branch:
+
+- Fix failing to change a diskless drbd instance to plain
+  (issue #1036)
+- Fixed issues with auto-upgrades from pre-2.6
+  (hv_state_static and disk_state_static)
+- Fix memory leak in the monitoring daemon
+
+Inherited from the 2.9 branch:
+
+- Fix file descriptor leak in Confd client
+
+Known issues
+~~~~~~~~~~~~
+
+- GHC 7.8 introduced some incompatible changes, so currently Ganeti
+  2.12. doesn't compile on GHC 7.8
+- Under certain conditions instance doesn't get unpaused after live
+  migration (issue #1050)
+- GlusterFS support breaks at upgrade to 2.12 - switches back to
+  shared-file (issue #1030)
+
+
+Version 2.12.1
+--------------
+
+*(Released Wed, 14 Jan 2015)*
+
+- Fix users under which the wconfd and metad daemons run (issue #976)
+- Clean up stale livelock files (issue #865)
+- Fix setting up the metadata daemon's network interface for Xen
+- Make watcher identify itself on disk activation
+- Add "ignore-ipolicy" option to gnt-instance grow-disk
+- Check disk size ipolicy during "gnt-instance grow-disk" (issue #995)
+
+Inherited from the 2.11 branch:
+
+- Fix counting votes when doing master failover (issue #962)
+- Fix broken haskell dependencies (issues #758 and #912)
+- Check if IPv6 is used directly when running SSH (issue #892)
+
+Inherited from the 2.10 branch:
+
+- Fix typo in gnt_cluster output (issue #1015)
+- Use the Python path detected at configure time in the top-level Python
+  scripts.
+- Fix check for sphinx-build from python2-sphinx
+- Properly check if an instance exists in 'gnt-instance console'
+
+
 Version 2.12.0
 --------------
 
@@ -174,6 +291,17 @@ Version 2.12.0 beta1
 
 This was the first beta release of the 2.12 series. All important changes
 are listed in the latest 2.12 entry.
+
+
+Version 2.11.7
+--------------
+
+*(Released Fri, 17 Apr 2015)*
+
+- The operation 'gnt-cluster renew-crypto --new-node-certificates' is
+  now more robust against intermitten reachability errors. Nodes that
+  are temporarily not reachable, are contacted with several retries.
+  Nodes which are marked as offline are omitted right away.
 
 
 Version 2.11.6

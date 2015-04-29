@@ -354,7 +354,7 @@ instance Show LogicalVolume where
   showsPrec _ (LogicalVolume g v) =
     showString g . showString "/" . showString v
 
--- | Check the constraints for a VG/LV names (except the @/dev/@ check).
+-- | Check the constraints for a VG/LV names (except the @\/dev\/@ check).
 instance Validatable LogicalVolume where
   validate (LogicalVolume g v) = do
       let vgn = "Volume group name"
@@ -761,7 +761,7 @@ ipFamilyToVersion IpFamilyV4 = C.ip4Version
 ipFamilyToVersion IpFamilyV6 = C.ip6Version
 
 -- | Cluster HvParams (hvtype to hvparams mapping).
-type ClusterHvParams = Container HvParams
+type ClusterHvParams = GenericContainer Hypervisor HvParams
 
 -- | Cluster Os-HvParams (os to hvparams mapping).
 type OsHvParams = Container ClusterHvParams
@@ -848,8 +848,10 @@ $(buildObject "Cluster" "cluster" $
   , simpleField "primary_ip_family"              [t| IpFamily               |]
   , simpleField "prealloc_wipe_disks"            [t| Bool                   |]
   , simpleField "ipolicy"                        [t| FilledIPolicy          |]
-  , simpleField "hv_state_static"                [t| HypervisorState        |]
-  , simpleField "disk_state_static"              [t| DiskState              |]
+  , defaultField [| emptyContainer |] $
+    simpleField "hv_state_static"                [t| HypervisorState        |]
+  , defaultField [| emptyContainer |] $
+    simpleField "disk_state_static"              [t| DiskState              |]
   , simpleField "enabled_disk_templates"         [t| [DiskTemplate]         |]
   , simpleField "candidate_certs"                [t| CandidateCertificates  |]
   , simpleField "max_running_jobs"               [t| Int                    |]

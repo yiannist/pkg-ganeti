@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
 m4_define([gnt_version_minor], [12])
-m4_define([gnt_version_revision], [0])
+m4_define([gnt_version_revision], [3])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -107,6 +107,24 @@ AC_ARG_ENABLE([haskell-tests],
   ])
 AC_SUBST(HTEST, $HTEST)
 AM_CONDITIONAL([HTEST], [test "$HTEST" = yes])
+
+# --enable-developer-mode
+AC_ARG_ENABLE([developer-mode],
+  [AS_HELP_STRING([--enable-developer-mode],
+                  m4_normalize([do a developper build with additional
+                  checks and fatal warnings; this is implied by enabling
+                  the haskell tests]))],
+  [[if test "$enableval" != no; then
+      DEVELOPER_MODE=yes
+    else
+      DEVELOPER_MODE=no
+    fi
+  ]],
+  [DEVELOPER_MODE=no
+  ])
+AC_SUBST(DEVELOPER_MODE, $DEVELOPER_MODE)
+AM_CONDITIONAL([DEVELOPER_MODE],
+               [test "$DEVELOPER_MODE" = yes -o "$HTEST" = yes])
 
 # --with-haskell-flags=
 AC_ARG_WITH([haskell-flags],
@@ -338,11 +356,11 @@ AC_ARG_WITH([group-prefix],
   [group_rapi="${withval}rapi";
    group_admin="${withval}admin";
    group_confd="${withval}confd";
-   group_wconfd="${withval}wconfd";
+   group_wconfd="${withval}masterd";
    group_kvmd="$group_default";
    group_luxid="${withval}luxid";
    group_masterd="${withval}masterd";
-   group_metad="${withval}metad";
+   group_metad="$group_default";
    group_noded="$group_default";
    group_daemons="${withval}daemons";
    group_mond="$group_default"],
@@ -494,7 +512,7 @@ else
   # Note: Character classes ([...]) need to be double quoted due to autoconf
   # using m4
   elif ! echo "$sphinxver" | grep -q -E \
-       '^Sphinx[[[:space:]]]+(\(sphinx-build\)[[[:space:]]]+|v)[[1-9]]\>'; then
+       '^Sphinx([[[:space:]]]+|\(sphinx-build[[1-9]]?\)|v)*[[1-9]]\>'; then
     AC_MSG_ERROR([Sphinx 1.0 or higher is required])
   fi
 fi

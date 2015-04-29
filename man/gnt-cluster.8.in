@@ -96,7 +96,7 @@ Example:
 .IP
 .nf
 \f[C]
-#\ gnt-cluster\ -n\ node1.example.com\ -n\ node2.example.com\ copyfile\ /tmp/test
+#\ gnt-cluster\ copyfile\ -n\ node1.example.com\ -n\ node2.example.com\ /tmp/test
 \f[]
 .fi
 .PP

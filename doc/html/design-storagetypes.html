@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Management of storage types and disk templates, incl. storage space reporting &mdash; Ganeti 2.12.0 documentation</title>
+    <title>Management of storage types and disk templates, incl. storage space reporting &mdash; Ganeti 2.12.3 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.12.0',
+        VERSION:     '2.12.3',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.12.0 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.12.3 documentation" href="index.html" />
     <link rel="next" title="Systemd integration" href="design-systemd.html" />
     <link rel="prev" title="Design for supporting custom SSH ports for nodes" href="design-ssh-ports.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="design-ssh-ports.html" title="Design for supporting custom SSH ports for nodes"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.3 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -74,7 +74,7 @@
 <h2><a class="toc-backref" href="#id2">Background</a><a class="headerlink" href="#background" title="Permalink to this headline">¶</a></h2>
 <p>Currently, there is no consistent management of different variants of storage
 in Ganeti. One direct consequence is that storage space reporting is currently
-broken for all storage that is not based on lvm technolgy. This design looks at
+broken for all storage that is not based on lvm technology. This design looks at
 the root causes and proposes a way to fix it.</p>
 </div>
 <div class="section" id="proposed-changes">
@@ -266,7 +266,7 @@ displayed in <tt class="docutils literal"><span class="pre">gnt-node</span> <spa
 extended storage reporting capabilities. The user can specify a storage
 type using <tt class="docutils literal"><span class="pre">--storage-type</span></tt>. If he requests storage information about
 a storage type which does not support space reporting, a warning is
-emitted. If no storage type is specified explicitely, <tt class="docutils literal"><span class="pre">gnt-node</span>
+emitted. If no storage type is specified explicitly, <tt class="docutils literal"><span class="pre">gnt-node</span>
 <span class="pre">list-storage</span></tt> will try to report storage on the storage type of the
 default disk template. If the default disk template&#8217;s storage type does
 not support space reporting, an error message is emitted.</p>
@@ -395,7 +395,7 @@ concerned with this design doc, as those are seen as a separate resource.</p>
         <li class="right" >
           <a href="design-ssh-ports.html" title="Design for supporting custom SSH ports for nodes"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.12.0 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.3 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">

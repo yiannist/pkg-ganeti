@@ -175,7 +175,7 @@ proposed, and presented hereafter.
 
 ``Configuration query daemon (RConfD)``
   It is written in Haskell, and it corresponds to the old ConfD. It will run on
-  all the master candidates and it will serve information about the the static
+  all the master candidates and it will serve information about the static
   configuration of the cluster (the one contained in ``config.data``). The
   provided information will be highly available (as in: a response will be
   available as long as a stable-enough connection between the client and at
@@ -351,12 +351,12 @@ The proposed procedure:
 #. Only then the child process can replace itself by the actual job
    process.
 
-If the child process detect that the pipe is broken before receiving the
+If the child process detects that the pipe is broken before receiving the
 confirmation, it must terminate, not starting the actual job.
-This way, the actual job is only started if its ensured that its lock
+This way, the actual job is only started if it is ensured that its lock
 file name is written to the job file.
 
-If the Luxi daemon detect that the pipe is broken before successfully
+If the Luxi daemon detects that the pipe is broken before successfully
 sending the confirmation in step 4., it assumes that the job has failed.
 If the pipe gets broken after sending the confirmation, no further
 action is necessary. If the child doesn't receive the confirmation,
@@ -436,16 +436,10 @@ Step 2:
      methods to WConfD.
 
 Step 3:
-  #. Remove WConfD's RPC functions for obtaining/releasing the single
-     internal lock from Step 1.
-  #. Remove WConfD's RPC functions for sending/receiving the whole
-     configuration from Step 1.
+  In a later step, the impact of the config lock will be reduced by moving
+  it more and more into an internal detail of WConfD. This process will be
+  detailed in a forthcoming design document.
 
-Future aims:
-
--  Optionally refactor the RPC calls to reduce their number or improve their
-   efficiency (for example by obtaining a larger set of data instead of
-   querying items one by one).
 
 Locking
 +++++++
@@ -552,7 +546,7 @@ In order to deal with this situation, each job will update its job file
 in the queue. This is race free, as LuxiD will no longer touch the job file,
 once the job is started; a corollary of this is that the job also has to
 take care of replicating updates to the job file. LuxiD will watch job files for
-changes to determine when a job as cleanly finished. To determine jobs
+changes to determine when a job was cleanly finished. To determine jobs
 that died without having the chance of updating the job file, the `Job death
 detection`_ mechanism will be used.
 

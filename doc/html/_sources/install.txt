@@ -286,9 +286,11 @@ instances on a node.
 
    Then to configure it for Ganeti::
 
-     $ echo drbd minor_count=128 usermode_helper=/bin/true >> /etc/modules
+     $ echo "options drbd minor_count=128 usermode_helper=/bin/true" \
+        > /etc/modprobe.d/drbd.conf
+     $ echo "drbd" >> /etc/modules
      $ depmod -a
-     $ modprobe drbd minor_count=128 usermode_helper=/bin/true
+     $ modprobe drbd
 
    It is also recommended that you comment out the default resources (if any)
    in the ``/etc/drbd.conf`` file, so that the init script doesn't try to
@@ -612,7 +614,7 @@ Installing Ganeti
 **Mandatory** on all nodes.
 
 It's now time to install the Ganeti software itself.  Download the
-source from the project page at `<http://code.google.com/p/ganeti/>`_,
+source from the project page at `<http://downloads.ganeti.org/releases/>`_,
 and install it (replace 2.6.0 with the latest version)::
 
   $ tar xvzf ganeti-%2.6.0%.tar.gz

@@ -242,6 +242,10 @@ instance Arbitrary ClusterHvParams where
 instance Arbitrary OsHvParams where
   arbitrary = return $ GenericContainer Map.empty
 
+-- | No real arbitrary instance for 'GroupDiskParams' yet.
+instance Arbitrary GroupDiskParams where
+  arbitrary = return $ GenericContainer Map.empty
+
 instance Arbitrary ClusterNicParams where
   arbitrary = (GenericContainer . Map.singleton C.ppDefault) <$> arbitrary
 
@@ -315,7 +319,8 @@ genEmptyCluster ncount = do
   grp <- arbitrary
   let guuid = groupUuid grp
       nodes' = zipWith (\n idx ->
-                          let newname = nodeName n ++ "-" ++ show idx
+                          let newname = takeWhile (/= '.') (nodeName n)
+                                        ++ "-" ++ show idx
                           in (newname, n { nodeGroup = guuid,
                                            nodeName = newname}))
                nodes [(1::Int)..]

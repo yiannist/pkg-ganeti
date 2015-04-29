@@ -47,10 +47,12 @@ import qa_config
 import qa_daemon
 import qa_error
 import qa_instance
+import qa_job_utils
 import qa_logging
 import qa_utils
 
-from qa_utils import AssertEqual, AssertCommand, GetCommandOutput
+from qa_utils import AssertEqual, AssertCommand, GetCommandOutput, \
+                     CheckFileUnmodified
 
 
 # Prefix for LVM volumes created by QA code during tests
@@ -149,8 +151,9 @@ def AssertClusterVerify(fail=False, errors=None,
   cvcmd = "gnt-cluster verify"
   mnode = qa_config.GetMasterNode()
   if errors or warnings or no_warnings:
-    cvout = GetCommandOutput(mnode.primary, cvcmd + " --error-codes",
-                             fail=(fail or errors))
+    with CheckFileUnmodified(mnode.primary, pathutils.CLUSTER_CONF_FILE):
+      cvout = GetCommandOutput(mnode.primary, cvcmd + " --error-codes",
+                               fail=(fail or errors))
     print cvout
     (act_errs, act_warns) = _GetCVErrorCodes(cvout)
     if errors:
@@ -161,7 +164,8 @@ def AssertClusterVerify(fail=False, errors=None,
       _CheckVerifyNoWarnings(act_warns, no_warnings)
 
   else:
-    AssertCommand(cvcmd, fail=fail, node=mnode)
+    with CheckFileUnmodified(mnode.primary, pathutils.CLUSTER_CONF_FILE):
+      AssertCommand(cvcmd, fail=fail, node=mnode)
 
 
 # data for testing failures due to bad keys/values for disk parameters
@@ -364,24 +368,25 @@ def TestClusterEpo():
   # Unless --all is given master is not allowed to be in the list
   AssertCommand(["gnt-cluster", "epo", "-f", master.primary], fail=True)
 
-  # This shouldn't fail
-  AssertCommand(["gnt-cluster", "epo", "-f", "--all"])
+  with qa_job_utils.PausedWatcher():
+    # This shouldn't fail
+    AssertCommand(["gnt-cluster", "epo", "-f", "--all"])
 
-  # All instances should have been stopped now
-  result_output = GetCommandOutput(master.primary,
-                                   "gnt-instance list --no-headers -o status")
-  # ERROR_down because the instance is stopped but not recorded as such
-  AssertEqual(compat.all(status == "ERROR_down"
-                         for status in result_output.splitlines()), True)
+    # All instances should have been stopped now
+    result_output = GetCommandOutput(master.primary,
+                                     "gnt-instance list --no-headers -o status")
+    # ERROR_down because the instance is stopped but not recorded as such
+    AssertEqual(compat.all(status == "ERROR_down"
+                           for status in result_output.splitlines()), True)
 
-  # Now start everything again
-  AssertCommand(["gnt-cluster", "epo", "--on", "-f", "--all"])
+    # Now start everything again
+    AssertCommand(["gnt-cluster", "epo", "--on", "-f", "--all"])
 
-  # All instances should have been started now
-  result_output = GetCommandOutput(master.primary,
-                                   "gnt-instance list --no-headers -o status")
-  AssertEqual(compat.all(status == "running"
-                         for status in result_output.splitlines()), True)
+    # All instances should have been started now
+    result_output = GetCommandOutput(master.primary,
+                                     "gnt-instance list --no-headers -o status")
+    AssertEqual(compat.all(status == "running"
+                           for status in result_output.splitlines()), True)
 
 
 def TestClusterVerify():
