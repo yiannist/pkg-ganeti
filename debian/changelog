@@ -1,3 +1,67 @@
+ganeti (2.12.3-1) unstable; urgency=medium
+
+  [ Apollon Oikonomopoulos ]
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
+    Fixes in 2.12.1:
+      + Clean up stale livelock files
+      + Fix setting up the metadata daemon's network interface for Xen
+      + Make the watcher visible on the reason trail on disk activation
+      + Allow `gnt-instance grow-disk' to ignore instance policy
+      + Fix counting votes when doing master failover
+      + Properly check for IPv6 use before making an SSH connection
+      + Properly check if an instance exists in `gnt-instance console'
+
+    Fixes in 2.12.2:
+      + Detect and report non-master status on socket connection errors
+        (closes: #783388, #781084)
+      + Improve error handling when looking up instances (closes: #776770)
+      + SSH keys are now distributed only to master and master candidates
+      + Improve performance for operations with frequent configuration reads
+      + Improve robustness of spawning job processes, fixing timeouts
+      + Fix a race condition that caused cluster verify to fail
+      + Fix failing automatic glusterfs mounts
+      + Fix watcher failing to read its status file on upgrade
+      + Fix Xen instance state handling, taking transitional states into
+        account (closes: #776772)
+      + Fix conversion of diskless DRBD instances to plain
+      + Fix upgrades from pre-2.6 versions, by handling hv_state_static and
+        disk_state_static configuration fields
+      + Fix a memory leak in the monitoring daemon
+      + Fix a file descriptor leak in the ConfD client
+
+    Fixes in 2.12.3:
+      + Fix config.data upgrade issues from older versions (closes: #783186)
+      + Do not allow the master node to lose its master capability
+      + Properly display externally reserved IPs in `gnt-network info' output
+      + Properly distribute ssconf_hvparams_* using ssconf
+      + Improve `gnt-cluster renew-crypto' robustness against node
+        reachability errors
+      + Make sure the master IP is always removed from the old master after
+        master-failover
+      + Work around Python's os.minor() not supporting devices with high
+        (> 255) minor numbers (closes: #782073)
+      + Fix Luxid failure when DNS returns an IPv6 address that does not
+        reverse resolve
+  * Backport upstream commits to fix compilation under GHC 7.8:
+    + b78a2c3 Makefile.am: Fix wrong -dep-suffix for GHC 7.8
+    + 083776b Fix compiler invocation for GHC >= 7.8
+    + 9664aff Makefile.am: Don't use dots in -osuf
+    + 1ad14f3 Makefile.am: Don't use -dynamic-too for .hpc_o files
+  * Build-depend on dh-autoreconf and use dh_autoreconf to make the GHC 7.8
+    patch effective
+  * Drop fix-wconfd-metad patch, merged upstream.
+  * d/copyright: adjust copyright years
+
+  [ Gregory Potamianos ]
+  * molly-guard: detect master status and warn when attempting to shutdown or
+    reboot the master node.
+
+  [ Debconf translations ]
+  * Dutch (Frans Spiesschaert, closes: #765856)
+  * Swedish (Martin Bagge, closes: #769870)
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 29 Apr 2015 14:06:45 +0300
+
 ganeti (2.12.0-3) unstable; urgency=medium
 
   * Use proper groups for wconfd and metad (closes: #765764).
