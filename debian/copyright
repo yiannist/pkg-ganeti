@@ -3,12 +3,12 @@ Upstream-Name: ganeti
 Source: http://code.google.com/p/ganeti
 
 Files: *
-Copyright: Copyright (c) 2006-2014 Google Inc.
+Copyright: Copyright (c) 2006-2015 Google Inc.
 License: BSD-2-Clause
 
 Files: debian/*
 Copyright: Copyright (c) 2007 Leonardo Rodrigues de Mello <l@lmello.eu.org>
-           Copyright (c) 2007-2013 Debian Ganeti Team <pkg-ganeti@lists.alioth.debian.org>
+           Copyright (c) 2007-2015 Debian Ganeti Team <pkg-ganeti@lists.alioth.debian.org>
 License: GPL-2+
 
 Files: doc/html/_static/basic.css
