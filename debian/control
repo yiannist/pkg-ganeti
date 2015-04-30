@@ -5,6 +5,7 @@ Maintainer: Debian Ganeti Team <pkg-ganeti-devel@lists.alioth.debian.org>
 Uploaders: Guido Trotter <ultrotter@debian.org>,
  Apollon Oikonomopoulos <apoikos@debian.org>
 Build-Depends: debhelper (>= 9),
+ dh-autoreconf,
  m4,
  python-all,
  ghc (>= 6.12),

@@ -8,7 +8,7 @@ VER = $(shell cat vcs-version | sed -r 's/v([0-9]+\.[0-9]+)(\..*)/\1/')
 GNT_USERGROUP_PREFIX="gnt-"
 
 %:
-	dh $@ --with python2,sphinxdoc,bash_completion
+	dh $@ --with python2,sphinxdoc,bash_completion,autoreconf
 
 debian/control: debian/control.in vcs-version
 	sed -s 's/#VER#/$(VER)/g' debian/control.in > debian/control
