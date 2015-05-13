@@ -1,3 +1,19 @@
+ganeti (2.12.4-1) unstable; urgency=medium
+
+  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz), including
+    the following fixes:
+    + Fix a performance regression in 2.12 during gnt-cluster verify and
+      gnt-cluster verify-disks (high CPU usage) (closes: #784620).
+    + Make the RAPI responsive after master-failover.
+    + Fix gnt-cluster verify reporting existing instance disks on
+      non-default VGs as missing.
+  * Drop GHC 7.8 patch
+    + It is part of the 2.12.4 release.
+  * Drop dh_autoreconf
+    + Not needed after removing the GHC 7.8 patch.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 13 May 2015 12:29:19 +0300
+
 ganeti (2.12.3-1) unstable; urgency=medium
 
   [ Apollon Oikonomopoulos ]
