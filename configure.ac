@@ -1,7 +1,7 @@
 # Configure script for Ganeti
 m4_define([gnt_version_major], [2])
 m4_define([gnt_version_minor], [12])
-m4_define([gnt_version_revision], [3])
+m4_define([gnt_version_revision], [4])
 m4_define([gnt_version_suffix], [])
 m4_define([gnt_version_full],
           m4_format([%d.%d.%d%s],
@@ -618,6 +618,10 @@ AC_PATH_PROG(GHC, [ghc], [])
 if test -z "$GHC"; then
   AC_MSG_FAILURE([ghc not found, compilation will not possible])
 fi
+
+# Note: Character classes ([...]) need to be double quoted due to autoconf
+# using m4
+AM_CONDITIONAL([GHC_LE_76], [$GHC --numeric-version | grep -q '^7\.[[0-6]]\.'])
 
 AC_MSG_CHECKING([checking for extra GHC flags])
 GHC_BYVERSION_FLAGS=

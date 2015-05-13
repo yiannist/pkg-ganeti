@@ -8,7 +8,7 @@
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     
-    <title>Ganeti installation tutorial &mdash; Ganeti 2.12.3 documentation</title>
+    <title>Ganeti installation tutorial &mdash; Ganeti 2.12.4 documentation</title>
     
     <link rel="stylesheet" href="_static/style.css" type="text/css" />
     <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
@@ -16,7 +16,7 @@
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
         URL_ROOT:    '',
-        VERSION:     '2.12.3',
+        VERSION:     '2.12.4',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
         HAS_SOURCE:  true
@@ -25,7 +25,7 @@
     <script type="text/javascript" src="_static/jquery.js"></script>
     <script type="text/javascript" src="_static/underscore.js"></script>
     <script type="text/javascript" src="_static/doctools.js"></script>
-    <link rel="top" title="Ganeti 2.12.3 documentation" href="index.html" />
+    <link rel="top" title="Ganeti 2.12.4 documentation" href="index.html" />
     <link rel="next" title="Ganeti quick installation guide" href="install-quick.html" />
     <link rel="prev" title="Ganeti automatic instance allocation" href="iallocator.html" /> 
   </head>
@@ -39,7 +39,7 @@
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              accesskey="P">previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.12.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.4 documentation</a> &raquo;</li> 
       </ul>
     </div>  
 
@@ -320,7 +320,9 @@ your instances to DRBD to take advantage of the new features.</p>
 <p>Supported DRBD versions: 8.0-8.4. It&#8217;s recommended to have at least
 version 8.0.12. Note that for version 8.2 and newer it is needed to pass
 the <tt class="docutils literal"><span class="pre">usermode_helper=/bin/true</span></tt> parameter to the module, either by
-configuring <tt class="docutils literal"><span class="pre">/etc/modules</span></tt> or when inserting it manually.</p>
+configuring <tt class="docutils literal"><span class="pre">/etc/modules</span></tt> or when inserting it manually. When using
+Xen and DRBD 8.3.2 or higher, it is <a class="reference external" href="https://drbd.linbit.com/users-guide/s-xen-drbd-mod-params.html">recommended</a> to use the
+<tt class="docutils literal"><span class="pre">disable_sendpage=1</span></tt> setting as well.</p>
 <p>Now the bad news: unless your distribution already provides it
 installing DRBD might involve recompiling your kernel or anyway fiddling
 with it. Hopefully at least the Xen-ified kernel source to start from
@@ -971,7 +973,7 @@ instance level.</td></tr>
         <li class="right" >
           <a href="iallocator.html" title="Ganeti automatic instance allocation"
              >previous</a> |</li>
-        <li><a href="index.html">Ganeti 2.12.3 documentation</a> &raquo;</li> 
+        <li><a href="index.html">Ganeti 2.12.4 documentation</a> &raquo;</li> 
       </ul>
     </div>
     <div class="footer">
