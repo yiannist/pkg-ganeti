@@ -63,27 +63,35 @@ POST_UNINSTALL = :
 @ENABLE_MOND_TRUE@am__append_5 = src/ganeti-mond
 @ENABLE_METADATA_TRUE@am__append_6 = src/ganeti-metad
 @DEVELOPER_MODE_TRUE@am__append_7 = -Werror
-@HCOVERAGE_TRUE@am__append_8 = -fhpc
-@HTEST_TRUE@am__append_9 = -DTEST
-@HAS_SPHINX_TRUE@@MANPAGES_IN_DOC_TRUE@am__append_10 = doc/man-html
-@HAS_SPHINX_TRUE@@MANPAGES_IN_DOC_FALSE@am__append_11 = doc/html
-@WANT_HSTESTS_TRUE@am__append_12 = $(HS_TEST_PROGS:%=%.hs)
-@ENABLE_CONFD_TRUE@am__append_13 = src/ganeti-confd
-@ENABLE_MOND_TRUE@am__append_14 = src/ganeti-mond
-@ENABLE_METADATA_TRUE@am__append_15 = src/ganeti-metad
-@PY_UNIT_TRUE@am__append_16 = $(python_tests)
-@WANT_HSTESTS_TRUE@am__append_17 = $(haskell_tests)
-@WANT_HSTESTS_TRUE@am__append_18 = test/hs/offline-test.sh
-@WANT_HSTESTS_TRUE@am__append_19 = \
+@GHC_LE_76_TRUE@am__append_8 = -dep-suffix $(HPROF_SUFFIX) -dep-suffix $(HTEST_SUFFIX)
+# GHC >= 7.8 stopped putting underscores into -dep-suffix by itself
+# (https://ghc.haskell.org/trac/ghc/ticket/9749) so we have to put them.
+# It also needs -dep-suffix "" for the .o file.
+@GHC_LE_76_FALSE@am__append_9 = -dep-suffix $(HPROF_SUFFIX)_ -dep-suffix $(HTEST_SUFFIX)_ \
+@GHC_LE_76_FALSE@	-dep-suffix ""
+
+@GHC_LE_76_FALSE@am__append_10 = -dynamic-too
+@HCOVERAGE_TRUE@am__append_11 = -fhpc
+@HTEST_TRUE@am__append_12 = -DTEST
+@HAS_SPHINX_TRUE@@MANPAGES_IN_DOC_TRUE@am__append_13 = doc/man-html
+@HAS_SPHINX_TRUE@@MANPAGES_IN_DOC_FALSE@am__append_14 = doc/html
+@WANT_HSTESTS_TRUE@am__append_15 = $(HS_TEST_PROGS:%=%.hs)
+@ENABLE_CONFD_TRUE@am__append_16 = src/ganeti-confd
+@ENABLE_MOND_TRUE@am__append_17 = src/ganeti-mond
+@ENABLE_METADATA_TRUE@am__append_18 = src/ganeti-metad
+@PY_UNIT_TRUE@am__append_19 = $(python_tests)
+@WANT_HSTESTS_TRUE@am__append_20 = $(haskell_tests)
+@WANT_HSTESTS_TRUE@am__append_21 = test/hs/offline-test.sh
+@WANT_HSTESTS_TRUE@am__append_22 = \
 @WANT_HSTESTS_TRUE@	test/hs/hpc-htools \
 @WANT_HSTESTS_TRUE@	test/hs/hpc-mon-collector \
 @WANT_HSTESTS_TRUE@	$(HS_BUILT_TEST_HELPERS)
 
-@PY_UNIT_TRUE@am__append_20 = $(python_tests) $(python_test_support)
-@HAS_PEP8_TRUE@am__append_21 = pep8
-@HAS_HLINT_TRUE@am__append_22 = hlint
-@HS_UNIT_TRUE@am__append_23 = hs-coverage
-@PY_UNIT_TRUE@am__append_24 = py-coverage
+@PY_UNIT_TRUE@am__append_23 = $(python_tests) $(python_test_support)
+@HAS_PEP8_TRUE@am__append_24 = pep8
+@HAS_HLINT_TRUE@am__append_25 = hlint
+@HS_UNIT_TRUE@am__append_26 = hs-coverage
+@PY_UNIT_TRUE@am__append_27 = py-coverage
 subdir = .
 DIST_COMMON = README $(am__configure_deps) $(client_PYTHON) \
 	$(cmdlib_PYTHON) $(confd_PYTHON) $(dist_ifup_SCRIPTS) \
@@ -1016,16 +1024,25 @@ HS_SRC_PROGS = $(filter-out test/%,$(HS_ALL_PROGS))
 HS_PROG_SRCS = $(patsubst %,%.hs,$(HS_DEFAULT_PROGS)) src/mon-collector.hs
 HS_BUILT_TEST_HELPERS = $(HS_BIN_ROLES:%=test/hs/%) test/hs/hail
 HFLAGS = -O -Wall -isrc -fwarn-monomorphism-restriction -fwarn-tabs \
-	$(GHC_BYVERSION_FLAGS) $(am__append_7) $(am__append_8) \
-	$(am__append_9)
+	$(GHC_BYVERSION_FLAGS) $(am__append_7) $(am__append_11) \
+	$(am__append_12)
 HTEST_SUFFIX = hpc
 HPROF_SUFFIX = prof
+DEP_SUFFIXES = $(am__append_8) $(am__append_9)
+
+# GHC > 7.6 needs -dynamic-too when using Template Haskell since its
+# ghci is switched to loading dynamic libraries by default.
+# It must only be used in non-profiling GHC invocations.
+# We also don't use it in compilations that use HTEST_SUFFIX (which are
+# compiled with -fhpc) because HPC coverage doesn't interact well with
+# GHCI shared lib loading (https://ghc.haskell.org/trac/ghc/ticket/9762).
+HFLAGS_DYNAMIC = $(am__append_10)
 @HPROFILE_TRUE@HPROFFLAGS = -prof -fprof-auto-top -osuf $(HPROF_SUFFIX)_o \
 @HPROFILE_TRUE@	-hisuf $(HPROF_SUFFIX)_hi -rtsopts
 
 HTEST_FLAGS = $(HFLAGS) -fhpc -itest/hs \
-	-osuf .$(HTEST_SUFFIX)_o \
-	-hisuf .$(HTEST_SUFFIX)_hi
+	-osuf $(HTEST_SUFFIX)_o \
+	-hisuf $(HTEST_SUFFIX)_hi
 
 
 # extra flags that can be overriden on the command line (e.g. -Wwarn, etc.)
@@ -1287,7 +1304,7 @@ userspecs = \
 # distributed)
 noinst_DATA = $(BUILT_EXAMPLES) doc/examples/bash_completion \
 	doc/examples/bash_completion-debug $(userspecs) $(manhtml) \
-	$(am__append_10) $(am__append_11)
+	$(am__append_13) $(am__append_14)
 gnt_scripts = \
 	scripts/gnt-backup \
 	scripts/gnt-cluster \
@@ -1343,13 +1360,13 @@ qa_scripts = \
 
 bin_SCRIPTS = $(HS_BIN_PROGS)
 HS_SRCS = $(HS_LIBTESTBUILT_SRCS)
-HS_MAKEFILE_GHC_SRCS = $(HS_SRC_PROGS:%=%.hs) $(am__append_12)
+HS_MAKEFILE_GHC_SRCS = $(HS_SRC_PROGS:%=%.hs) $(am__append_15)
 dist_sbin_SCRIPTS = \
 	tools/ganeti-listrunner
 
 nodist_sbin_SCRIPTS = daemons/ganeti-cleaner src/ganeti-kvmd \
-	src/ganeti-luxid src/ganeti-wconfd $(am__append_13) \
-	$(am__append_14) $(am__append_15)
+	src/ganeti-luxid src/ganeti-wconfd $(am__append_16) \
+	$(am__append_17) $(am__append_18)
 
 # strip path prefixes off the sbin scripts
 all_sbin_scripts = \
@@ -1826,9 +1843,9 @@ dist_TESTS = test/py/check-cert-expired_unittest.bash \
 	test/py/systemd_unittest.bash \
 	test/py/ganeti-cleaner_unittest.bash \
 	test/py/import-export_unittest.bash test/py/cli-test.bash \
-	test/py/bash_completion.bash $(am__append_16) $(am__append_18)
-nodist_TESTS = $(am__append_17)
-check_SCRIPTS = $(am__append_19)
+	test/py/bash_completion.bash $(am__append_19) $(am__append_21)
+nodist_TESTS = $(am__append_20)
+check_SCRIPTS = $(am__append_22)
 TESTS = $(dist_TESTS) $(nodist_TESTS)
 
 # Environment for all tests
@@ -1852,7 +1869,7 @@ all_python_code = $(dist_sbin_SCRIPTS) $(python_scripts) \
 	$(rpc_stub_PYTHON) $(pytools_PYTHON) $(http_PYTHON) \
 	$(confd_PYTHON) $(masterd_PYTHON) $(impexpd_PYTHON) \
 	$(utils_PYTHON) $(watcher_PYTHON) $(noinst_PYTHON) \
-	$(qa_scripts) $(am__append_20)
+	$(qa_scripts) $(am__append_23)
 srclink_files = \
 	man/footer.rst \
 	test/py/check-cert-expired_unittest.bash \
@@ -1935,12 +1952,12 @@ LINT_OPTS =
 LINT_OPTS_ALL = $(LINT_OPTS) \
   $(addprefix --disable=,$(LINT_DISABLE))
 
-LINT_TARGETS = pylint pylint-qa pylint-test $(am__append_21) \
-	$(am__append_22)
+LINT_TARGETS = pylint pylint-qa pylint-test $(am__append_24) \
+	$(am__append_25)
 
 # FIXME: remove ignore "Use void" when GHC 6.x is deprecated
 HLINT_EXCLUDES = src/Ganeti/THH.hs test/hs/hpc-htools.hs
-COVERAGE_TESTS = $(am__append_23) $(am__append_24)
+COVERAGE_TESTS = $(am__append_26) $(am__append_27)
 all: all-am
 
 .SUFFIXES:
@@ -3921,8 +3938,8 @@ hs-pkg-versions:
 	>> $@
 Makefile.ghc: $(HS_MAKEFILE_GHC_SRCS) Makefile hs-pkg-versions \
               | $(built_base_sources) $(HS_BUILT_SRCS)
-	$(GHC) -M -dep-makefile $@ -dep-suffix $(HPROF_SUFFIX) \
-		-dep-suffix $(HTEST_SUFFIX) $(HFLAGS) -itest/hs \
+	$(GHC) -M -dep-makefile $@ $(DEP_SUFFIXES) $(HFLAGS) $(HFLAGS_DYNAMIC) \
+		-itest/hs \
 	  $(shell cat hs-pkg-versions) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(HS_MAKEFILE_GHC_SRCS)
 # Since ghc -M does not generate dependency line for object files, dependencies
@@ -3939,9 +3956,20 @@ Makefile.ghc: $(HS_MAKEFILE_GHC_SRCS) Makefile hs-pkg-versions \
 
 @include_makefile_ghc@
 
+# Like the %.o rule, but allows access to the test/hs directory.
+# This uses HFLAGS instead of HTEST_FLAGS because it's only for generating
+# object files (.o for GHC <= 7.6, .o/.so for newer GHCs) that are loaded
+# in GHCI when evaluating TH. The actual test-with-coverage .hpc_o files
+# are created in the `%.$(HTEST_SUFFIX)_o` rule.
+test/hs/%.o: hs-pkg-versions
+	@echo '[GHC|test]: $@ <- $^'
+	@$(GHC) -c $(HFLAGS) $(HFLAGS_DYNAMIC) -itest/hs \
+	  $(shell cat hs-pkg-versions) \
+		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(@:%.o=%.hs)
+
 %.o: hs-pkg-versions
 	@echo '[GHC]: $@ <- $^'
-	@$(GHC) -c $(HFLAGS) \
+	@$(GHC) -c $(HFLAGS) $(HFLAGS_DYNAMIC) \
 	  $(shell cat hs-pkg-versions) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) $(@:%.o=%.hs)
 
@@ -3956,7 +3984,11 @@ Makefile.ghc: $(HS_MAKEFILE_GHC_SRCS) Makefile hs-pkg-versions \
 @HPROFILE_TRUE@		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) \
 @HPROFILE_TRUE@		$(@:%.$(HPROF_SUFFIX)_o=%.hs)
 
-%.$(HTEST_SUFFIX)_o: hs-pkg-versions
+# We depend on the non-test .o file here because we need the corresponding .so
+# file for GHC > 7.6 ghci dynamic loading for TH, and creating the .o file
+# will create the .so file since we use -dynamic-too (using the `test/hs/%.o`
+# rule).
+%.$(HTEST_SUFFIX)_o: %.o hs-pkg-versions
 	@echo '[GHC|test]: $@ <- $^'
 	@$(GHC) -c $(HTEST_FLAGS) \
 	  $(shell cat hs-pkg-versions) \
@@ -3967,9 +3999,12 @@ Makefile.ghc: $(HS_MAKEFILE_GHC_SRCS) Makefile hs-pkg-versions \
 %.$(HPROF_SUFFIX)_hi: %.$(HPROF_SUFFIX)_o ;
 
 @HPROFILE_TRUE@$(HS_SRC_PROGS): %: %.$(HPROF_SUFFIX)_o | stamp-directories
+@HPROFILE_TRUE@	@echo '[GHC-link]: $@'
+@HPROFILE_TRUE@	$(GHC) $(HFLAGS) $(HPROFFLAGS) \
+@HPROFILE_TRUE@		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) --make $(@:%=%.hs)
 @HPROFILE_FALSE@$(HS_SRC_PROGS): %: %.o hs-pkg-versions | stamp-directories
 	@echo '[GHC-link]: $@'
-	$(GHC) $(HFLAGS) \
+	$(GHC) $(HFLAGS) $(HFLAGS_DYNAMIC) \
 	  $(shell cat hs-pkg-versions) \
 		$(HPROFFLAGS) \
 		$(HS_PARALLEL3) $(HS_REGEX_PCRE) $(HEXTRA_COMBINED) --make $(@:%=%.hs)
