@@ -1,20 +1,4 @@
-ganeti (2.12.4-1) unstable; urgency=medium
-
-  * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz), including
-    the following fixes:
-    + Fix a performance regression in 2.12 during gnt-cluster verify and
-      gnt-cluster verify-disks (high CPU usage) (closes: #784620).
-    + Make the RAPI responsive after master-failover.
-    + Fix gnt-cluster verify reporting existing instance disks on
-      non-default VGs as missing.
-  * Drop GHC 7.8 patch
-    + It is part of the 2.12.4 release.
-  * Drop dh_autoreconf
-    + Not needed after removing the GHC 7.8 patch.
-
- -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 13 May 2015 12:29:19 +0300
-
-ganeti (2.12.3-1) unstable; urgency=medium
+ganeti (2.12.4-1~deb8u1) jessie; urgency=medium
 
   [ Apollon Oikonomopoulos ]
   * New upstream bugfix release (see /usr/share/doc/ganeti/NEWS.gz):
@@ -58,13 +42,13 @@ ganeti (2.12.3-1) unstable; urgency=medium
         (> 255) minor numbers (closes: #782073)
       + Fix Luxid failure when DNS returns an IPv6 address that does not
         reverse resolve
-  * Backport upstream commits to fix compilation under GHC 7.8:
-    + b78a2c3 Makefile.am: Fix wrong -dep-suffix for GHC 7.8
-    + 083776b Fix compiler invocation for GHC >= 7.8
-    + 9664aff Makefile.am: Don't use dots in -osuf
-    + 1ad14f3 Makefile.am: Don't use -dynamic-too for .hpc_o files
-  * Build-depend on dh-autoreconf and use dh_autoreconf to make the GHC 7.8
-    patch effective
+
+    Fixes in 2.12.4:
+      + Fix a performance regression in 2.12 during gnt-cluster verify and
+        gnt-cluster verify-disks (high CPU usage) (closes: #784620).
+      + Make the RAPI responsive after master-failover.
+      + Fix gnt-cluster verify reporting existing instance disks on
+        non-default VGs as missing.
   * Drop fix-wconfd-metad patch, merged upstream.
   * d/copyright: adjust copyright years
 
@@ -76,7 +60,7 @@ ganeti (2.12.3-1) unstable; urgency=medium
   * Dutch (Frans Spiesschaert, closes: #765856)
   * Swedish (Martin Bagge, closes: #769870)
 
- -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 29 Apr 2015 14:06:45 +0300
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Sun, 24 May 2015 20:07:22 +0300
 
 ganeti (2.12.0-3) unstable; urgency=medium
 
