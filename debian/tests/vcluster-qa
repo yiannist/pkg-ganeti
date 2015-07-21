@@ -1,0 +1,31 @@
+#!/bin/sh
+
+# Run Ganeti's QA suite as a DEP-8 test.
+# WARNING: This may break your system so be sure to use an ephemeral container.
+
+set -e
+
+# Create two network interfaces: the master netdev (gnt) and the bridge
+# (gnt-br0)
+
+ip link add gnt type dummy && ip link set gnt up
+ip link add gnt-br0 type bridge && ip link set gnt-br0 up
+
+# Generate an SSH keypair for root and set up SSH access
+ssh-keygen -t dsa -b 1024 -f /root/.ssh/id_dsa -N ''
+cat /root/.ssh/id_dsa.pub >> /root/.ssh/authorized_keys
+ssh-keyscan localhost >> /root/.ssh/known_hosts
+
+# Setup the vcluster
+mkdir /tmp/ganeti-vcluster
+
+/usr/lib/ganeti/tools/vcluster-setup -c 5 -i 5 -n gnt /tmp/ganeti-vcluster
+
+# Setup the python library path to point to the installed Ganeti instance
+export PYTHONPATH="/usr/share/ganeti/default"
+
+# Disable initscript redirection to systemctl, as this breaks vcluster
+export _SYSTEMCTL_SKIP_REDIRECT=1
+
+# Run the QA suite
+./qa/ganeti-qa.py --yes-do-it debian/tests/vcluster-qa.json

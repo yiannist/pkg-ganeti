@@ -1,0 +1,107 @@
+{
+  "name": "cluster",
+  "#rename": "disabled",
+
+  "# Virtual cluster": null,
+  "vcluster-master": "localhost",
+  "vcluster-basedir": "/tmp/ganeti-vcluster",
+
+  "cluster-init-args": ["--no-etc-hosts", "--no-drbd-storage"],
+
+  "enabled-hypervisors": "fake",
+  "enabled-disk-templates": "diskless",
+  "hypervisor-parameters": {},
+  "primary_ip_version": 4,
+
+  "os": "debootstrap+default",
+  "mem": "1G",
+  "maxmem": "1G",
+  "minmem": "512M",
+
+  "# Lists of disk sizes": null,
+  "disk": ["512M"],
+  "disk-growth": ["512M"],
+
+  "# Instance policy specs": null,
+  "ispec_mem_size_max": 1024,
+  "ispec_disk_size_min": 0,
+  "ispec_disk_count_min": 0,
+
+  "master-netdev": "gnt",
+  "default-nicparams": { "mode": "bridged", "link": "gnt-br0" },
+
+  "# Important: per-node root SSH keys and vcluster don't work together": null,
+  "modify_ssh_setup": false,
+
+  "nodes": [
+    {
+      "# Master node": null,
+      "primary": "node1",
+      "secondary": "192.0.2.10"
+    },
+
+    {
+      "primary": "node2",
+      "secondary": "192.0.2.11"
+    },
+
+    {
+      "primary": "node3",
+      "secondary": "192.0.2.12"
+    },
+
+    {
+      "primary": "node4",
+      "secondary": "192.0.2.13"
+    },
+
+    {
+      "primary": "node5",
+      "secondary": "192.0.2.14"
+    }
+  ],
+
+  "instances": [
+    { "name": "instance1" },
+    { "name": "instance2" },
+    { "name": "instance3" },
+    { "name": "instance4" },
+    { "name": "instance5" }
+  ],
+
+  "tests": {
+    "default": true,
+    "default-instance-tests": true,
+
+    "# NOTE: The tests below are disabled because they do not work": null,
+    "# properly in virtual clusters. Some could be made to work with": null,
+    "# a bit of work on the QA code.": null,
+
+    "cluster-burnin": false,
+    "cluster-exclusive-storage": false,
+    "cluster-reserved-lvs": false,
+    "env": false,
+    "group-custom-ssh-port": false,
+    "haskell-confd": false,
+    "htools": false,
+    "instance-add-drbd-disk": false,
+    "instance-add-plain-disk": false,
+    "instance-export": false,
+    "instance-import": false,
+    "instance-modify": false,
+    "instance-recreate-disks": false,
+    "instance-remove-drbd-offline": false,
+    "instance-rename": false,
+    "instance-communication": false,
+    "exclusive-storage-instance-tests": false,
+    "test-jobqueue": false,
+
+    "job-list": true,
+
+    "jobqueue-performance": false,
+
+    "# the end": null
+  },
+
+  "# vim: set syntax=javascript :": null
+}
