@@ -82,7 +82,8 @@ override_dh_install-indep:
 
 	cp $(CURDIR)/doc/examples/ganeti.initd $(CURDIR)/debian/ganeti.init
 	cp $(CURDIR)/doc/examples/ganeti.cron $(CURDIR)/debian/ganeti.cron.d
-	cp $(CURDIR)/doc/examples/ganeti.default $(CURDIR)/debian/ganeti.default
+	sed -e 's/^RAPI_ARGS=.*/RAPI_ARGS="-b 127.0.0.1 --require-authentication"/' \
+		$(CURDIR)/doc/examples/ganeti.default > $(CURDIR)/debian/ganeti.default
 
 	# Dummy Python module for the RAPI client
 	# Add missing bits to ganeti and python-ganeti-rapi.
