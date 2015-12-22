@@ -1,3 +1,13 @@
+ganeti (2.12.4-1+deb8u2) jessie-security; urgency=medium
+
+  * Redact the DRBD secret in instance queries (CVE-2015-7945).
+  * RAPI hardening: bind to lo and require authentication (CVE-2015-7944).
+  * Add NEWS entry documenting RAPI hardening.
+  * Add DEP-8 tests from unstable
+    + Ship missing QA files from upstream git.
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Tue, 22 Dec 2015 23:57:41 +0200
+
 ganeti (2.12.4-1~deb8u1) jessie; urgency=medium
 
   [ Apollon Oikonomopoulos ]
