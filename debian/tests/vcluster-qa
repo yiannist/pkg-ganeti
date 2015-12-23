@@ -28,4 +28,5 @@ export PYTHONPATH="/usr/share/ganeti/default"
 export _SYSTEMCTL_SKIP_REDIRECT=1
 
 # Run the QA suite
+cp -r debian/tests/qa/* qa/
 ./qa/ganeti-qa.py --yes-do-it debian/tests/vcluster-qa.json
