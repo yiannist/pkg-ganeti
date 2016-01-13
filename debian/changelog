@@ -1,3 +1,9 @@
+ganeti (2.12.4-1+deb8u3) jessie-security; urgency=high
+
+  * Fix gnt-instance info regression after CVE-2015-7945 (Closes: #810850)
+
+ -- Apollon Oikonomopoulos <apoikos@debian.org>  Wed, 13 Jan 2016 11:51:48 +0200
+
 ganeti (2.12.4-1+deb8u2) jessie-security; urgency=medium
 
   * Redact the DRBD secret in instance queries (CVE-2015-7945).
