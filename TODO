@@ -1,0 +1,249 @@
+# Analysis (SYSADMIN-2362)
+
+## Docs:
+
+- doc/design-daemons.rst
+- doc/design-optables.rst
+
+
+## Python
+
+git blame lib/config/__init__.py => inspect 2015 changes!
+
+lib/cmdlib/cluster/verify.py:
+	- L142: LUClusterVerify():
+		jobs.append([OpClusterVerifyConfig(..)]) # Verify global
+                                                         # configuration
+		jobs.extend([OpClusterVerifyGroup(..)])
+	- L213: LUClusterVerifyConfig():
+		self.cfg.VerifyConfig()
+	- L315: LUClusterVerifyGroup(): # Verify integrity of the node
+                                        # group performing various tests
+		L1989: NOTE: blocked cluster configuration
+
+lib/config/__init__.py:
+	- L815: _UnlockedVerifyConfig()
+
+
+## Haskell
+
+Diff:
+- https://github.com/ganeti/ganeti/blob/v2.12.4/src/Ganeti/
+- https://github.com/ganeti/ganeti/blob/master/src/Ganeti/
+
+Emphasis on:
+Query/Server.hs (LuxiD), JQScheduler.hs, JQueue.hs, Utils/Livelock.hs
+
+Important funcs:
+- (different) 'main' in Query/Server.hs (reschedule on configuration/filter
+                                         change)
+- 'scheduleSomeJobs' in JQScheduler.hs (cancel jobs rejected by REJECT filter)
+- 'selectJobsToRun' in JQScheduler.hs (job filtering and rate limiting)
+
+
+Interesting commits (not in v2.12.4):
+
+commit d444f1a10aec15fc773610ab2ff8878747d48f8d
+Author: Klaus Aehlig <aehlig@google.com>
+Date:   Wed Jun 3 17:44:38 2015 +0200
+
+    On scheduler changes, re-evaluate job status
+
+    Changes to the queue parameters typically indicate human
+    knowledge about a change of job load. To be able to react
+    quickly to the indicated new situation, also re-evaluate
+    the state of all jobs; the change might have indicated
+    that a burst of untracked jobs came to an end.
+
+    Signed-off-by: Klaus Aehlig <aehlig@google.com>
+    Reviewed-by: Petr Pudlak <pudlak@google.com>
+
+
+|> This is mostly about configuration changes.
+
+
+commit 1c05226b19917e287858a1ed9ee5a17373f70f7a
+Author: Niklas Hambuechen <niklash@google.com>
+Date:   Mon Sep 15 18:17:34 2014 +0200
+
+    Implement job filtering
+
+    This implements the operational part of the design doc
+      "Filtering of jobs for the Ganeti job queue"
+    (design-optables.rst).
+
+    It includes
+    - respecting filter rules when jobs are scheduled
+    - cancelling running jobs rejected by filters
+    - re-running the scheduler when filter rules are changed
+    - handling of the filter actions ACCEPT, CONTINUE, PAUSE, REJECT
+      and RATE_LIMIT
+    - implementation of the "jobid", "opcode" and "reason" predicates
+
+    Signed-off-by: Niklas Hambuechen <niklash@google.com>
+    Reviewed-by: Klaus Aehlig <aehlig@google.com>
+
+
+|> Exports 'scheduleSomeJobs' and uses filters in 'selectJobsToRun'.
+
+
+commit 6cd1f9ef355aa6966ee5e23adcbc67ff5c0bfdfa
+Author: Niklas Hambuechen <niklash@google.com>
+Date:   Fri Aug 1 17:27:14 2014 +0200
+
+    Scheduler: Implement ad-hoc reason trail rate limiting
+
+    This implements the "Ad-Hoc Rate Limiting" part of the design
+    specified in doc/design-optables.rst.
+
+    The current implementation does not try to cache how many slots are
+    free per bucket since the number of running jobs is typically small
+    (< 100).
+
+    Signed-off-by: Niklas Hambuechen <niklash@google.com>
+    Signed-off-by: Petr Pudlak <pudlak@google.com>
+    Reviewed-by: Klaus Aehlig <aehlig@google.com>
+    Reviewed-by: Petr Pudlak <pudlak@google.com>
+
+
+|> Rate limiting staff
+
+
+[
+        commit efb4c025b67c5a3be70853c2a045ff5dca9fa356
+        Author: Petr Pudlak <pudlak@google.com>
+        Date:   Fri Apr 11 10:12:37 2014 +0200
+
+            Execute jobs as processes from Luxi
+
+            .. instead of just letting the master daemon to handle them.
+
+            We try to start all given jobs independently and requeue those that
+            failed.
+
+        Signed-off-by: Petr Pudlak <pudlak@google.com>
+        Reviewed-by: Klaus Aehlig <aehlig@google.com>
+
+
+        |> This is the main 'scheduleSomeJobs' function. Same in both v2.12.4
+        |> and current.
+]
+
+
+commit 2fb6a3989089618e13fe4a0efe86c5a64e9da625
+Author: Klaus Aehlig <aehlig@google.com>
+Date:   Tue Oct 14 17:03:17 2014 +0200
+
+    Retry death detection after killing
+
+    We cannot avoid the race on death detection after
+    forcefully killing a job: the only guarantee the
+    operating system gives us is that the process will
+    die eventually. However, we can improve the chance
+    of being able to successfully clean up a job by
+    retrying death detection. Do this.
+
+    Signed-off-by: Klaus Aehlig <aehlig@google.com>
+    Reviewed-by: Niklas Hambuechen <niklash@google.com>
+
+
+|> Add retries in 'handleCall _ _ (CancelJob jid)'.
+
+
+commit e4195480da827f35b6cefb76caf0ed3f289bb415
+Author: Klaus Aehlig <aehlig@google.com>
+Date:   Tue Oct 14 16:36:10 2014 +0200
+
+    Report back death status after check
+
+    Make cleanupIfDead report the death status of the job,
+    so that a caller can decide to retry.
+
+    Signed-off-by: Klaus Aehlig <aehlig@google.com>
+    Reviewed-by: Niklas Hambuechen <niklash@google.com>
+
+
+|> 'checkForDeath' returns status.
+
+
+commit 90e3e9e6f5439a35f1af74f1df7e9dd6f40112e1
+Author: Klaus Aehlig <aehlig@google.com>
+Date:   Wed Oct 8 18:04:13 2014 +0200
+
+    Extract cleanupLocks from cleanupLocksTask
+
+    Extract a function to clean up locks once. This will allow
+    for out-of-schedule death detection.
+
+    Signed-off-by: Klaus Aehlig <aehlig@google.com>
+    Reviewed-by: Niklas Hambuechen <niklash@google.com>
+
+
+|> 'cleanupLocks' is used in 'handleCall _ _ (CancelJob _)'.
+
+
+commit 5e67cc2c7eb81612c03267a90c8cf08cdf228196
+Author: Klaus Aehlig <aehlig@google.com>
+Date:   Wed Sep 24 11:48:21 2014 +0200
+
+    After killing check for death
+
+    Once we sent a sigKILL to a process there is a high chance that it
+    actually died. So this is a good point in time to verify death and
+    clean up the job queue.
+
+    Signed-off-by: Klaus Aehlig <aehlig@google.com>
+    Reviewed-by: Petr Pudlak <pudlak@google.com>
+
+commit 712f8a8a7ae2fe1e6d17a0fce7c01c49e48802a2
+Author: Klaus Aehlig <aehlig@google.com>
+Date:   Wed Sep 24 12:01:11 2014 +0200
+
+    Export function for job-death detection
+
+    ...so that LuxiD can trigger that test directly, if it has reasons
+    to believe a job died (e.g., after sending it a KILL signal).
+
+    The function is a wrapper around checkForDeath that looks up the
+    job by its id in the list of running jobs.
+
+    Signed-off-by: Klaus Aehlig <aehlig@google.com>
+    Reviewed-by: Petr Pudlak <pudlak@google.com>
+
+
+|> Use 'cleanupIfDead' in 'handleCall _ _ (CancelJob _)'.
+
+
+
+In code:
+
+$SRCDIR/src/Ganeti/JQScheduler.hs:
+        - L306: jobEligible() # For a queued job, determine whether it is
+                              # is eligible to run, i.e. if no jobs it
+                              # depends on are either enQUEUED of RUNNING.
+        -    'onTimeWatcher' fires
+          -> 'scheduleSomeJobs'
+          -> 'selectJobsToRun'
+          -> 'jobEligible'
+  
+$SRCDIR/src/Ganeti/Constants.hs:
+        - "Luxid job death testing" section missing in v2.12.4
+
+
+
+# What's NEXT?
+
+- Grep and trace "[rR]ereading".
+- Grep for "[dD]ea[tdD]" in $SRCDIR/src/Ganeti/.
+- Grep for '[sS]chedul' in git log.
+- Grep for '[Jj]ob' in git log.
+
+- Add INFO messages:
+  * 'jobEligible' print 'jdeps' and 'blocks';
+  * 'selectJobsToRun' print 'n';
+
+- Enable DEBUG messages.
+- Create deb packages.
+  repo: git://anonscm.debian.org/pkg-ganeti/ganeti.git
+  branch: debian/stable/jessie
+- Test in test.gnt.grnet.gr.
